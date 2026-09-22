@@ -33,7 +33,22 @@ El `CLAUDE.md` existente documenta que el libro tiene 11 hojas visibles, que el 
 
 El libro utiliza bloques de 4 columnas por PCS en `RawData-PCS` y actualmente tiene 61 PCS, 4 baterías por PCS y 12 racks por PCS.
 
-Parámetros principales:
+### Contexto del activo
+
+| Dato | Valor |
+|---|---|
+| Nombre del proyecto | Arena BESS |
+| Fecha de inicio de operación | 08/Abril/2026 |
+| Total PCS | 61 |
+| Módulos de batería BEC por PCS | 4 |
+| Total de baterías BEC | 61 × 4 = 244 |
+| Racks por BAC | 12 |
+| Total de racks | 61 × 4 × 12 = 2.928 |
+
+El cálculo de disponibilidad se aplica **desde el 08/Abril/2026** en adelante.
+El acumulado anual y las tablas históricas deben tener esto en cuenta al inicializar la acumulación.
+
+### Parámetros del libro Excel
 
 | Parámetro | Celda/nombre Excel | Valor observado |
 |---|---|---:|
@@ -153,22 +168,38 @@ PCS 2 -> columna I
 PCS 3 -> columna M
 ```
 
-Esto corresponde al campo:
+Los nombres de columna en `RawData-PCS` siguen el patron:
 
-`POWERELECTRONICS HEM-k NUMBER OF MODULES`
+```text
+Arena - PCS XX - POWERELECTRONICS GEN3 HEx CURRENT FAULT
+Arena - PCS XX - POWERELECTRONICS GEN3 HEx STATUS
+Arena - PCS XX - POWERELECTRONICS GEN3 HEx WARNING
+Arena - PCS XX - POWERELECTRONICS HEM-k NUMBER OF MODULES
+```
+
+Donde `XX` va de `01` a `61`.
+
+Esto corresponde al campo clave: **`Arena - PCS XX - POWERELECTRONICS HEM-k NUMBER OF MODULES`**
 
 **Advertencia crítica:** aunque el comentario VBA menciona `CURRENT FAULT`, el algoritmo efectivo compara el valor de `NUMBER OF MODULES` contra 4. No se debe sustituir esta lógica por una interpretación basada únicamente en el código de falla.
 
 ### Paso 6 — condición de indisponibilidad
 
-Para cada PCS:
+El codigo VBA ejecutable es:
 
-```text
-si NUMBER_OF_MODULES no está vacío
-y NUMBER_OF_MODULES < 4
+```vba
+If Sheet2.Cells(dblRec, 4 * intRecPCS + 1) <> "" And Sheet2.Cells(dblRec, 4 * intRecPCS + 1) < 4 Then
 ```
 
-entonces el PCS tiene módulos indisponibles en ese bloque.
+Por tanto, para cada PCS en cada bloque de 15 minutos:
+
+| Valor de `NUMBER_OF_MODULES` | Tratamiento |
+|---|---|
+| Numerico < 4 | **Indisponible.** `baterias_indisponibles = 4 - NUMBER_OF_MODULES` |
+| Igual a 4 | Disponible. No se acumula impacto. |
+| **Vacio / nulo** | **El Excel lo ignora. Python: tratar como disponible (= 4) y marcar `modules_available_is_null = True`.** |
+
+Decisión de negocio: asumir disponible (= 4) pero registrar el flag para identificar todos estos intervalos en la data completa.
 
 La indisponibilidad base es:
 
@@ -340,6 +371,8 @@ El valor de septiembre de `Annual_AVA!F15` está enlazado directamente a:
 
 Por lo tanto, SQL deberá poder conservar tanto el KPI mensual como el acumulado histórico.
 
+La acumulación anual parte desde el **08/Abril/2026** (fecha de inicio del proyecto Arena BESS).
+
 ---
 
 # 7. `mcoCleanTable`
@@ -475,18 +508,41 @@ Frecuencia_de_muestreo_min / (24 * 60)
 
 La resta de una frecuencia de muestreo es intencional y debe conservarse para la paridad.
 
-### Descripción
+### Descripción de falla — lógica completa con fallback
 
-Se copia la descripción de falla de `RawData-PCS`.
+El código VBA real implementa la siguiente lógica de prioridad:
 
-Normalizaciones especiales:
+```vba
+' 1. Se toma la descripcion del intervalo actual
+Sheet3.Cells(dblResult, 7) = Sheet2.Cells(dblRec, intColRec)
 
-```text
-"NO FAULTS" -> "F13 NO MODULES"
-""           -> "F1 Watchdog"
+If Sheet3.Cells(dblResult, 7) = "NO FAULTS" Then
+    If Sheet2.Cells(dblRec - 1, intColRec) <> "NO FAULTS" Then
+        ' 2a. El anterior NO era NO FAULTS: usar descripcion del intervalo anterior
+        Sheet3.Cells(dblResult, 7) = Sheet2.Cells(dblRec - 1, intColRec)
+    Else
+        ' 2b. El anterior tambien era NO FAULTS: asignar F13
+        Sheet3.Cells(dblResult, 7) = "F13 NO MODULES"
+    End If
+End If
+
+If Sheet3.Cells(dblResult, 7) = "" Then
+    Sheet3.Cells(dblResult, 7) = "F1 Watchdog"
+End If
 ```
 
-Luego se calcula el código:
+Arbol de decision:
+
+| Descripcion actual | Descripcion intervalo anterior | Resultado |
+|---|---|---|
+| Distinta de `"NO FAULTS"` y no vacia | — | Se usa el valor actual |
+| `"NO FAULTS"` | distinto de `"NO FAULTS"` | **Se usa la descripcion del intervalo anterior** |
+| `"NO FAULTS"` | `"NO FAULTS"` o sin anterior | `"F13 NO MODULES"` |
+| `""` (vacio) | — | `"F1 Watchdog"` |
+
+**Esta logica de fallback al intervalo anterior es un comportamiento confirmado.** Se han identificado casos de este tipo en la data de septiembre 2026 y pueden ocurrir en cualquier periodo. Todos los eventos donde se aplico el fallback deben marcarse con `fault_description_fallback = True` en `fault_event`.
+
+Luego se calcula el código de falla a partir de la descripción final:
 
 ```text
 IFERROR(
@@ -532,6 +588,12 @@ Acumulado:
 ListOfFaults!L10 += unavailability_rack_hours
 ```
 
+### Límite físico de eventos en el Excel
+
+`mcoOrder` ordena el rango `P6:P172`, lo que implica un **límite de 167 eventos visibles** en `ListOfFaults`. Los eventos que superen ese límite no se incluirán en la ordenación en Excel.
+
+Este límite es exclusivo del Excel. En la implementación Python/SQL no existe tal restricción. Se debe documentar al comparar resultados si el período analizado supera ese umbral.
+
 ### Punto importante de interpretación
 
 `mcoCreateList` no reconstruye el evento a partir del código de falla. El criterio temporal de inicio/fin está basado en `NUMBER_OF_MODULES` y el código/descripción de falla se utiliza como información asociada al evento.
@@ -553,6 +615,8 @@ La columna P contiene el impacto:
 ```text
 (h unav.) x (racks unav.)
 ```
+
+**Límite implícito:** el rango `P6:P172` cubre un máximo de **167 eventos**. Si existen más de 167 eventos en el período, los sobrantes no quedan ordenados en el Excel.
 
 Para SQL no se debe depender de una ordenación física. La consulta/reporte debe aplicar explícitamente:
 
@@ -729,9 +793,12 @@ fault_description_raw
 status_raw
 warning_raw
 modules_available
+modules_available_is_null     -- True si NUMBER_OF_MODULES estaba vacío en el origen
 source_row_number
 source_columns
 ```
+
+El campo `modules_available_is_null` permite identificar todos los intervalos donde el dato estaba ausente. El valor de `modules_available` en esos registros se almacena como `4` para que el motor replique el comportamiento del Excel.
 
 No mantener como diseño principal las 244 columnas repetidas.
 
@@ -773,6 +840,7 @@ run_id
 sample_timestamp
 pcs_number
 modules_available
+modules_available_is_null     -- propagado desde raw_pcs_sample
 batteries_unavailable
 excused_factor
 operational_factor
@@ -805,6 +873,7 @@ end_timestamp
 duration_hours
 fault_code
 fault_description
+fault_description_fallback    -- True si la descripción fue tomada del intervalo anterior
 average_batteries_involved
 unavailable_rack_hours
 ```
@@ -1119,16 +1188,35 @@ Es el campo que realmente gobierna el cálculo de indisponibilidad actual.
 
 No sustituirlo por `FAULT_CODE` sin una nueva definición de negocio.
 
-## Regla 5 — valores especiales
+## Regla 5 — `NUMBER_OF_MODULES` vacío
 
-Reproducir:
+Un intervalo con `NUMBER_OF_MODULES` vacío en `RawData-PCS` **no se acumula como indisponibilidad** (el Excel lo ignora). Python debe:
 
-```text
-NO FAULTS -> F13 NO MODULES
-blank fault description -> F1 Watchdog
-```
+1. Tratar el valor como 4 (disponible completo) en el motor de cálculo.
+2. Marcar el registro con `modules_available_is_null = True` en staging y en `availability_sample_result`.
+3. **Nunca suprimir estos registros** — deben ser consultables para identificar todos los intervalos con esta condición a lo largo de toda la historia del activo.
 
-solo para el motor de paridad de eventos.
+## Regla 6 — descripción de falla con fallback
+
+Cuando un evento de falla comienza en un intervalo cuya descripción es `"NO FAULTS"`:
+
+- Si el intervalo inmediatamente anterior tiene una descripción distinta de `"NO FAULTS"`, **se usa la descripción del intervalo anterior** como descripción del evento.
+- Si el intervalo anterior también era `"NO FAULTS"` (o no existe), se asigna `"F13 NO MODULES"`.
+- Si la descripción resultante está vacía, se asigna `"F1 Watchdog"`.
+
+Todos los eventos donde se aplicó el fallback deben marcarse con `fault_description_fallback = True`.
+
+## Regla 7 — valores especiales de descripción
+
+Las únicas normalizaciones automáticas de descripción son:
+
+| Condición | Valor asignado |
+|---|---|
+| Descripción = `"NO FAULTS"` y anterior ≠ `"NO FAULTS"` | Descripción del intervalo anterior |
+| Descripción = `"NO FAULTS"` y anterior = `"NO FAULTS"` | `"F13 NO MODULES"` |
+| Descripción = `""` (vacío) | `"F1 Watchdog"` |
+
+Estas normalizaciones aplican **solo al motor de paridad de eventos** (`mcoCreateList`).
 
 ---
 
@@ -1181,10 +1269,12 @@ Deben provenir de una configuración/versionado de cálculo.
 Pero para la primera versión de paridad los valores por defecto deben ser:
 
 ```text
-total_pcs = 61
-batteries_per_pcs = 4
-racks_per_pcs = 12
-sampling_minutes = 15
+project_name         = "Arena BESS"
+project_start_date   = "2026-04-08"
+total_pcs            = 61
+batteries_per_pcs    = 4
+racks_per_pcs        = 12
+sampling_minutes     = 15
 ```
 
 La fórmula equivalente a `Total_Racks` debe ser:
@@ -1324,6 +1414,7 @@ La migración no se considera terminada hasta que:
 9. Los períodos que atraviesan cambio de horario sean validados.
 10. Una corrida SQL pueda ser auditada hasta:
     `KPI -> acumulado -> muestra -> input raw`.
+11. Todos los intervalos con `modules_available_is_null = True` estén identificados y accesibles en la base de datos.
 
 ---
 
@@ -1370,6 +1461,18 @@ Puede haber diferencias de precisión y DST.
 `mcoCleanTable` y `mcoCleanList` limpian rangos.
 
 **Acción:** SQL debe ser append-only por `run_id`.
+
+### Riesgo G — `NUMBER_OF_MODULES` vacío silencioso
+
+El Excel ignora silenciosamente los intervalos con `NUMBER_OF_MODULES` vacío. La frecuencia de este evento en el histórico completo es desconocida.
+
+**Acción:** marcar con `modules_available_is_null = True`; incluir en el reporte de calidad de datos de cada corrida.
+
+### Riesgo H — descripción de falla con fallback al intervalo anterior
+
+La macro `mcoCreateList` puede asignar a un evento la descripción del intervalo anterior cuando el intervalo de inicio reporta `"NO FAULTS"`. Esto se ha confirmado en datos de septiembre 2026 y puede ocurrir en cualquier período.
+
+**Acción:** marcar con `fault_description_fallback = True`; reportar la frecuencia de este caso en cada corrida.
 
 ---
 

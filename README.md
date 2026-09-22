@@ -8,7 +8,7 @@ Proyecto de reingeniería del cálculo de disponibilidad de unidades PCS (Power 
 
 ## Contexto
 
-El equipo TS-ESD (Trina Solar Chile) calcula mensualmente la **disponibilidad** de 61 unidades PCS y sus 2.928 racks de baterías usando un libro Excel con macros VBA. El resultado es el KPI contractual que determina si el activo cumple su compromiso de disponibilidad.
+El proyecto **Arena BESS**, operativo desde el **08/Abril/2026**, requiere calcular mensualmente la **disponibilidad** de 61 unidades PCS (Power Conversion System), sus 244 baterías BEC (61 PCS × 4 módulos) y 2.928 racks (61 × 4 × 12). Actualmente el equipo TS-ESD (Trina Solar Chile) realiza ese cálculo con un libro Excel con macros VBA. El resultado es el KPI contractual que determina si el activo cumple su compromiso de disponibilidad.
 
 El objetivo de este proyecto es reemplazar ese proceso de forma progresiva y controlada, garantizando que el resultado Python sea idéntico al Excel antes de retirar el Excel como fuente oficial.
 
@@ -26,7 +26,9 @@ Availability_Period = 1 - C14 / (Total_Racks × C12)
 | `C12` | Cantidad de bloques de 15 min en el período seleccionado |
 | `Total_Racks` | `total_pcs × batteries_per_pcs × racks_per_pcs` = 61 × 4 × 12 = **2.928** |
 
-Un PCS se considera indisponible en un bloque cuando `NUMBER_OF_MODULES < 4`.
+Campo que gobierna la indisponibilidad: **`Arena - PCS XX - POWERELECTRONICS HEM-k NUMBER OF MODULES`**
+
+Un PCS se considera indisponible en un bloque cuando `NUMBER_OF_MODULES < 4`. Si el campo está vacío, se trata como disponible (= 4) y se marca con `modules_available_is_null = True`.
 
 ---
 
@@ -157,6 +159,8 @@ Tolerancia numérica inicial: `|Δ| ≤ 1e-9` para cálculos intermedios.
 | D | Fechas seriales Excel pueden diferir por DST | Conservar serial original + timestamp local en staging |
 | E | `RawData-PCS` tiene 244 columnas en formato ancho | Normalizar a modelo largo antes del cálculo |
 | F | `mcoCleanTable` destruye resultados anteriores | SQL append-only; nunca replicar ese comportamiento |
+| G | `NUMBER_OF_MODULES` vacío ignorado silenciosamente por el Excel | Marcar con `modules_available_is_null = True`; incluir en reporte de calidad de datos |
+| H | Descripción de falla puede provenir del intervalo anterior (`"NO FAULTS"` con anterior distinto) | Marcar con `fault_description_fallback = True`; reportar frecuencia |
 
 ---
 
@@ -167,7 +171,9 @@ Tolerancia numérica inicial: `|Δ| ≤ 1e-9` para cálculos intermedios.
 3. **`NUMBER_OF_MODULES`** es el campo que gobierna la indisponibilidad, no el código de falla.
 4. **SQL append-only** — usar `run_id`; nunca sobreescribir resultados históricos.
 5. **Timestamps**: conservar serial Excel + timestamp local; no convertir a UTC sin documentar.
-6. **Versionado**: cada resultado debe incluir `algorithm_version` (ej. `availability-v1-excel-parity`).
+6. **`modules_available_is_null`**: intervalos con `NUMBER_OF_MODULES` vacío = disponible (= 4) + flag de auditoría.
+7. **`fault_description_fallback`**: eventos con descripción tomada del intervalo anterior se marcan en `fault_event`.
+8. **Versionado**: cada resultado debe incluir `algorithm_version` (ej. `availability-v1-excel-parity`).
 
 ---
 

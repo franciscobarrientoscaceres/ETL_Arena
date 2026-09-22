@@ -22,6 +22,18 @@ El plan completo de reingeniería está en [`AGENTS.md`](./AGENTS.md). Ese docum
 
 Herramienta de cálculo de KPI (equipo Trina Solar Chile / TS-ESD) que calcula la **disponibilidad** de unidades PCS (Power Conversion System) y racks de baterías a partir de registros crudos de fallas/estado, usando macros VBA sobre fórmulas de Excel.
 
+### Contexto del activo
+
+| Dato | Valor |
+|---|---|
+| Nombre del proyecto | Arena BESS |
+| Fecha de inicio de operación | 08/Abril/2026 |
+| Total PCS | 61 |
+| Módulos de batería BEC por PCS | 4 |
+| Total de baterías BEC | 61 × 4 = 244 |
+| Racks por BAC | 12 |
+| Total de racks | 61 × 4 × 12 = 2.928 |
+
 ### Parámetros clave
 
 | Parámetro | Celda/nombre Excel | Valor observado |
@@ -97,7 +109,13 @@ PCS 3 → columna M (índice 13)
 ...
 ```
 
-Un PCS es indisponible cuando `NUMBER_OF_MODULES < 4`. No usar el código de falla (`CURRENT FAULT`) como criterio de indisponibilidad — el comentario VBA es impreciso; la lógica ejecutable usa `NUMBER_OF_MODULES`.
+Los nombres de columna siguen el patrón `Arena - PCS XX - ...` donde `XX` va de `01` a `61`.
+
+Campo clave: **`Arena - PCS XX - POWERELECTRONICS HEM-k NUMBER OF MODULES`**
+
+Un PCS es indisponible cuando `NUMBER_OF_MODULES < 4`. Si `NUMBER_OF_MODULES` está **vacío**, el Excel lo ignora (trata el PCS como disponible); Python debe replicar ese comportamiento y marcar el registro con `modules_available_is_null = True` para auditoría.
+
+No usar el código de falla (`CURRENT FAULT`) como criterio de indisponibilidad — el comentario VBA es impreciso; la lógica ejecutable usa `NUMBER_OF_MODULES`.
 
 ---
 
@@ -165,4 +183,6 @@ sql/
 3. **No destruir resultados históricos en SQL** — usar `run_id` como clave; SQL es append-only.
 4. **El campo que gobierna la indisponibilidad es `NUMBER_OF_MODULES`**, no el código de falla.
 5. **Conservar timestamps originales** (serial Excel + timestamp local) — no convertir a UTC sin documentar.
-6. Toda la lógica de negocio detallada, fórmulas exactas y plan por etapas están en [`AGENTS.md`](./AGENTS.md).
+6. **`modules_available_is_null`**: intervalos con `NUMBER_OF_MODULES` vacío se tratan como disponibles (= 4) pero se marcan para auditoría.
+7. **`fault_description_fallback`**: eventos donde la descripción fue tomada del intervalo anterior se marcan en `fault_event`.
+8. Toda la lógica de negocio detallada, fórmulas exactas y plan por etapas están en [`AGENTS.md`](./AGENTS.md).
