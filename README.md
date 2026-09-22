@@ -1,4 +1,4 @@
-﻿# CalculaKPI — Reingeniería de Disponibilidad PCS & Baterías
+﻿# ETL_Arena — Reingeniería de Disponibilidad PCS & Baterías
 
 Proyecto de reingeniería del cálculo de disponibilidad de unidades PCS (Power Conversion System) y racks de baterías, actualmente implementado en Excel/VBA, hacia un proceso reproducible y auditable en **Python + SQL Server**.
 
@@ -71,7 +71,7 @@ Un PCS se considera indisponible en un bloque cuando `NUMBER_OF_MODULES < 4`.
 ## Estructura del proyecto
 
 ```
-CalculaKPI/
+ETL_Arena/
 ├── data/
 │   └── AvailabilityCalculation_PCS&Batteries_20260907_septiembre 2026.xlsm
 ├── src/
