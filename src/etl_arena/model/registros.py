@@ -27,6 +27,8 @@ class RegistroLista:
     fallback: bool = False  # G tomada de la fila anterior (R8.8)
     arrastrado_excel: bool = False  # F-06
     excel_habria_fallado: bool = False  # F-11 / D-08
+    cerrado_por_nulo: bool = False  # cerró porque la fila siguiente tenía módulos vacíos
+    tiene_exclusion: bool = False  # algún bloque con Exclusion_Matrix ≠ 0 (F-37)
     pcs_iniciados: set[int] = field(default_factory=set)
 
     @property
@@ -53,6 +55,9 @@ class EventoFalla:
     numero_bloques: int
     arrastrado_excel: bool
     excel_habria_fallado: bool
+    suma_bloques: float = 0.0
+    cerrado_por_nulo: bool = False
+    tiene_exclusion: bool = False
 
     @classmethod
     def desde_registro(cls, r: RegistroLista) -> EventoFalla:
@@ -74,6 +79,9 @@ class EventoFalla:
             numero_bloques=r.numero_bloques,
             arrastrado_excel=r.arrastrado_excel,
             excel_habria_fallado=r.excel_habria_fallado,
+            suma_bloques=r.suma_bloques,
+            cerrado_por_nulo=r.cerrado_por_nulo,
+            tiene_exclusion=r.tiene_exclusion,
         )
 
 

@@ -526,6 +526,8 @@ Invariantes (R13.8): `C14 = 4·L10` y por PCS `Σ(racks·pond)/4 = Σ I` — sol
 
 ## Data Models — SQL Server
 
+> **Implementado en `sql/01…07_*.sql` (tarea 2.1, 2026-09-24), que es la fuente de verdad del esquema.** Diferencias respecto del borrador de esta sección, ya reflejadas abajo: PK de `fault_code_summary` = `(IdCorrida, Ranking)` (N:Q repite F230–F232, F-35); `fault_event` agrega `CerradoPorModulosNulo` y `TieneExclusion`; `correccion_dato.TipoCorreccion` admite `exclusion_matrix` (D-17); `raw_pcs_sample.MarcaTiempoLocalOrigen` y `availability_run_result.BloquesMuestreoCalendario` admiten NULL (A2 vacía / C23 indefinido); `excel_reference_sample` en columnstore; vista extra `v_fault_event_vigente`.
+
 Base `ETL_Arena`, esquema `dbo`. Scripts idempotentes (`IF NOT EXISTS` / `CREATE OR ALTER`). Tipos: `FLOAT` para todo valor numérico de negocio; `UNIQUEIDENTIFIER` para `IdCorrida`; `DATETIME` para **todas** las fechas y marcas de tiempo (hora local naive; las fechas con 00:00:00); no se usan `DATE` ni `DATETIME2` (preferencia del usuario, 2026-09-24). La precisión de `DATETIME` (~3,33 ms) sobra para datos cada 15 min: la paridad usa `SerialFechaExcelOrigen` (`FLOAT`), que se guarda aparte. Valores por defecto con `GETDATE()`.
 
 ### Maestros
@@ -659,7 +661,7 @@ CREATE CLUSTERED COLUMNSTORE INDEX CCI_exclusion_matrix_sample ON exclusion_matr
 CREATE TABLE correccion_dato (          -- append-only; celdas cambiadas por reproceso o carga de PlantActivity (D-12, D-13)
     IdCorreccion            BIGINT IDENTITY PRIMARY KEY,
     IdCorrida               UNIQUEIDENTIFIER NOT NULL REFERENCES etl_run(IdCorrida),
-    TipoCorreccion          NVARCHAR(20)   NOT NULL CHECK (TipoCorreccion IN ('reproceso_raw','plant_activity')),
+    TipoCorreccion          NVARCHAR(20)   NOT NULL CHECK (TipoCorreccion IN ('reproceso_raw','exclusion_matrix','plant_activity')),
     Hoja                    NVARCHAR(40)   NOT NULL,   -- 'RawData-PCS' | 'PlantActivity'
     NumeroFilaOrigen        INT            NOT NULL,
     SerialFechaExcelOrigen  FLOAT          NOT NULL,
@@ -724,17 +726,19 @@ CREATE TABLE fault_event (
     HorasRackIndisponibles        FLOAT          NOT NULL,
     EventoArrastradoExcel         BIT            NOT NULL,
     ExcelHabriaFallado            BIT            NOT NULL,
+    CerradoPorModulosNulo         BIT            NOT NULL,
+    TieneExclusion                BIT            NOT NULL,     -- algún bloque con Exclusion_Matrix ≠ 0 (F-37)
     CONSTRAINT PK_fault_event PRIMARY KEY (IdCorrida, OrdenExcel)
 );
 
-CREATE TABLE fault_code_summary (      -- ListOfFaults!N:Q
+CREATE TABLE fault_code_summary (      -- ListOfFaults!N:Q (166 filas: F230-F232 repetidos, F-35)
     IdCorrida              UNIQUEIDENTIFIER NOT NULL REFERENCES etl_run(IdCorrida),
+    Ranking                INT            NOT NULL,
     CodigoFalla            NVARCHAR(10)   NOT NULL,
     DescripcionFallaPE     NVARCHAR(150)  NULL,
     HorasRackIndisponibles FLOAT          NOT NULL,
     Porcentaje             FLOAT          NULL,
-    Ranking                INT            NOT NULL,
-    CONSTRAINT PK_fault_code_summary PRIMARY KEY (IdCorrida, CodigoFalla)
+    CONSTRAINT PK_fault_code_summary PRIMARY KEY (IdCorrida, Ranking)
 );
 
 CREATE TABLE daily_availability (

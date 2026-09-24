@@ -119,7 +119,9 @@ python -m venv .venv                       # Python >= 3.13 (probado con 3.14)
 .venv\Scripts\python -m ruff check src tests
 ```
 
-- SQL Server local para tests de integración: copiar `.env.example` a `.env` y `docker compose -f docker/mssql.compose.yml --env-file .env up -d`.
+- **Base de datos** (ADR-10): copiar `.env.example` a `.env` con `ETL_ARENA_DB_URL` (instancia local con autenticación Windows, o Docker con `docker compose -f docker/mssql.compose.yml --env-file .env up -d`) y crear/actualizar el esquema con `.venv\Scripts\python scripts\crear_base.py` (idempotente; fechas siempre `DATETIME`).
+- Seed del catálogo: `.venv\Scripts\python scripts\generar_seed_tipo_detencion.py` regenera `sql/05_seed_tipo_detencion.sql` desde `PCS-Fault` (163 códigos; duplicados según D-14).
+- Tests de integración SQL (`-m sql`): crean y eliminan su propia base `ETL_Arena_test`; se omiten si no hay instancia.
 - Requiere **ODBC Driver 18 for SQL Server** (instalador de Microsoft, con permisos de administrador). El driver legacy `SQL Server` no sirve (no maneja `DATETIME2` ni `fast_executemany`).
 - Golden references: `python tests/golden/extract_golden.py --excel <libro> --month N --year 2026 --label <mes>` (ver `tests/golden/data/golden_index.json`).
 - Agentes de Claude Code en `.claude/agents/` (plan de asignación en `.kiro/specs/etl-arena-availability/tasks.md`).
@@ -130,7 +132,7 @@ python -m venv .venv                       # Python >= 3.13 (probado con 3.14)
 |---|---|
 | `etl_run` | Metadatos de cada corrida: `IdCorrida`, período, parámetros, `VersionAlgoritmo` |
 | `proyecto` | Tabla maestra de 4 proyectos BESS con parámetros de configuración |
-| `tipo_detencion` | Catálogo de 167 códigos de falla (F0…F257; seed generado desde la hoja `PCS-Fault`) |
+| `tipo_detencion` | Catálogo de 163 códigos de falla (F0…F257; `PCS-Fault` trae 167 filas con 4 duplicados, F-35/D-14; seed generado por script) |
 | `raw_pcs_sample` | Datos crudos normalizados — 1 fila por `NumeroPCS × MarcaTiempoMuestra` |
 | `plant_activity_sample` | `FactorOperacional` (`EsOperacional`) por fila; col D solo espejo (F-37) |
 | `exclusion_matrix_sample` | Eventos de exclusión 0/1/2 por fila y PCS, baterías previas y causa (F-37) |

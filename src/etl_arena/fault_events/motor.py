@@ -113,6 +113,8 @@ def detectar_eventos(
             else:
                 suma_bloques = suma_bloques + umbral - x  # (sumablocks + 4) - x
             num_bloques += 1
+            if em[i][j] != 0.0:
+                actual.tiene_exclusion = True
             if num_bloques == MAX_INTEGER_VBA + 1:
                 actual.excel_habria_fallado = True
                 anomalias.append(
@@ -163,6 +165,7 @@ def detectar_eventos(
             if cierra:
                 if len(actual.pcs_iniciados) > 1 or pcs not in actual.pcs_iniciados:
                     actual.arrastrado_excel = True
+                actual.cerrado_por_nulo = bool(sig_es_nulo)
                 actual.serial_fin = fecha_vba_a_celda(s)  # última fila en falla (F-03)
                 actual.duracion_horas = 24 * (actual.serial_fin - actual.serial_inicio)
                 actual.promedio_baterias = suma_bloques / num_bloques

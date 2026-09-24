@@ -159,27 +159,27 @@ Agentes disponibles en `.opencode/agent/` (OpenCode, `mode: subagent`). Son perf
 
 ### Fase 2 — SQL Server
 
-- [ ] 2.1 DDL — **database-optimizer**
+- [x] 2.1 DDL — **database-optimizer** *(hecho 2026-09-24: `sql/00…04`; idempotente, probado 3 veces seguidas; DATETIME en todo)*
   - `sql/00_database.sql`, `01_maestros.sql`, `02_corrida.sql`, `03_indices.sql` según `design.md §Data Models` (idempotentes, `CREATE OR ALTER` / `IF NOT EXISTS`).
   - _R11, R12_
 
-- [ ] 2.2 Seeds — **database-optimizer** + **data-engineer**
+- [x] 2.2 Seeds — **database-optimizer** + **data-engineer** *(hecho: 4 proyectos, 163 códigos con D-14 = Crítico por defecto, jul/ago `excel_manual`)*
   - `scripts/generar_seed_tipo_detencion.py` lee `PCS-Fault` (167 filas, 163 códigos distintos: deduplicar F228/F230/F231/F232 según D-14, F-35) y genera `sql/05_seed_tipo_detencion.sql` con `MERGE`; `sql/05_seed_proyecto.sql` (4 proyectos); `sql/06_seed_annual_manual.sql` (jul/ago de Annual_AVA como `excel_manual`, según D-06).
   - _R12.1, R12.3, R10.4, F-19_
 
-- [ ] 2.3 Vistas, roles y consultas de auditoría — **database-optimizer**
+- [x] 2.3 Vistas, roles y consultas de auditoría — **database-optimizer** *(hecho: 11 vistas, roles `etl_writer`/`revisor`/`bi_reader`, `07_audit_queries.sql`)*
   - `sql/04_vistas.sql` (`v_*_vigente`, `v_calidad_corrida`, `v_modulos_nulos_historico`), `sql/06_roles.sql` (`etl_writer`, `revisor`, `bi_reader`, `DENY DELETE`), `sql/07_audit_queries.sql`.
   - _R12.6, R15, R18.4_
 
-- [ ] 2.4 `persistence` — **backend-architect**
+- [x] 2.4 `persistence` — **backend-architect** *(hecho: `conexion`, `esquema`, `paquete`, `repositorio`)*
   - `conexion.py` (URL desde `ETL_ARENA_DB_URL`, `fast_executemany`), `repositorio.py` (`iniciar`, `guardar_corrida` en una transacción, `finalizar`, `guardar_referencia_excel`, `guardar_reconciliacion`), resolución de `IdTipoDetencion` en memoria, `detencion` desde eventos.
   - _R11, R12.4_
 
-- [ ] 2.5 Tests de integración SQL (marker `sql`, Docker) — **backend-architect**
+- [x] 2.5 Tests de integración SQL (marker `sql`, Docker) — **backend-architect** *(hecho: 15 tests contra `ETL_Arena_test` en la instancia local; sin Docker)*
   - DDL aplica dos veces sin error; dos corridas coexisten (append-only); fallo inyectado a mitad → rollback total y `etl_run.Estado='failed'`; `v_detencion_vigente` conserva la revisión entre corridas; `bi_reader` no puede leer tablas base.
   - _R11.1–R11.3, R12.5, R12.6_
 
-- [ ] 2.6 Rendimiento — **database-optimizer**
+- [x] 2.6 Rendimiento — **database-optimizer** *(hecho: corrida real de septiembre, 244.748 filas, ~13 s; C14 exacto en SQL)*
   - Cargar una corrida real completa (~1M filas raw + ~120k muestras de período). Objetivo: `guardar_corrida` < 3 min en el equipo local; si no, `BULK INSERT` desde CSV temporal. Documentar tamaños con columnstore.
   - _F-28, ADR-09_
 
