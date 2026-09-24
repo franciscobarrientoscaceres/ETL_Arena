@@ -33,7 +33,7 @@ El `CLAUDE.md` existente documenta que el libro tiene 11 hojas visibles, que el 
 
 `parámetros -> cmdCalcAvailability -> mcoCreateList -> mcoDailyAvailability -> Graphupdate`.
 
-El libro utiliza bloques de 4 columnas por PCS en `RawData-PCS` y actualmente tiene 61 PCS, 4 baterías por PCS y 12 racks por PCS.
+El libro utiliza bloques de 4 columnas por PCS en `RawData-PCS` y actualmente tiene 61 PCS, 4 baterías (BAC) por PCS y 12 racks por BAC (48 racks por PCS).
 
 ### Contexto del activo
 
@@ -1007,8 +1007,8 @@ La fuente cruda de `RawData-PCS` es el **server SCADA**. Cada lunes se exporta u
 |---|---|
 | Fechas del reporte | **Las setea quien exporta** (manual). Convención: `DESDE = 01-01-2026` (o primer dato) / `HASTA = último domingo` del período. El adapter **valida** el rango al recibir; falla si no cuadra. |
 | Transporte hoy | Solo TeamViewer. **Sin UNC / share / API** al SCADA. Pedir share o API GPM a GPM como mejora (riesgo J). |
-| Formato origen | Probable CSV; columnas = `RawData-PCS`. Fechas origen `mm-dd-aaaa hh:mm:ss` → destino `dd-mm-aaaa hh:mm:ss` (transformación que hoy hace Alex a mano). |
-| PlantActivity | **No** se actualiza desde SCADA. Fuente aparte; join-misses se reportan en calidad de corrida. |
+| Formato origen | Probable CSV; columnas = `RawData-PCS`. Fechas origen `mm-dd-aaaa hh:mm:ss` → **fecha/serial Excel real** con formato visual `dd-mm-aaaa hh:mm:ss` (transformación que hoy hace Alex a mano; escribirla como texto rompe el filtro de la macro — F-21). |
+| PlantActivity | **No** se actualiza desde SCADA. Fuente aparte; se une por fila (F-01): desalineaciones y filas sin timestamp se reportan en calidad de corrida (F-31). |
 | Power BI | Owner: **Misael**. Modo **notificación** hasta que haya service principal/API; no integración de API en P0–P9. |
 | Server SCADA | Solo extracción. **Prohibido** correr macros o ETL allí. |
 | IdCorrida | Cada lunes genera un `IdCorrida` nuevo; append-only en SQL. |
@@ -1025,8 +1025,8 @@ data/
 ### Componentes (ver design.md / tasks 15)
 
 - `scripts/run_lunes.py` — orquestador único con etapas: `acquire-wait`, `prepare-workbook`, `run-macros`, `run-etl`, `reconcile`, `notify-bi`.
-- `src/acquisition/` — `acquire_wait`, `scada_adapter` (validación de rango, transformador de fechas, mapping de columnas).
-- `src/excel_macro/` — runner COM de las 4 macros (solo PC local; Windows + Excel instalado).
+- `src/etl_arena/acquisition/` — `acquire_wait`, `contrato_scada`, `lector_scada` (validación de rango, transformador de fechas, mapping de columnas).
+- `src/etl_arena/workbook/` — sesión COM, `preparar` (escritura en la copia de trabajo), `macros` (las 4 macros) y `referencia` (extracción); solo PC local con Windows + Excel.
 
 ### Fases por etapa (P0–P9) y etiquetas S/T/M/E/R/B
 
@@ -1089,7 +1089,7 @@ No hacer todavía el cálculo de disponibilidad.
 
 ## Fase D — Enrichment
 
-Unir por timestamp:
+Unir por **número de fila origen** (`NumeroFilaOrigen`), no por timestamp (F-01):
 
 ```text
 raw_pcs_sample
@@ -1097,7 +1097,7 @@ raw_pcs_sample
 plant_activity_sample
 ```
 
-Aplicando la misma semántica de los factores `C` y `D` de `PlantActivity`.
+Aplicando la misma semántica de los factores `C` y `D` de `PlantActivity`: celda vacía = 0. Si `PlantActivity` trae timestamp en esa fila y no coincide con el de `RawData-PCS`, se reporta como desalineación (no se corrige en modo paridad).
 
 ## Fase E — Availability Engine
 
@@ -1242,15 +1242,7 @@ Comparar `ListOfFaults`:
 
 ### Tolerancia numérica
 
-Para cálculos de punto flotante se debe definir una tolerancia explícita.
-
-Recomendación inicial:
-
-```text
-absolute tolerance <= 1e-9
-```
-
-para cálculos internos cuando sea posible, y una tolerancia operacional documentada para valores presentados.
+Las tolerancias por magnitud (C14, C16/C19, Daily, eventos, L10) están en una **única tabla**: `design.md §Tolerancias`; `golden_index._meta` se sincroniza con ella (F-26). No definir tolerancias en otro lugar.
 
 No redondear prematuramente los cálculos intermedios.
 
@@ -1357,12 +1349,13 @@ Estas normalizaciones aplican **solo al motor de paridad de eventos** (`mcoCreat
 No implementar todavía, pero diseñar el proyecto alrededor de módulos conceptuales:
 
 ```text
-src/
+src/etl_arena/       -- layout src (ADR-01); detalle en design.md
   config/
-  acquisition/      -- Fase S: acquire-wait, scada_adapter
-  excel_macro/      -- Fase M: runner COM de macros VBA (PC local)
+  excel_semantics/  -- reglas de celda/texto/fechas/redondeo VBA-Excel
+  model/
+  acquisition/      -- Fase S: acquire-wait, contrato/lector SCADA
+  workbook/         -- Fase M: sesión COM, preparar, macros, referencia (PC local)
   ingestion/
-  staging/
   normalization/
   enrichment/
   availability/
@@ -1452,8 +1445,8 @@ Nunca sobrescribir resultados históricos con una nueva lógica.
 Entregables:
 
 - `data/inbox` + `scripts/run_lunes.py` (etapas `acquire-wait` … `notify-bi`);
-- `src/acquisition` (`scada_adapter`: fechas mm-dd→dd-mm, validación de rango 01-01-2026→último domingo, mapping columnas);
-- `src/excel_macro` (runner COM de las 4 macros; solo PC local);
+- `src/etl_arena/acquisition` (fechas mm-dd → serial Excel, validación de rango 01-01-2026→último domingo, mapping columnas);
+- `src/etl_arena/workbook` (runner COM de las 4 macros; solo PC local);
 - runbook [`docs/runbook-lunes.md`](./docs/runbook-lunes.md);
 - handoff de notificación a Power BI (Misael).
 
@@ -1644,7 +1637,7 @@ Origen probable: `mm-dd-aaaa hh:mm:ss`; destino hoja: `dd-mm-aaaa hh:mm:ss`.
 
 SCADA solo actualiza `RawData-PCS`.
 
-**Acción:** mantener fuente aparte; reportar join-misses en reporte de calidad.
+**Acción:** mantener fuente aparte; `prepare-workbook` valida la alineación por fila con `RawData-PCS` (F-01, F-21) y el reporte de calidad informa desalineaciones y filas sin timestamp (F-31).
 
 ---
 

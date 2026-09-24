@@ -16,7 +16,7 @@ La data cruda semanal llega desde el **server SCADA** a `data/inbox/` (hoy vía 
 
 **El objetivo ya no es mantener el Excel** — el objetivo es reemplazarlo progresivamente por un proceso reproducible en **Python + SQL Server**.
 
-El plan completo de reingeniería está en [`AGENTS.md`](./AGENTS.md). Ese documento es la **fuente de verdad** del plan de implementación. Leerlo antes de cualquier tarea de desarrollo.
+El plan completo de reingeniería está en [`AGENTS.md`](./AGENTS.md). Ese documento describe el plan de implementación; leerlo antes de cualquier tarea de desarrollo.
 
 El spec ejecutable (revisión 2, auditado contra el VBA real el 2026-09-24) está en `.kiro/specs/etl-arena-availability/`: `audit.md` (hallazgos `F-xx` y decisiones `D-xx`), `requirements.md`, `design.md` y `tasks.md` (fases, olas y agente asignado a cada tarea). Ante diferencias, manda el spec revisión 2.
 
@@ -75,7 +75,7 @@ donde:
 | `Sheet2`          | RawData-PCS                | Registros crudos de estado/falla por intervalo y PCS        |
 | `Sheet3`          | ListOfFaults               | Lista de eventos generada por `mcoCreateList`               |
 | `Sheet4`          | PlantActivity              | `FactorOperacional` (col C) y `FactorExcusable` (col D) por intervalo |
-| `Sheet5`          | PCS-Fault                  | Catálogo de 68 códigos/descripciones de falla (TipoDetencion)|
+| `Sheet5`          | PCS-Fault                  | Catálogo de 167 códigos de falla F0…F257 (TipoDetencion)   |
 | `Sheet6`          | PCS-Status                 | Catálogo de estados de PCS                                  |
 | `Sheet7`          | Verificación               | Controles de calidad                                        |
 | `Sheet8`          | Graph                      | Datos fuente de gráficos + salida de `Graphupdate`          |
@@ -167,7 +167,7 @@ La fuente cruda de `RawData-PCS` es el **server SCADA**. Cada lunes se exporta u
 ```text
 SCADA ~03:00 AM (solo extract)
   → TeamViewer → data/inbox/raw_pcs_<corte>.<ext>
-  → acquire-wait + scada_adapter (fechas mm-dd→dd-mm, mapping RawData-PCS)
+  → acquire-wait + scada_adapter (fechas mm-dd → serial Excel, nunca texto; mapping RawData-PCS)
   → copia de trabajo del .xlsm (backup)
   → macros COM: cmdCalcAvailability → mcoCreateList → mcoDailyAvailability → Graphupdate
   → extrae C12/C14/C16/C19 (referencia Excel)
@@ -188,30 +188,29 @@ Paquete `etl_arena` con layout *src* (`src/etl_arena/<módulo>/`, ADR-01); se ag
 
 ```
 src/etl_arena/
-  config/           <- ConfiguracionCalculo, CONFIG_POR_DEFECTO
-  acquisition/      <- acquire_wait, scada_adapter (Fase SCADA)
-  excel_macro/      <- runner COM de las 4 macros VBA (Fase M, solo PC local)
-  ingestion/        <- ServicioIngesta, ReporteAnomalia
-  staging/          <- RepositorioStaging
-  normalization/    <- NormalizadorPCS
-  enrichment/       <- ServicioEnriquecimiento
-  availability/     <- MotorDisponibilidad, ResultadoDisponibilidad
-  fault_events/     <- MotorEventosFalla, EventoFalla
-  aggregation/      <- AgregacionDiaria, AgregacionAnual
-  persistence/      <- ServicioPersistencia
-  reconciliation/   <- ServicioReconciliacion, ReporteReconciliacion
-  reporting/        <- reporte_calidad.py
-data/
-  inbox/            <- drop zone semanal del export SCADA
-  processed/        <- originales inmutables + sha256
-  work/             <- copia de trabajo del .xlsm
-scripts/run_lunes.py
-docs/runbook-lunes.md
-tests/
-sql/
+  config/           <- ConfiguracionCalculo, defaults, desde_excel
+  excel_semantics/  <- reglas de celda/texto/fechas/redondeo de VBA-Excel
+  model/            <- MatrizPCS, DatosActividad, Anomalia
+  acquisition/      <- acquire_wait, contrato_scada, lector_scada (Fase S)
+  workbook/         <- sesión COM, preparar, macros, referencia (solo PC local)
+  ingestion/        <- lectura streaming del libro + anomalías de timestamp
+  normalization/    <- validador de esquema, ancho→matriz→largo
+  enrichment/       <- actividad_planta (join por fila)
+  availability/     <- MotorDisponibilidad
+  fault_events/     <- MotorEventosFalla, resumen por código
+  aggregation/      <- diaria, mensual_anual
+  persistence/      <- conexión, repositorio, corrida
+  reconciliation/   <- niveles, invariantes, servicio, reporte
+  reporting/        <- calidad, notificacion
+  pipeline.py
+scripts/  ejecutar_etl.py  run_lunes.py  generar_seed_tipo_detencion.py
+sql/      00_database.sql … 07_audit_queries.sql
+tests/    unit/ property/ golden/ integration/ com/ fixtures/
+data/     inbox/ processed/ work/
+docs/     runbook-lunes.md  data-contract-*.md  adr/
 ```
 
-Scripts principales: `scripts/run_lunes.py` (orquestador semanal) y `ejecutar_etl.py` (pipeline de corrida).
+Scripts principales: `scripts/run_lunes.py` (orquestador semanal) y `scripts/ejecutar_etl.py` (pipeline de corrida).
 
 ---
 
@@ -245,4 +244,4 @@ Scripts principales: `scripts/run_lunes.py` (orquestador semanal) y `ejecutar_et
 8. **`VersionAlgoritmo`**: toda corrida debe registrar `"availability-v1-excel-parity"` durante la fase de paridad.
 9. **No procesar en el server SCADA** — solo exportar/copy; macros y ETL solo en PC local.
 10. **`data/processed` inmutable** — el archivo de origen con sha256 no se edita; el `.xlsm` de trabajo se copia/backup antes de macros o adapter.
-11. Toda la lógica de negocio detallada, fórmulas exactas y plan por etapas están en [`AGENTS.md`](./AGENTS.md).
+11. La lógica de negocio detallada y el plan por etapas están en [`AGENTS.md`](./AGENTS.md); las reglas ejecutables, tolerancias y tareas vigentes están en `.kiro/specs/etl-arena-availability/` (revisión 2), que manda ante diferencias.

@@ -39,7 +39,7 @@ La data cruda de `RawData-PCS` sale cada lunes del **server SCADA** (TeamViewer 
 ```text
 SCADA ~03:00 (extract only)
   → data/inbox/raw_pcs_<corte>.<ext>
-  → acquire-wait + scada_adapter (fechas mm-dd→dd-mm, mapping, backup .xlsm)
+  → acquire-wait + scada_adapter (fechas mm-dd → serial Excel, mapping, backup .xlsm)
   → macros COM + extrae C12/C14/C16/C19
   → run-etl → SQL (IdCorrida nuevo)
   → reconcile → notify-bi (Misael / PBI)
@@ -51,7 +51,7 @@ Runbook: [`docs/runbook-lunes.md`](./docs/runbook-lunes.md). Diseño: `AGENTS.md
 |---|---|
 | Fechas reporte | Las setea quien exporta; convención 01-01-2026 → último domingo; adapter valida |
 | Transporte | Solo TeamViewer (sin UNC/API) |
-| Formato | Origen `mm-dd-aaaa` → hoja `dd-mm-aaaa` |
+| Formato | Origen `mm-dd-aaaa` → serial/fecha Excel real en la hoja (formato visual `dd-mm-aaaa`; nunca texto) |
 | PlantActivity | Fuente aparte (no desde SCADA) |
 | PBI | Owner Misael; notificación hasta service principal |
 
@@ -84,12 +84,13 @@ ETL_Arena/
 │   └── work/           # copia de trabajo .xlsm
 ├── docs/runbook-lunes.md
 ├── scripts/run_lunes.py
-├── src/
+├── src/etl_arena/
 │   ├── config/
-│   ├── acquisition/    # Fase S: acquire-wait, scada_adapter
-│   ├── excel_macro/    # Fase M: runner COM macros
-│   ├── ingestion/      # ServicioIngesta
-│   ├── staging/
+│   ├── excel_semantics/ # reglas VBA/Excel (celdas, texto, fechas, redondeo)
+│   ├── model/
+│   ├── acquisition/    # Fase S: acquire-wait, contrato/lector SCADA
+│   ├── workbook/       # Fase M: sesión COM, preparar, macros, referencia
+│   ├── ingestion/
 │   ├── normalization/
 │   ├── enrichment/
 │   ├── availability/
@@ -105,7 +106,7 @@ ETL_Arena/
 └── README.md
 ```
 
-**Estado:** `src/`, `sql/`, `scripts/` y `docs/runbook-lunes.md` son estructura objetivo / runbook; el motor aún no está implementado en disco (solo goldens + specs).
+**Estado:** `src/etl_arena/` (solo `__init__.py`), `sql/` y `scripts/` son estructura objetivo; el motor aún no está implementado (hay goldens, `pyproject.toml` y specs). Layout detallado en `design.md §Estructura del repositorio`.
 
 ---
 
@@ -129,7 +130,7 @@ python -m venv .venv                       # Python >= 3.13 (probado con 3.14)
 |---|---|
 | `etl_run` | Metadatos de cada corrida: `IdCorrida`, período, parámetros, `VersionAlgoritmo` |
 | `proyecto` | Tabla maestra de 4 proyectos BESS con parámetros de configuración |
-| `tipo_detencion` | Catálogo de 68 códigos de falla (fuente: hoja `PCS-Fault`) |
+| `tipo_detencion` | Catálogo de 167 códigos de falla (F0…F257; seed generado desde la hoja `PCS-Fault`) |
 | `raw_pcs_sample` | Datos crudos normalizados — 1 fila por `NumeroPCS × MarcaTiempoMuestra` |
 | `plant_activity_sample` | `FactorOperacional` (`EsOperacional`) y `FactorExcusable` (`EsEventoExcusable`) por timestamp |
 | `availability_sample_result` | Resultado intermedio por `NumeroPCS × MarcaTiempoMuestra`: `BateriasIndisponibles`, factores, `ImpactoRackPonderado` |
@@ -176,7 +177,7 @@ La migración se considera completa cuando una corrida Python pueda reproducir e
 - `Disponibilidad` diaria y acumulada mensual
 - Períodos que atraviesan cambio de horario (DST Chile, septiembre 2026)
 
-Tolerancia numérica inicial: `|Δ| ≤ 1e-9` para cálculos intermedios; `|Δ| ≤ 1e-6` para KPI presentados.
+Tolerancias numéricas: tabla única en `.kiro/specs/etl-arena-availability/design.md §Tolerancias` (p. ej. C14 ≤ 1e-6, C16/C19 ≤ 1e-9).
 
 ---
 
@@ -192,9 +193,9 @@ Tolerancia numérica inicial: `|Δ| ≤ 1e-9` para cálculos intermedios; `|Δ| 
 | F | `mcoCleanTable` destruye resultados anteriores | SQL append-only por `IdCorrida`; nunca replicar ese comportamiento |
 | G | `NUMBER_OF_MODULES` vacío ignorado silenciosamente por el Excel | Marcar con `ModulosDisponiblesNulo = True`; incluir en reporte de calidad |
 | H | Descripción de falla puede provenir del intervalo anterior | Marcar con `DescripcionFallaFallback = True`; reportar frecuencia |
-| I | Export SCADA con formato de fecha distinto al Excel | Fase T: transformador estricto `mm-dd-aaaa` → `dd-mm-aaaa` + validación de rango |
+| I | Export SCADA con formato de fecha distinto al Excel | Fase T: transformador estricto `mm-dd-aaaa` → serial Excel (formato `dd-mm-aaaa`, nunca texto) + validación de rango |
 | J | Sin API SCADA; transporte solo TeamViewer | `acquire-wait` + alerta si no hay archivo; pedir share/API a GPM como mejora |
-| K | PlantActivity no se actualiza con SCADA | Fuente fuera de esta cadena; reportar join-misses en calidad de corrida |
+| K | PlantActivity no se actualiza con SCADA | Fuente fuera de esta cadena; se une por fila: validar alineación y reportar filas sin timestamp en calidad de corrida |
 
 ---
 

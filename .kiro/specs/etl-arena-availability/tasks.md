@@ -246,7 +246,7 @@ Agentes disponibles en `.opencode/agent/` (OpenCode, `mode: subagent`). Son perf
 - [ ] 5.1 Runbook — **technical-writer**
   - Actualizar `docs/runbook-lunes.md`: *Trusted Location*, Excel visible, etapas y reanudación, lectura del reporte de reconciliación y de calidad, PlantActivity desactualizada (F-31), recuperación ante fallos.
 
-- [ ] 5.2 Sincronizar README / AGENTS / CLAUDE — **technical-writer**
+- [ ] 5.2 Sincronizar README / AGENTS / CLAUDE — **technical-writer** *(pasada post-auditoría hecha 2026-09-24: F-01, F-19, F-21, F-26, layout `src/etl_arena/`; repetir al cerrar Fase 4)*
   - Reflejar layout `src/etl_arena/`, tablas nuevas, estado de fases; eliminar menciones al límite de 167 eventos y al catálogo de 68 códigos.
 
 - [ ] 5.3 Handoff Power BI — **technical-writer**

@@ -70,7 +70,7 @@ python scripts/run_lunes.py --stage all --inbox data/inbox --work data/work
 ## 3. Validación tras la corrida
 
 - [ ] `acquire-wait`: archivo presente, no vacío, rango de fechas dentro de 01-01-2026 → último domingo (o el rango acordado), sha256 registrado en log.
-- [ ] `scada_adapter`: no quedaron fechas `mm-dd-aaaa` en la hoja de destino; columnas = mapping `RawData-PCS`.
+- [ ] `scada_adapter`: no quedaron fechas `mm-dd-aaaa` ni fechas como texto en la hoja de destino (deben ser serial Excel — F-21); columnas = mapping `RawData-PCS`.
 - [ ] Macros: `C12`, `C14`, `C16`, `C19` extraídos y guardados como referencia de la corrida.
 - [ ] ETL: `etl_run.Status = success`; nuevo `IdCorrida`.
 - [ ] `reconcile`: paridad en niveles 3–4 (C12/C14/C16/C19) dentro de tolerancia.
