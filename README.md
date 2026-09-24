@@ -1,4 +1,4 @@
-# ETL_Arena — Reingeniería de Disponibilidad PCS & Baterías
+# ETL_Arena — Disponibilidad PCS & Baterías
 
 Proyecto de reingeniería del cálculo de disponibilidad de unidades PCS (Power Conversion System) y racks de baterías, actualmente implementado en Excel/VBA, hacia un proceso reproducible y auditable en **Python + SQL Server**.
 
