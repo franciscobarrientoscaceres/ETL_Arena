@@ -526,7 +526,7 @@ Invariantes (R13.8): `C14 = 4·L10` y por PCS `Σ(racks·pond)/4 = Σ I` — sol
 
 ## Data Models — SQL Server
 
-Base `ETL_Arena`, esquema `dbo`. Scripts idempotentes (`IF NOT EXISTS` / `CREATE OR ALTER`). Tipos: `FLOAT` para todo valor numérico de negocio; `UNIQUEIDENTIFIER` para `IdCorrida`; `DATETIME2(0)` para timestamps locales naive.
+Base `ETL_Arena`, esquema `dbo`. Scripts idempotentes (`IF NOT EXISTS` / `CREATE OR ALTER`). Tipos: `FLOAT` para todo valor numérico de negocio; `UNIQUEIDENTIFIER` para `IdCorrida`; `DATETIME` para **todas** las fechas y marcas de tiempo (hora local naive; las fechas con 00:00:00); no se usan `DATE` ni `DATETIME2` (preferencia del usuario, 2026-09-24). La precisión de `DATETIME` (~3,33 ms) sobra para datos cada 15 min: la paridad usa `SerialFechaExcelOrigen` (`FLOAT`), que se guarda aparte. Valores por defecto con `GETDATE()`.
 
 ### Maestros
 
@@ -535,7 +535,7 @@ CREATE TABLE proyecto (
     IdProyecto          INT            NOT NULL PRIMARY KEY,
     Nombre              NVARCHAR(100)  NOT NULL,
     Estado              NVARCHAR(20)   NOT NULL CONSTRAINT CK_proyecto_estado CHECK (Estado IN ('en_ejecucion','por_implementar')),
-    FechaInicio         DATE           NULL,
+    FechaInicio         DATETIME       NULL,
     NumPCS              INT            NULL,
     NumBateriasPorPCS   INT            NULL,
     NumRacksPorBAC      INT            NULL,
@@ -568,13 +568,13 @@ CREATE TABLE etl_run (
     HashArchivoOrigen              CHAR(64)       NOT NULL,
     SistemaOrigen                  NVARCHAR(50)   NOT NULL DEFAULT 'scada_export',
     IdReferenciaExcel              UNIQUEIDENTIFIER NULL,
-    IniciadoEn                     DATETIME2(3)   NOT NULL,
-    FinalizadoEn                   DATETIME2(3)   NULL,
-    InicioPeriodo                  DATE           NOT NULL,   -- C5
-    FinPeriodo                     DATE           NOT NULL,   -- C7
-    InicioPeriodoEventos           DATE           NOT NULL,   -- L2
-    FinPeriodoEventos              DATE           NOT NULL,   -- L4
-    FinDiario                      DATE           NOT NULL,   -- Daily!D5
+    IniciadoEn                     DATETIME       NOT NULL,
+    FinalizadoEn                   DATETIME       NULL,
+    InicioPeriodo                  DATETIME       NOT NULL,   -- C5
+    FinPeriodo                     DATETIME       NOT NULL,   -- C7
+    InicioPeriodoEventos           DATETIME       NOT NULL,   -- L2
+    FinPeriodoEventos              DATETIME       NOT NULL,   -- L4
+    FinDiario                      DATETIME       NOT NULL,   -- Daily!D5
     SoloTiempoOperacional          BIT            NOT NULL,   -- C21
     AplicarEventoExcusable         BIT            NOT NULL,   -- C31
     AplicarEventoExcusableEventos  BIT            NOT NULL,   -- L14
@@ -605,7 +605,7 @@ CREATE TABLE raw_pcs_sample (          -- filas del período calculado + la fila
     NumeroFilaOrigen        INT            NOT NULL,
     NumeroPCS               INT            NOT NULL,
     SerialFechaExcelOrigen  FLOAT          NOT NULL,
-    MarcaTiempoLocalOrigen  DATETIME2(0)   NOT NULL,
+    MarcaTiempoLocalOrigen  DATETIME       NOT NULL,
     FallaRaw                NVARCHAR(255)  NULL,
     FallaRawEsNumero        BIT            NOT NULL,
     EstadoRaw               NVARCHAR(255)  NULL,
@@ -621,7 +621,7 @@ CREATE TABLE plant_activity_sample (
     IdCorrida                       UNIQUEIDENTIFIER NOT NULL,
     NumeroFilaOrigen                INT            NOT NULL,
     SerialFecha                     FLOAT          NULL,      -- puede faltar (F-31)
-    MarcaTiempoMuestra              DATETIME2(0)   NULL,
+    MarcaTiempoMuestra              DATETIME       NULL,
     FactorOperacionalRaw            FLOAT          NULL,      -- col C
     EventoExcusadoRaw               FLOAT          NULL,      -- col D: espejo de Calc!BO, no pondera (F-37)
     SetpointPotenciaActivaKW        FLOAT          NULL,
@@ -639,7 +639,7 @@ CREATE TABLE exclusion_matrix_carga (   -- D-17: una fila por entrega mensual de
     Mes                     INT            NOT NULL,
     ArchivoOrigen           NVARCHAR(500)  NOT NULL,
     Sha256Archivo           CHAR(64)       NOT NULL,
-    CargadoEn               DATETIME2(3)   NOT NULL,
+    CargadoEn               DATETIME       NOT NULL,
     IdCorridaCierre         UNIQUEIDENTIFIER NULL     -- cierre_mensual con_exclusiones que la usó
 );
 
@@ -648,7 +648,7 @@ CREATE TABLE exclusion_matrix_sample (  -- F-37: una fila por (fila, PCS) con va
     NumeroFilaOrigen        INT            NOT NULL,
     NumeroPCS               INT            NOT NULL,
     SerialFecha             FLOAT          NULL,
-    MarcaTiempoMuestra      DATETIME2(0)   NULL,
+    MarcaTiempoMuestra      DATETIME       NULL,
     ValorExclusion          TINYINT        NOT NULL CHECK (ValorExclusion IN (1, 2)),
     BateriasPrevias         FLOAT          NULL,      -- solo valor 2
     EventoExcusadoFila      FLOAT          NULL,      -- columna "Excused Event"
@@ -663,7 +663,7 @@ CREATE TABLE correccion_dato (          -- append-only; celdas cambiadas por rep
     Hoja                    NVARCHAR(40)   NOT NULL,   -- 'RawData-PCS' | 'PlantActivity'
     NumeroFilaOrigen        INT            NOT NULL,
     SerialFechaExcelOrigen  FLOAT          NOT NULL,
-    MarcaTiempoLocalOrigen  DATETIME2(0)   NOT NULL,
+    MarcaTiempoLocalOrigen  DATETIME       NOT NULL,
     NumeroPCS               INT            NULL,       -- NULL en PlantActivity
     Campo                   NVARCHAR(40)   NOT NULL,   -- FAULT | STATUS | WARNING | MODULES | B | C | D | …
     ValorAnterior           NVARCHAR(255)  NULL,
@@ -683,7 +683,7 @@ CREATE TABLE availability_sample_result (   -- solo filas dentro del período KP
     NumeroFilaOrigen                 INT     NOT NULL,
     NumeroPCS                        INT     NOT NULL,
     SerialFecha                      FLOAT   NOT NULL,
-    MarcaTiempoMuestra               DATETIME2(0) NOT NULL,
+    MarcaTiempoMuestra               DATETIME     NOT NULL,
     ModulosDisponibles               FLOAT   NOT NULL,
     ModulosDisponiblesNulo           BIT     NOT NULL,
     BateriasIndisponibles            FLOAT   NOT NULL,
@@ -712,8 +712,8 @@ CREATE TABLE fault_event (
     NumeroPCS                     INT            NOT NULL,
     SerialInicio                  FLOAT          NOT NULL,
     SerialFin                     FLOAT          NOT NULL,
-    MarcaTiempoInicio             DATETIME2(0)   NOT NULL,
-    MarcaTiempoFin                DATETIME2(0)   NOT NULL,
+    MarcaTiempoInicio             DATETIME       NOT NULL,
+    MarcaTiempoFin                DATETIME       NOT NULL,
     DuracionHoras                 FLOAT          NOT NULL,
     CodigoFalla                   NVARCHAR(300)  NOT NULL,     -- "F" & descripción puede ser largo
     DescripcionFalla              NVARCHAR(255)  NOT NULL,
@@ -740,7 +740,7 @@ CREATE TABLE fault_code_summary (      -- ListOfFaults!N:Q
 CREATE TABLE daily_availability (
     IdCorrida                            UNIQUEIDENTIFIER NOT NULL REFERENCES etl_run(IdCorrida),
     DiaN                                 INT    NOT NULL,
-    Dia                                  DATE   NOT NULL,
+    Dia                                  DATETIME NOT NULL,
     BloquesRacksIndisponiblesDiarios     FLOAT  NOT NULL,
     BloquesRacksIndisponiblesAcumulados  FLOAT  NOT NULL,
     Disponibilidad                       FLOAT  NULL,
@@ -759,7 +759,7 @@ CREATE TABLE monthly_official_kpi (    -- append-only; vigente = último Registr
     DisponibilidadContractual  FLOAT          NOT NULL DEFAULT 0.98,
     Origen                     NVARCHAR(20)   NOT NULL CHECK (Origen IN ('corrida','excel_manual')),
     IdCorrida                  UNIQUEIDENTIFIER NULL REFERENCES etl_run(IdCorrida),
-    RegistradoEn               DATETIME2(3)   NOT NULL DEFAULT SYSDATETIME()
+    RegistradoEn               DATETIME       NOT NULL DEFAULT GETDATE()
 );
 
 CREATE TABLE annual_availability (     -- snapshot calculado en cada corrida
@@ -787,8 +787,8 @@ CREATE TABLE detencion (               -- append-only por corrida
     IdCorrida                     UNIQUEIDENTIFIER NOT NULL REFERENCES etl_run(IdCorrida),
     OrdenExcel                    INT            NOT NULL,
     NumeroPCS                     INT            NOT NULL,
-    FechaInicio                   DATETIME2(0)   NOT NULL,
-    FechaTermino                  DATETIME2(0)   NOT NULL,
+    FechaInicio                   DATETIME       NOT NULL,
+    FechaTermino                  DATETIME       NOT NULL,
     DuracionSegundos              INT            NOT NULL,   -- ROUND(DuracionHoras*3600)
     IdTipoDetencion               INT            NULL REFERENCES tipo_detencion(IdTipoDetencion),
     CodigoFalla                   NVARCHAR(300)  NOT NULL,
@@ -807,11 +807,11 @@ CREATE TABLE detencion_revision (      -- workflow; historial append-only
     IdRevision       BIGINT IDENTITY PRIMARY KEY,
     IdProyecto       INT            NOT NULL REFERENCES proyecto(IdProyecto),
     NumeroPCS        INT            NOT NULL,
-    FechaInicio      DATETIME2(0)   NOT NULL,
+    FechaInicio      DATETIME       NOT NULL,
     EstadoRevision   NVARCHAR(20)   NOT NULL CHECK (EstadoRevision IN ('pendiente','revisado','excluido')),
     Observacion      NVARCHAR(500)  NULL,
     RevisadoPor      NVARCHAR(100)  NOT NULL,
-    RevisadoEn       DATETIME2(3)   NOT NULL DEFAULT SYSDATETIME()
+    RevisadoEn       DATETIME       NOT NULL DEFAULT GETDATE()
 );
 CREATE INDEX IX_detencion_revision_clave ON detencion_revision(IdProyecto, NumeroPCS, FechaInicio, RevisadoEn DESC);
 ```
@@ -835,9 +835,9 @@ CREATE TABLE excel_reference_run (
     Corte             NVARCHAR(50)   NOT NULL,
     ArchivoLibro      NVARCHAR(500)  NOT NULL,
     HashLibro         CHAR(64)       NOT NULL,
-    ExtraidoEn        DATETIME2(3)   NOT NULL,
-    C5 DATE NOT NULL, C7 DATE NOT NULL, C21 NVARCHAR(10) NULL, C31 NVARCHAR(10) NULL,
-    L2 DATE NOT NULL, L4 DATE NOT NULL, L14 NVARCHAR(10) NULL, DailyD5 DATE NULL,
+    ExtraidoEn        DATETIME       NOT NULL,
+    C5 DATETIME NOT NULL, C7 DATETIME NOT NULL, C21 NVARCHAR(10) NULL, C31 NVARCHAR(10) NULL,
+    L2 DATETIME NOT NULL, L4 DATETIME NOT NULL, L14 NVARCHAR(10) NULL, DailyD5 DATETIME NULL,
     C12 INT NULL, C14 FLOAT NULL, C16 FLOAT NULL, C19 FLOAT NULL, C23 FLOAT NULL, L10 FLOAT NULL
 );
 CREATE TABLE excel_reference_sample (  -- Calc!E4:BO, solo celdas no vacías
@@ -852,7 +852,7 @@ CREATE TABLE excel_reference_fault_event (
 );
 CREATE TABLE excel_reference_daily (
     IdReferencia UNIQUEIDENTIFIER NOT NULL REFERENCES excel_reference_run(IdReferencia),
-    DiaN INT NOT NULL, Dia DATE NULL, D FLOAT NULL, E FLOAT NULL, F FLOAT NULL, G FLOAT NULL,
+    DiaN INT NOT NULL, Dia DATETIME NULL, D FLOAT NULL, E FLOAT NULL, F FLOAT NULL, G FLOAT NULL,
     CONSTRAINT PK_excel_reference_daily PRIMARY KEY (IdReferencia, DiaN)
 );
 

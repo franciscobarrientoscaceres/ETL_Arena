@@ -17,7 +17,7 @@ Reglas duras (no negociables en la fase de paridad `availability-v1-excel-parity
 - Código y documentación en español, con la convención del design (SQL PascalCase, Python snake_case).
 - Al terminar, informa qué archivos cambiaste, qué tests corriste y su resultado real.
 
-Notas específicas: el destino es **SQL Server 2022 (T-SQL)**, no PostgreSQL. Usa `CREATE OR ALTER`, `IF NOT EXISTS`, `MERGE` idempotente, `DATETIME2`, `UNIQUEIDENTIFIER`, `ISJSON`, clustered columnstore. Nada de sintaxis PG (`BIGSERIAL`, `TIMESTAMPTZ`, `EXPLAIN ANALYZE`).
+Notas específicas: el destino es **SQL Server 2022 (T-SQL)**, no PostgreSQL. Usa `CREATE OR ALTER`, `IF NOT EXISTS`, `MERGE` idempotente, `DATETIME` (no `DATE` ni `DATETIME2`, preferencia del usuario), `UNIQUEIDENTIFIER`, `ISJSON`, clustered columnstore. Nada de sintaxis PG (`BIGSERIAL`, `TIMESTAMPTZ`, `EXPLAIN ANALYZE`).
 
 ---
 

@@ -31,7 +31,7 @@ Agentes disponibles en `.opencode/agent/` (OpenCode, `mode: subagent`). Son perf
 4. Reglas duras: no modificar el algoritmo; no hardcodear 61/4/12/15; seriales Excel en los motores; append-only; nunca editar `data/AvailabilityCalculation_*.xlsm` ni `data/processed/`.
 
 **Notas por agente:**
-- `database-optimizer` está orientado a PostgreSQL: exigir **T-SQL para SQL Server 2022** (columnstore, `CREATE OR ALTER`, `ISJSON`, `DATETIME2`), sin sintaxis PG.
+- `database-optimizer` está orientado a PostgreSQL: exigir **T-SQL para SQL Server 2022** (columnstore, `CREATE OR ALTER`, `ISJSON`, fechas siempre `DATETIME` — no `DATE` ni `DATETIME2`), sin sintaxis PG.
 - `backend-architect` para COM: exigir `pywin32` con `DispatchEx`, instancia visible, cierre solo de la instancia propia y watchdog de timeout.
 - Perfiles adicionales: `parity-qa` (tests Hypothesis, goldens, reconciliación; puede co-ejecutar 1.2, 1.8, 1.11, 3.3) y `excel-com-automation` (puede co-ejecutar 4.1–4.3 y 4.7).
 - Portados a `.claude/agents/` (2026-09-24) con el paquete de contexto incluido, junto a `parity-qa` y `excel-com-automation`; `.opencode/agent/` se conserva para OpenCode.
