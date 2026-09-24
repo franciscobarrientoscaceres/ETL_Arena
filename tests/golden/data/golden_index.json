@@ -1,19 +1,20 @@
 {
   "_meta": {
     "description": "Indice de golden references para comparacion Excel vs Python",
-    "schema_version": "1.1",
+    "schema_version": "1.2",
     "tolerance_internal": 1e-09,
     "tolerance_kpi": 1e-06,
     "tolerance_rack_hours": 0.001,
     "tolerance_daily": 1e-06,
-    "how_to_add": "Ejecutar la macro VBA en el Excel para el mes deseado (cmdCalcAvailability + mcoCreateList + mcoDailyAvailability), luego: python tests/golden/extract_golden.py --excel <ruta> --month N --year 2026 --label <nombre>. El script falla si sum(daily)!=C14 o si la orientacion de campos es incorrecta.",
+    "how_to_add": "Ejecutar las macros en el libro para el período (cmdCalcAvailability + mcoCreateList + mcoDailyAvailability, con C5/C7/C21/C31, ListOfFaults!L2/L4/L14 y Daily!D5 seteados), luego: python tests/golden/extract_golden.py --excel <ruta> --month N --year 2026 --label <nombre>. Genera golden_*.json (schema 1.2) + golden_*_calc.json.gz. Falla si no se cumplen los invariantes.",
     "invariants": [
-      "sum(daily.unavailable) ~= C14",
-      "last_accumulated ~= C14",
-      "C16 ~= 1 - C14/(Total_Racks*C12)",
-      "fault_code corto (Fnn) / fault_description larga",
-      "duration multiple de sampling_minutes/60",
-      "unavailable_rack_hours ~= 12 * duration * average_batteries"
+      "C16 = 1 - C14/(Total_Racks*C12)",
+      "sum(daily) = C14 y ultimo acumulado = C14 (solo si C21='No' y Daily!D5 >= C7; F-08)",
+      "F (codigo) = IFERROR(MID(G,1,FIND(' ',G)-1),'F'&G) emulado sobre G",
+      "duracion multiplo de sampling_minutes/60; E = 24*(D-C); I = 12*E*H",
+      "L10 = suma secuencial de 12*E*H",
+      "filas tabla Calculation-Availability = C12; suma 12*tabla = C14 (si C21='No')",
+      "C14 = 4*L10 solo si parametros KPI y eventos equivalentes (R13.8)"
     ],
     "annual_ava_policy": "Las filas historicas de Annual_AVA (meses distintos al linkado a C14 de la corrida actual) pueden divergir del C14 del periodo: son estado historico del Excel, NO se usan como asercion de paridad (ver GT-5 en design.md). sampling_blocks de Annual usa formula de calendario (p.ej. 1977 para sep parcial) y no equivale a C12 de filas RawData (1975 con gap DST)."
   },
@@ -89,7 +90,7 @@
       "file": "golden_2026_09_september.json",
       "period_start": "2026-09-01",
       "period_end": "2026-09-21",
-      "note": "Periodo parcial: macro corrio hasta C7=2026-09-21. fault_code=codigo_corto, fault_description=descripcion_larga. Dias 22-30: daily_unavailable=0 y availability crece por denominador (comportamiento Excel, no invariante C16).",
+      "note": "v2 extraida 2026-09-24 del XML del libro (schema 1.2): parametros efectivos, 334 eventos en orden de escritura, resumen N:Q, tabla de resultados E4:BO. Daily con 21 dias (Daily!D5=2026-09-21). Periodo parcial 01-21.",
       "parameters": {
         "only_operational_time": "No",
         "apply_excused_event": "No"
@@ -100,7 +101,7 @@
         "c19_accumulated_annual": 0.9989850173961998
       },
       "status": "pending",
-      "pending_reason": "Periodo parcial 01-21; para verified se recomienda corrida de mes completo (C7=2026-09-30) y re-extract. Discrepancia 1975/1977 ya resuelta documentalmente (no bloquea).",
+      "pending_reason": "Invariantes OK. Pasa a verified cuando el golden runner (tasks 1.11) reproduzca niveles 2-5.",
       "discrepancies": [
         {
           "id": "c12_vs_annual_sampling_blocks",
@@ -110,11 +111,28 @@
         },
         {
           "id": "daily_availability_tail",
-          "detail": "last daily availability (dia 30) != C16 en periodo parcial: el acumulado queda fijo tras el dia 21 pero el denominador diario sigue creciendo",
-          "resolution": "comportamiento documentado del Excel; tests de periodo parcial no exigen last_avail==C16",
+          "detail": "golden v1 tenia 30 dias (Daily!D5=30-sep al extraer); v2 tiene 21 dias segun Daily!D5 actual",
+          "resolution": "el rango del Daily es un input propio (Daily!D5, F-09); v2 usa el estado actual del libro",
           "status": "resolved"
+        },
+        {
+          "id": "l14_differs_c31",
+          "detail": "ListOfFaults!L14='Yes' (eventos con factor excusable) mientras C31='No' (KPI sin factor). C14-4*L10=-1.3e-7 (no aplica el invariante cruzado).",
+          "resolution": "decision de negocio D-03; el golden conserva los parametros efectivos y el motor los recibe por separado",
+          "status": "open"
         }
-      ]
+      ],
+      "schema_version": "1.2",
+      "calc_table_file": "golden_2026_09_september_calc.json.gz",
+      "effective_parameters": {
+        "C21": "No",
+        "C31": "No",
+        "L2": "2026-09-01",
+        "L4": "2026-09-21",
+        "L14": "Yes",
+        "D5": "2026-09-21",
+        "C23": 15
+      }
     }
   ]
 }

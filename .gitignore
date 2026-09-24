@@ -1,0 +1,24 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+htmlcov/
+
+# Entorno local (credenciales)
+.env
+
+# Datos operativos: solo se versiona la estructura
+data/inbox/*
+data/processed/*
+data/work/*
+!data/inbox/.gitkeep
+!data/processed/.gitkeep
+!data/work/.gitkeep
+
+# Archivos temporales de Excel
+~$*.xls*

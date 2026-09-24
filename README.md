@@ -109,6 +109,20 @@ ETL_Arena/
 
 ---
 
+## Desarrollo
+
+```powershell
+python -m venv .venv                       # Python >= 3.13 (probado con 3.14)
+.venv\Scripts\python -m pip install -e ".[dev]"
+.venv\Scripts\python -m pytest            # tests (markers: golden, sql, excel)
+.venv\Scripts\python -m ruff check src tests
+```
+
+- SQL Server local para tests de integración: copiar `.env.example` a `.env` y `docker compose -f docker/mssql.compose.yml --env-file .env up -d`.
+- Requiere **ODBC Driver 18 for SQL Server** (instalador de Microsoft, con permisos de administrador). El driver legacy `SQL Server` no sirve (no maneja `DATETIME2` ni `fast_executemany`).
+- Golden references: `python tests/golden/extract_golden.py --excel <libro> --month N --year 2026 --label <mes>` (ver `tests/golden/data/golden_index.json`).
+- Agentes de Claude Code en `.claude/agents/` (plan de asignación en `.kiro/specs/etl-arena-availability/tasks.md`).
+
 ## Tablas SQL Server
 
 | Tabla | Contenido |
@@ -225,4 +239,4 @@ unzip -p "data/..." xl/worksheets/sheet10.xml | grep "termino"
 | [`AGENTS.md`](./AGENTS.md) | Plan completo de implementación, lógica exacta de las macros, fórmulas, diseño de datos SQL, ETL, estrategia de paridad, **Fase S SCADA** |
 | [`CLAUDE.md`](./CLAUDE.md) | Contexto técnico para agentes de IA: arquitectura del Excel, módulos VBA, reglas para agentes |
 | [`docs/runbook-lunes.md`](./docs/runbook-lunes.md) | Checklist operativa del lunes (SCADA → inbox → macros → ETL) |
-| `.kiro/specs/etl-arena-availability/` | SDD: requirements, design, tasks (incluye adquisición SCADA y orquestador) |
+| `.kiro/specs/etl-arena-availability/` | SDD revisión 2 (2026-09-24): `audit.md` (auditoría contra el VBA real), requirements, design, tasks por fases con agente asignado |

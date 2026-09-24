@@ -18,6 +18,8 @@ La data cruda semanal llega desde el **server SCADA** a `data/inbox/` (hoy vía 
 
 El plan completo de reingeniería está en [`AGENTS.md`](./AGENTS.md). Ese documento es la **fuente de verdad** del plan de implementación. Leerlo antes de cualquier tarea de desarrollo.
 
+El spec ejecutable (revisión 2, auditado contra el VBA real el 2026-09-24) está en `.kiro/specs/etl-arena-availability/`: `audit.md` (hallazgos `F-xx` y decisiones `D-xx`), `requirements.md`, `design.md` y `tasks.md` (fases, olas y agente asignado a cada tarea). Ante diferencias, manda el spec revisión 2.
+
 ---
 
 ## Qué hace el Excel hoy
@@ -90,7 +92,7 @@ donde:
 
 **Module2**
 - `mcoCleanList` — limpia `ListOfFaults` antes de reconstruirla.
-- `mcoOrder` — ordena `ListOfFaults` por `HorasRackIndisponibles` (columna P) de mayor a menor.
+- `mcoOrder` — ordena la tabla resumen por código de falla `ListOfFaults!N5:Q172` (columna P = Σ rack-hours por código) de mayor a menor. La lista de eventos `B:I` no se ordena.
 - `mcoTestFormulae`, `mcoTests2` — macros de prueba, no son parte del flujo productivo.
 
 **Module3**
@@ -124,7 +126,14 @@ Arena - PCS XX - POWERELECTRONICS HEM-k NUMBER OF MODULES
 
 Campo clave: **`Arena - PCS XX - POWERELECTRONICS HEM-k NUMBER OF MODULES`** -> `ModulosDisponibles`
 
-Un PCS es indisponible cuando `ModulosDisponibles < 4`. Si `NUMBER_OF_MODULES` está **vacío**, el Excel lo ignora (trata el PCS como disponible); Python debe replicar ese comportamiento y marcar el registro con `ModulosDisponiblesNulo = True` para auditoría.
+Un PCS es indisponible cuando `ModulosDisponibles < 4`. El valor puede ser **fraccionario** (p. ej. 3,2347): se conserva como `float`, nunca se trunca. Si `NUMBER_OF_MODULES` está **vacío**, el Excel lo ignora (trata el PCS como disponible); Python debe replicar ese comportamiento y marcar el registro con `ModulosDisponiblesNulo = True` para auditoría.
+
+Trampas de paridad confirmadas en el VBA (detalle en `audit.md`):
+- `PlantActivity` se une **por número de fila**, no por timestamp; celda vacía = 0.
+- `mcoCreateList` usa sus propios parámetros `ListOfFaults!L2`/`L4`/`L14`, independientes de `C5`/`C7`/`C31`.
+- El fin de un evento es la última fila en falla; con fila anterior vacía el fallback da `"F1 Watchdog"`.
+- `mcoDailyAvailability` no aplica el factor operacional.
+- `C12` cuenta filas (no timestamps únicos); los motores operan sobre seriales Excel en orden de fila origen.
 
 No usar el código de falla (`CURRENT FAULT`) como criterio de indisponibilidad — el comentario VBA es impreciso; la lógica ejecutable usa `NUMBER_OF_MODULES`.
 
@@ -175,8 +184,10 @@ Orquestador: `scripts/run_lunes.py` con etapas `acquire-wait`, `prepare-workbook
 
 ## Arquitectura Python (ver AGENTS.md §18)
 
+Paquete `etl_arena` con layout *src* (`src/etl_arena/<módulo>/`, ADR-01); se agregan `excel_semantics/` (reglas VBA/Excel), `model/` y `workbook/` (COM). Detalle en `design.md`.
+
 ```
-src/
+src/etl_arena/
   config/           <- ConfiguracionCalculo, CONFIG_POR_DEFECTO
   acquisition/      <- acquire_wait, scada_adapter (Fase SCADA)
   excel_macro/      <- runner COM de las 4 macros VBA (Fase M, solo PC local)
@@ -210,7 +221,7 @@ Scripts principales: `scripts/run_lunes.py` (orquestador semanal) y `ejecutar_et
 |---|---|
 | `etl_run` | `IdCorrida`, `IdProyecto`, parámetros de corrida (período, flags, `TotalPCS`…), `Status`, `MensajeError`, `VersionAlgoritmo`. Los KPI C12/C14 viven en `availability_run_result`, no aquí |
 | `proyecto` | `IdProyecto`, `NumPCS`, `NumBateriasPorPCS`, `NumRacksPorBAC`, `TotalRacks`, `MinutosMuestreo`, `ZonaHoraria` |
-| `tipo_detencion` | `IdTipoDetencion`, `CodigoFalla`, `DescripcionFallaPE`, `CodigoDescripcion` |
+| `tipo_detencion` | `IdTipoDetencion`, `CodigoFalla`, `DescripcionFallaPE`, `CodigoDescripcion`, `Significado`, `Operativo` (167 códigos de `PCS-Fault`) |
 | `raw_pcs_sample` | `IdCorrida`, `MarcaTiempoMuestra`, `NumeroPCS`, `ModulosDisponibles`, `ModulosDisponiblesNulo`, `SerialFechaExcelOrigen` |
 | `plant_activity_sample` | `IdCorrida`, `MarcaTiempoMuestra`, `EsOperacional`, `EsEventoExcusable`, `PorcentajeSOC` |
 | `availability_sample_result` | `IdCorrida`, `MarcaTiempoMuestra`, `NumeroPCS`, `BateriasIndisponibles`, `FactorExcusable`, `FactorOperacional`, `ImpactoRackPonderado` |

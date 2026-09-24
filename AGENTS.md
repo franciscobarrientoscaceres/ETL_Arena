@@ -19,6 +19,8 @@ Este proyecto reemplaza progresivamente el cálculo de disponibilidad realizado 
 
 **Importante:** este documento define el plan de implementación. No se debe implementar aquí el código Python definitivo.
 
+> **Auditoría 2026-09-24:** varias reglas de este documento fueron corregidas contra el VBA real y las fórmulas del libro. El detalle y la evidencia están en [`.kiro/specs/etl-arena-availability/audit.md`](./.kiro/specs/etl-arena-availability/audit.md) (hallazgos `F-xx`). Ante cualquier diferencia, mandan `requirements.md` / `design.md` revisión 2.
+
 ---
 
 ## 2. Fuente de verdad y alcance
@@ -172,12 +174,14 @@ Los nombres de columna en `RawData-PCS` siguen el patron:
 
 ```text
 Arena - PCS XX - POWERELECTRONICS GEN3 HEx CURRENT FAULT
-Arena - PCS XX - POWERELECTRONICS GEN3 HEx STATUS
-Arena - PCS XX - POWERELECTRONICS GEN3 HEx WARNING
+Arena - PCS XX - POWERELECTRONICS GEN3 HEx CURRENT STATUS
+Arena - PCS XX - POWERELECTRONICS GEN3 HEx CURRENT WARNING
 Arena - PCS XX - POWERELECTRONICS HEM-k NUMBER OF MODULES
 ```
 
 Donde `XX` va de `01` a `61`.
+
+**Unión con `PlantActivity` (F-01):** el VBA lee `PlantActivity` con el **mismo número de fila** (`Sheet4.Cells(dblRec, 3|4)`), no por timestamp. Una celda vacía vale 0. En el libro actual las filas 15333–15991 de `PlantActivity` no tienen timestamp.
 
 Esto corresponde al campo clave: **`Arena - PCS XX - POWERELECTRONICS HEM-k NUMBER OF MODULES`**
 
@@ -195,7 +199,7 @@ Por tanto, para cada PCS en cada bloque de 15 minutos:
 
 | Valor de `NUMBER_OF_MODULES` | Tratamiento |
 |---|---|
-| Numerico < 4 | **Indisponible.** `baterias_indisponibles = 4 - NUMBER_OF_MODULES` |
+| Numerico < 4 (puede ser **fraccionario**, p. ej. 3,2347 — F-02) | **Indisponible.** `baterias_indisponibles = 4 - NUMBER_OF_MODULES` (float, sin truncar) |
 | Igual a 4 | Disponible. No se acumula impacto. |
 | **Vacio / nulo** | **El Excel lo ignora. Python: tratar como disponible (= 4) y marcar `ModulosDisponiblesNulo = True`.** |
 
@@ -284,7 +288,9 @@ Por cada fila temporal válida:
 C12 += 1
 ```
 
-No se incrementa por PCS; se incrementa una vez por intervalo temporal.
+No se incrementa por PCS; se incrementa una vez por **fila** de `RawData-PCS` en rango (si hay timestamps repetidos, cuenta cada fila — F-07).
+
+**Semántica de flags (F-12):** el factor operacional se aplica si `C21 <> "No"`; el excusable solo si `C31 = "Yes"` (comparación exacta).
 
 ### Paso 10 — frecuencia
 
@@ -357,6 +363,8 @@ Accumulated_Unavailability
 /
 (Total_Racks * Accumulated_15min_Blocks)
 ```
+
+**Nota (F-20):** `Annual_AVA` se mantiene a mano: jul/ago son valores tipeados, `D15` (días de sep) está tipeado como `20+14.25/24`, y la acumulación empieza en **julio 2026** (no en abril). Su acumulado `J = 1 - I/(Racks·H)` es una métrica distinta de `C19`.
 
 La hoja `Annual_AVA` acumula mensualmente:
 
@@ -440,7 +448,9 @@ Por tanto:
 
 corresponde a la columna de descripción de falla de cada PCS.
 
-El algoritmo reinicia `dblRec = 2` para cada PCS.
+El algoritmo reinicia `dblRec = 2` para cada PCS, pero **no** reinicia `sumablocks`, `numBlock` ni `dblResult` (ver "Defecto de arrastre" más abajo).
+
+**Parámetros propios (F-05):** `mcoCreateList` no lee `C5`/`C7`/`C31`. Usa `ListOfFaults!L2` (inicio), `L4` (fin) y `L14` (evento excusable), que son **valores independientes**. En el libro actual `L14 = "Yes"` mientras `C31 = "No"`.
 
 ### Condición para considerar un intervalo
 
@@ -536,9 +546,12 @@ Arbol de decision:
 | Descripcion actual | Descripcion intervalo anterior | Resultado |
 |---|---|---|
 | Distinta de `"NO FAULTS"` y no vacia | — | Se usa el valor actual |
-| `"NO FAULTS"` | distinto de `"NO FAULTS"` | **Se usa la descripcion del intervalo anterior** |
-| `"NO FAULTS"` | `"NO FAULTS"` o sin anterior | `"F13 NO MODULES"` |
+| `"NO FAULTS"` | distinto de `"NO FAULTS"` y no vacía | **Se usa la descripcion del intervalo anterior** |
+| `"NO FAULTS"` | vacía (`""`) | Se copia `""` → **`"F1 Watchdog"`** (F-04) |
+| `"NO FAULTS"` | `"NO FAULTS"` | `"F13 NO MODULES"` |
 | `""` (vacio) | — | `"F1 Watchdog"` |
+
+La fila "anterior" es la fila anterior de la **hoja completa** (puede estar fuera del período). Si el evento empieza en la fila 2, la anterior es el encabezado y la macro falla con *Type mismatch* (F-11).
 
 **Esta logica de fallback al intervalo anterior es un comportamiento confirmado.** Se han identificado casos de este tipo en la data de septiembre 2026 y pueden ocurrir en cualquier periodo. Todos los eventos donde se aplico el fallback deben marcarse con `descripcion_falla_fallback = True` en `fault_event`.
 
@@ -557,7 +570,11 @@ Un evento termina si el siguiente registro:
 
 - tiene `NUMBER_OF_MODULES = 4`, o
 - está vacío, o
-- supera la fecha final + 1 día.
+- supera **estrictamente** la fecha final + 1 día (`>`).
+
+La fecha fin registrada es la de la **fila actual** (la última en falla), no la de la fila siguiente (F-03).
+
+**Defecto de arrastre (F-06):** si el período termina a las 23:45 y la fila siguiente es exactamente `L4 + 1` 00:00 con el PCS aún en falla, el evento no se cierra; los acumuladores pasan al siguiente PCS, que sobrescribe esa fila de `ListOfFaults`. Python lo replica en v1 y lo marca `EventoArrastradoExcel`.
 
 Se calcula:
 
@@ -588,11 +605,9 @@ Acumulado:
 ListOfFaults!L10 += unavailability_rack_hours
 ```
 
-### Límite físico de eventos en el Excel
+### Sin límite de eventos (corregido — F-18)
 
-`mcoOrder` ordena el rango `P6:P172`, lo que implica un **límite de 167 eventos visibles** en `ListOfFaults`. Los eventos que superen ese límite no se incluirán en la ordenación en Excel.
-
-Este límite es exclusivo del Excel. En la implementación Python/SQL no existe tal restricción. Se debe documentar al comparar resultados si el período analizado supera ese umbral.
+La lista de eventos (`ListOfFaults!B:I`) no tiene tope (se limpia hasta la fila 150000) y **no se ordena**: queda en orden de escritura (PCS por PCS). El rango `N5:Q172` que ordena `mcoOrder` es la tabla resumen por **código de falla** (167 códigos), no la lista de eventos.
 
 ### Punto importante de interpretación
 
@@ -602,21 +617,9 @@ Este límite es exclusivo del Excel. En la implementación Python/SQL no existe 
 
 # 9. `mcoOrder`
 
-Ordena `ListOfFaults` por:
+Ordena la tabla resumen `ListOfFaults!N5:Q172` por la columna `P` de mayor a menor.
 
-```text
-P6:P172
-```
-
-de mayor a menor.
-
-La columna P contiene el impacto:
-
-```text
-(h unav.) x (racks unav.)
-```
-
-**Límite implícito:** el rango `P6:P172` cubre un máximo de **167 eventos**. Si existen más de 167 eventos en el período, los sobrantes no quedan ordenados en el Excel.
+Esa tabla tiene una fila por código del catálogo `PCS-Fault` (167 códigos): `N` = código, `O` = descripción PE, `P = SUMIF(F:F, N, I:I)` (rack-hours por código), `Q = P / L10`. La lista de eventos `B:I` no se ordena (F-18).
 
 Para SQL no se debe depender de una ordenación física. La consulta/reporte debe aplicar explícitamente:
 
@@ -645,6 +648,8 @@ Suma += 12 * Calculation-Availability[PCS]
 para cada PCS.
 
 El resultado diario se almacena en `Daily!D`.
+
+**Importante (F-08, F-09):** los valores de `Calculation-Availability[PCS]` son baterías ponderadas por el factor excusable pero **sin** el factor operacional, así que con `C21 = "Yes"` la suma diaria no coincide con C14. `DayNumber` es el índice del día desde `C5` (`Daily!B`), y el rango de días llega hasta `Daily!D5` (valor propio, máx. 31 días).
 
 Después:
 
@@ -785,7 +790,7 @@ Proyectos registrados:
 
 ## 13.0b `tipo_detencion`
 
-Catálogo de códigos de falla, extraído de la hoja `PCS-Fault` del Excel. 68 registros. Se carga una sola vez como dato maestro.
+Catálogo de códigos de falla, extraído de la hoja `PCS-Fault` del Excel: **167 registros** (F0…F257), con columnas `Meaning` (criticidad) y `Operative` (F-19). El seed se genera desde la hoja con un script; no se hardcodea.
 
 ```text
 IdTipoDetencion     -- código numérico (ej: 55)
@@ -990,8 +995,8 @@ La fuente cruda de `RawData-PCS` es el **server SCADA**. Cada lunes se exporta u
 1. **~03:00 AM lunes** — ventana libre en SCADA. Exportar solo; **no procesar en el server**.
 2. **Obtener el archivo** por TeamViewer (file transfer) a `data/inbox/raw_pcs_<corte>.<ext>`.
 3. **`acquire-wait`** (etapa 1 de `scripts/run_lunes.py`): espera/valida el archivo en inbox (nombre, rango de fechas, sha256, no vacío).
-4. **`scada_adapter` / `prepare-workbook`** (etapa 2): transforma fechas origen `mm-dd-aaaa hh:mm:ss` → destino hoja `dd-mm-aaaa hh:mm:ss`, aplica mapping de columnas = `RawData-PCS`, escribe en copia de trabajo del `.xlsm` (backup del original).
-5. **`run-macros`** (etapa 3): macros en PC local vía COM Excel: `cmdCalcAvailability` → `mcoCreateList` → `mcoDailyAvailability` → `Graphupdate` con `C5`/`C7` del período; extrae `C12`/`C14`/`C16`/`C19` como referencia.
+4. **`scada_adapter` / `prepare-workbook`** (etapa 2): parsea fechas origen `mm-dd-aaaa hh:mm:ss` y las escribe como **fecha/serial Excel real** (formato visual `dd-mm-aaaa hh:mm:ss`; escribirlas como texto rompe el filtro de la macro — F-21), aplica mapping de columnas = `RawData-PCS`, escribe **vía COM** en copia de trabajo del `.xlsm` (backup del original) y valida la alineación por fila con `PlantActivity`.
+5. **`run-macros`** (etapa 3): macros en PC local vía COM Excel: `cmdCalcAvailability` → `mcoCreateList` → `mcoDailyAvailability` → `Graphupdate`, seteando `C5`/`C7`/`C21`/`C31`, `ListOfFaults!L2`/`L4`/`L14` y `Daily!D5`; extrae la referencia completa (C12/C14/C16/C19/C23, tabla de resultados, `ListOfFaults` completa, `Daily`).
 6. **`run-etl`** (etapa 4): pipeline Python completo → SQL Server (`IdCorrida` nuevo por lunes).
 7. **`reconcile`** (etapa 5): Python vs referencia del paso 5.
 8. **`notify-bi`** (etapa 6): notificar a Misael / webhook → refresh Power BI (sin service principal aún).
@@ -1283,13 +1288,7 @@ El tipo SQL definitivo debe ser decidido antes de producción.
 
 El Excel depende de recorrer filas secuencialmente.
 
-Python debe ordenar explícitamente:
-
-```text
-MarcaTiempoMuestra ASC
-```
-
-antes de detectar eventos.
+En modo paridad Python debe recorrer las filas **en el orden de fila origen** (como el VBA), sin reordenar ni deduplicar, y **reportar** cualquier fila fuera de orden `MarcaTiempoMuestra ASC` como anomalía (F-07).
 
 ## Regla 2 — huecos
 
@@ -1333,8 +1332,8 @@ Un intervalo con `NUMBER_OF_MODULES` vacío en `RawData-PCS` **no se acumula com
 
 Cuando un evento de falla comienza en un intervalo cuya descripción es `"NO FAULTS"`:
 
-- Si el intervalo inmediatamente anterior tiene una descripción distinta de `"NO FAULTS"`, **se usa la descripción del intervalo anterior** como descripción del evento.
-- Si el intervalo anterior también era `"NO FAULTS"` (o no existe), se asigna `"F13 NO MODULES"`.
+- Si el intervalo inmediatamente anterior tiene una descripción distinta de `"NO FAULTS"`, **se usa la descripción del intervalo anterior** como descripción del evento (si esa descripción es vacía, el resultado es `"F1 Watchdog"`).
+- Si el intervalo anterior también era `"NO FAULTS"`, se asigna `"F13 NO MODULES"`.
 - Si la descripción resultante está vacía, se asigna `"F1 Watchdog"`.
 
 Todos los eventos donde se aplicó el fallback deben marcarse con `descripcion_falla_fallback = True`.
@@ -1345,7 +1344,7 @@ Las únicas normalizaciones automáticas de descripción son:
 
 | Condición | Valor asignado |
 |---|---|
-| Descripción = `"NO FAULTS"` y anterior ≠ `"NO FAULTS"` | Descripción del intervalo anterior |
+| Descripción = `"NO FAULTS"` y anterior ≠ `"NO FAULTS"` | Descripción del intervalo anterior (`"F1 Watchdog"` si es vacía) |
 | Descripción = `"NO FAULTS"` y anterior = `"NO FAULTS"` | `"F13 NO MODULES"` |
 | Descripción = `""` (vacío) | `"F1 Watchdog"` |
 

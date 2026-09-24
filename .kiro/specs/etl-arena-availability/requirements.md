@@ -1,18 +1,18 @@
 # Requirements Document
 
+> Revisión 2 — 2026-09-24. Corregida contra el VBA y las fórmulas reales del libro. Ver `audit.md` para la evidencia (hallazgos `F-xx`) y las decisiones abiertas (`D-xx`).
+
 ## Introduction
 
-Este proyecto reemplaza progresivamente el cálculo de disponibilidad del activo **Arena BESS** (almacenamiento de energía), actualmente implementado en un libro Excel con macros VBA, por un proceso reproducible y auditable en **Python + SQL Server**.
+Este proyecto reemplaza progresivamente el cálculo de disponibilidad del activo **Arena BESS**, implementado hoy en un libro Excel con macros VBA, por un proceso reproducible y auditable en **Python + SQL Server**.
 
-El objetivo de la primera fase es obtener **paridad exacta** con el Excel: reproducir los mismos valores de `BloquesMuestreo` (C12), `BloquesRacksIndisponibles` (C14), `DisponibilidadPeriodo` (C16) y `DisponibilidadAnualAcumulada` (C19), la misma lista de eventos de `ListOfFaults`, y los mismos KPI diarios y acumulados anuales, usando los mismos datos de entrada.
+La primera versión (`availability-v1-excel-parity`) busca **paridad exacta** con el Excel: mismos `BloquesMuestreo` (C12), `BloquesRacksIndisponibles` (C14), `DisponibilidadPeriodo` (C16), `DisponibilidadAnualAcumulada` (C19), misma lista de `ListOfFaults` y mismos KPI diarios, con el mismo input. **Paridad significa reproducir también los defectos del VBA** (marcados con flags de auditoría); corregirlos es una versión posterior.
 
-**Flujo de alimentación semanal (Fase S):** cada lunes se exporta el reporte de `RawData-PCS` desde el server SCADA a `data/inbox/` (TeamViewer hoy), se transforma con `scada_adapter` hacia el `.xlsm` de trabajo, se corren las macros locales de referencia y el pipeline Python escribe en SQL Server con un `IdCorrida` nuevo; luego se notifica a Power BI (owner Misael) para refresh. Ver Requirement 14 y `docs/runbook-lunes.md`.
+**Flujo semanal (Fase S):** cada lunes se exporta `RawData-PCS` desde el server SCADA a `data/inbox/` (TeamViewer hoy), se carga en una copia de trabajo del `.xlsm`, se ejecutan las macros de referencia vía COM en la PC local, el pipeline Python escribe en SQL Server con un `IdCorrida` nuevo, se reconcilia contra la referencia Excel y se notifica a Power BI (owner Misael).
 
-**Parámetros del activo (Arena BESS):**
-
-| Parámetro | Valor |
+| Parámetro del activo | Valor |
 |---|---|
-| Fecha de inicio de operación | 08/Abril/2026 |
+| Fecha de inicio de operación | 08/Abril/2026 (primer dato: 2026-04-08 00:15) |
 | Total PCS | 61 |
 | Módulos BEC por PCS | 4 |
 | Racks por BAC | 12 |
@@ -20,325 +20,342 @@ El objetivo de la primera fase es obtener **paridad exacta** con el Excel: repro
 | Frecuencia de muestreo | 15 minutos |
 | Versión del algoritmo | `availability-v1-excel-parity` |
 
+### Mapa de numeración (revisión 1 → revisión 2)
+
+| Rev. 1 | Rev. 2 | | Rev. 1 | Rev. 2 |
+|---|---|---|---|---|
+| 10 | 1 | | 6 (diaria) | 9 |
+| 14 | 2, 3 | | 6 (anual) | 10 |
+| 1 | 4 | | 7 | 11 |
+| 2 | 5 | | 13 | 12 |
+| 3 | 6 | | 8 | 13 |
+| 4 | 7 | | 12 | 14 |
+| 5 | 8 | | 9 | 15 |
+| 11 | 16 | | 15 | 18 |
+| — | 17 (nuevo) | | — | 19 (nuevo) |
+
 ---
 
 ## Glossary
 
-- **PCS**: Power Conversion System. Unidad de conversión de potencia. El activo tiene 61 unidades.
-- **BEC**: Battery Energy Controller. Módulo de batería. Cada PCS tiene 4 módulos BEC.
-- **Rack**: Unidad mínima de batería. Cada BAC contiene 12 racks. Total: 2.928 racks.
-- **BAC**: Battery Array Container. Contenedor de baterías que agrupa 12 racks.
-- **SOC**: State of Charge. Porcentaje de carga de la batería.
-- **POI**: Point of Interconnection. Punto de interconexión a la red eléctrica.
-- **DST**: Daylight Saving Time. Cambio de horario de verano/invierno de Chile. Aplica en septiembre 2026.
-- **KPI**: Key Performance Indicator. Indicador clave de rendimiento.
-- **MotorETL**: El sistema Python que reproduce la lógica VBA del Excel.
-- **ModuloIngesta**: Componente responsable de leer los archivos origen (Excel o exportaciones CSV).
-- **ModuloAdquisicion** (Fase S): Componente que espera y valida el export SCADA en `data/inbox` y lo transforma hacia la copia de trabajo del libro (`scada_adapter`).
-- **ModuloMacros** (Fase M): Runner COM local que ejecuta `cmdCalcAvailability`, `mcoCreateList`, `mcoDailyAvailability` y `Graphupdate` y extrae la referencia `C12`/`C14`/`C16`/`C19`.
-- **OrquestadorLunes**: Script `scripts/run_lunes.py` con etapas `acquire-wait`, `prepare-workbook`, `run-macros`, `run-etl`, `reconcile`, `notify-bi`.
-- **IdCorrida**: Identificador único UUID de una ejecución del MotorETL. Clave de auditoría en todas las tablas. Cada lunes se genera uno nuevo.
-- **ModuloStaging**: Componente que almacena los datos crudos sin transformar en SQL Server.
-- **ModuloNormalizacion**: Componente que convierte el formato ancho (244 columnas) a formato largo (1 fila por PCS×timestamp).
-- **ModuloEnriquecimiento**: Componente que une los datos PCS con los factores de PlantActivity.
-- **MotorDisponibilidad**: Componente que reproduce `cmdCalcAvailability` — calcula `BloquesMuestreo` (C12), `BloquesRacksIndisponibles` (C14) y el KPI del período.
-- **MotorEventosFalla**: Componente que reproduce `mcoCreateList` — consolida intervalos consecutivos en eventos de falla discretos.
-- **ModuloAgregacion**: Componente que calcula KPI diario, mensual y acumulado anual.
-- **ModuloPersistencia**: Componente que escribe resultados en SQL Server de forma append-only.
-- **ModuloReconciliacion**: Componente que compara una corrida Python contra una corrida Excel en 5 niveles.
-- **IdCorrida**: Identificador único UUID de una ejecución del MotorETL. Clave de auditoría en todas las tablas.
-- **VersionAlgoritmo**: Cadena que identifica la versión del algoritmo usada en una corrida (ej. `availability-v1-excel-parity`).
-- **BloquesMuestreo**: Contador de bloques de 15 minutos procesados en el período. Equivale a `C12` en el Excel y a la columna `BloquesMuestreo` en SQL.
-- **BloquesRacksIndisponibles**: Acumulado de `(racks indisponibles) × bloques`, opcionalmente ponderado por factores excusable y operacional. Equivale a `C14` en el Excel y a la columna `BloquesRacksIndisponibles` en SQL.
-- **DisponibilidadPeriodo**: Disponibilidad del período = `1 - BloquesRacksIndisponibles / (TotalRacks × BloquesMuestreo)`. Equivale a `C16` en el Excel.
-- **DisponibilidadAnualAcumulada**: Disponibilidad acumulada anual = `1 - BloquesRacksIndisponibles / (total_racks × 365 × 24 × 4)`. Equivale a `C19` en el Excel.
-- **NUMBER_OF_MODULES**: Campo `Arena - PCS XX - POWERELECTRONICS HEM-k NUMBER OF MODULES` en `RawData-PCS`. Valor numérico 0–4. Valor < 4 indica indisponibilidad. Vacío se trata como 4 (disponible) con flag de auditoría.
-- **ModulosDisponiblesNulo**: Flag booleano. `True` cuando `NUMBER_OF_MODULES` estaba vacío en el origen.
-- **CodigoFalla**: Primer token antes del espacio en la descripción de falla (ej: `"F55"`). Extraído por `_extraer_codigo_falla()` del MotorEventosFalla.
-- **DescripcionFalla**: Descripción completa de la falla (ej: `"F55 EXTERNAL FAULT/OVGR"`). Puede provenir del intervalo actual o del anterior según la lógica de fallback.
-- **DescripcionFallaFallback**: Flag booleano. `True` cuando la descripción del evento fue tomada del intervalo temporal anterior.
-- **FactorExcusable**: Factor del campo `Excused Event` de PlantActivity (columna D). Valor 0 o 1.
-- **FactorOperacional**: Factor de actividad operacional de PlantActivity (columna C). Valor 0 (inactivo) o 1 (activo).
-- **RawData-PCS**: Hoja del Excel con los registros crudos de estado y falla por intervalo de 15 min y por PCS (244 columnas de datos PCS).
-- **PlantActivity**: Hoja del Excel con el factor operacional (columna C) y el indicador de evento excusable (columna D) por intervalo de 15 min.
-- **Proyecto**: Entidad maestra que representa un activo BESS. Contiene parámetros de configuración como `NumPCS`, `NumBateriasPorPCS`, `NumRacksPorBAC`. Arena BESS es el proyecto `IdProyecto=1`, actualmente en ejecución. Copiapó A, Luz del Norte y María Elena están por implementar.
-- **Detencion**: Evento de indisponibilidad discreto de un PCS, equivalente a una fila de `ListOfFaults`. Tiene `FechaInicio`, `FechaTermino`, `DuracionSegundos`, tipo de detención, flags de calidad y campos de estado para revisión operacional.
-- **TipoDetencion**: Catálogo de códigos de falla extraído de la hoja `PCS-Fault` del Excel. 68 códigos (F0–F118). Identifica la causa técnica de cada detención.
-- **EstadoRevision**: Campo de workflow en `detencion`. Valores: pendiente (por defecto), revisado, excluido. Permite marcar detenciones para análisis posterior.
+- **PCS**: Power Conversion System. 61 unidades.
+- **BEC**: Battery Energy Controller (módulo de batería). 4 por PCS.
+- **BAC**: Battery Array Container. 12 racks por BAC.
+- **Rack**: unidad mínima de batería. Total 2.928.
+- **Fila origen** (`NumeroFilaOrigen`): número de fila de la hoja `RawData-PCS` (la primera fila de datos es la 2). Es la **clave de unión** con `PlantActivity` en modo paridad.
+- **Serial Excel** (`SerialFechaExcelOrigen`): valor `double` crudo de la celda de fecha (días desde 1899-12-30). Los motores de paridad comparan y restan seriales, no `datetime`.
+- **Semántica Excel**: reglas de comparación y conversión del VBA/Excel que el Python debe emular (vacío, texto vs número, `"Yes"`/`"No"` exactos, `FIND`/`MID`/`IFERROR`, conversión número→texto).
+- **Parámetros KPI**: `C5` (inicio), `C7` (fin), `C21` (solo tiempo operacional), `C31` (evento excusable) de `Calculation-Availability`.
+- **Parámetros de eventos**: `L2` (inicio), `L4` (fin), `L14` (evento excusable) de `ListOfFaults`. Son **independientes** de los parámetros KPI.
+- **Fin Daily**: `Daily!D5`, fin del rango de días de la hoja `Daily` (máx. 31 días desde `C5`).
+- **MotorETL**: el sistema Python completo.
+- **ModuloAdquisicion** (Fase S): espera/valida el export SCADA en `data/inbox`.
+- **ModuloLibroTrabajo** (Fase T/M): carga el export en la copia de trabajo del `.xlsm` y ejecuta las macros vía COM.
+- **OrquestadorLunes**: `scripts/run_lunes.py` con etapas `acquire-wait`, `prepare-workbook`, `run-macros`, `run-etl`, `reconcile`, `notify-bi`, `all`.
+- **ModuloIngesta**, **ModuloNormalizacion**, **ModuloEnriquecimiento**, **MotorDisponibilidad** (`cmdCalcAvailability`), **MotorEventosFalla** (`mcoCreateList`), **ModuloAgregacion** (`mcoDailyAvailability` + `Annual_AVA`), **ModuloPersistencia**, **ModuloReconciliacion**: componentes del pipeline (ver design).
+- **IdCorrida**: UUID de una ejecución del MotorETL. Clave de auditoría en todas las tablas.
+- **VersionAlgoritmo**: versión de la lógica (`availability-v1-excel-parity`).
+- **Referencia Excel**: valores producidos por las macros en el libro de trabajo y extraídos por el runner COM (C12/C14/C16/C19, tabla de resultados, ListOfFaults, Daily).
+- **Golden reference**: referencia Excel congelada en `tests/golden/data/` para tests.
+- **BloquesMuestreo (C12)**: cantidad de **filas** de `RawData-PCS` dentro del período.
+- **BloquesRacksIndisponibles (C14)**: Σ `racks_por_pcs × BateriasIndisponiblesPonderadas × [FactorOperacional]`.
+- **DisponibilidadPeriodo (C16)**: `1 - C14 / (TotalRacks × C12)`.
+- **DisponibilidadAnualAcumulada (C19)**: `1 - C14 / (TotalRacks × 365 × 24 × 4)`.
+- **DisponibilidadAcumuladaAnual (Annual_AVA!J)**: `1 - Σ indisponibles mensuales / (TotalRacks × Σ bloques mensuales)`. Métrica distinta de C19.
+- **ModulosDisponiblesNulo**: `True` si `NUMBER_OF_MODULES` estaba vacío.
+- **DescripcionFallaFallback**: `True` si la descripción del evento se tomó de la fila anterior.
+- **EventoArrastradoExcel**: `True` si el evento reproduce el defecto VBA de arrastre entre PCS (F-06).
+- **FactorOperacional**: `PlantActivity!C` (1 activo / 0 inactivo). **FactorExcusable**: `PlantActivity!D` (1 = no excusado, 0 = excusado).
+- **Proyecto**, **Detencion**, **TipoDetencion**, **EstadoRevision**: modelo de negocio multi-proyecto (Req 12).
 
 ---
 
 ## Requirements
 
-### Requirement 1: Ingesta y staging
+### Requirement 1: Configuración y versionado
 
-**User Story:** Como ingeniero de datos, quiero leer los archivos origen y conservar una copia inmutable en staging, para que cualquier reprocesamiento pueda partir del mismo dato original y sea completamente trazable.
+**User Story:** Como desarrollador, quiero que todos los parámetros de negocio provengan de la configuración de la corrida, para adaptar el sistema sin tocar los motores.
 
 #### Acceptance Criteria
 
-1. WHEN el ModuloIngesta recibe la ruta de un archivo Excel válido, THE ModuloIngesta SHALL leer la hoja `RawData-PCS` comenzando en la fila 2 y conservando todas las columnas presentes.
-2. WHEN el ModuloIngesta recibe la ruta de un archivo Excel válido, THE ModuloIngesta SHALL leer la hoja `PlantActivity` comenzando en la fila 2 y conservando todas las columnas presentes.
-3. WHEN el ModuloIngesta termina la lectura, THE ModuloStaging SHALL persistir los registros exactamente como llegaron, sin ninguna transformación, asociados al `IdCorrida` de la corrida actual.
-4. IF el archivo fuente no existe o no es legible, THEN THE ModuloIngesta SHALL registrar el error en `etl_run.MensajeError` y marcar la corrida con `Estado = "failed"`.
-5. WHEN el ModuloIngesta lee `RawData-PCS`, THE ModuloIngesta SHALL detectar y reportar como advertencias: huecos en la secuencia de timestamps, timestamps duplicados, timestamps fuera de orden ascendente, e intervalos con frecuencia distinta a la configurada.
-6. WHEN el ModuloIngesta encuentra una celda vacía en la columna A (timestamp) de `RawData-PCS`, THE ModuloIngesta SHALL registrar la posición del hueco como advertencia y continuar el procesamiento, en lugar de detenerlo silenciosamente como hace el VBA.
-7. THE ModuloStaging SHALL conservar para cada registro de `RawData-PCS` tanto el valor serial numérico de fecha Excel (`SerialFechaExcelOrigen`) como el timestamp interpretado en hora local de Chile (`MarcaTiempoLocalOrigen`).
-8. WHEN el ModuloIngesta detecta anomalías de calidad de datos, THE MotorETL SHALL incluir un resumen de esas anomalías en el registro `etl_run` de la corrida sin abortar el procesamiento.
+1. THE MotorETL SHALL leer los parámetros desde `ConfiguracionCalculo`: `total_pcs`, `baterias_por_pcs`, `racks_por_pcs`, `minutos_muestreo`, `fecha_inicio_proyecto`, parámetros KPI (`inicio_periodo`, `fin_periodo`, `solo_tiempo_operacional`, `aplicar_evento_excusable`), parámetros de eventos (`inicio_periodo_eventos`, `fin_periodo_eventos`, `aplicar_evento_excusable_eventos`), `fin_diario`, `modo_huecos` y `version_algoritmo`.
+2. THE MotorETL SHALL calcular `total_racks = total_pcs × baterias_por_pcs × racks_por_pcs`; SHALL NOT usar 2.928, 61, 4, 12 ni 15 como constantes en los motores.
+3. THE MotorETL SHALL proveer valores por defecto de paridad: `nombre_proyecto="Arena BESS"`, `fecha_inicio_proyecto=2026-04-08`, `total_pcs=61`, `baterias_por_pcs=4`, `racks_por_pcs=12`, `minutos_muestreo=15`, `modo_huecos="excel"`, `version_algoritmo="availability-v1-excel-parity"`.
+4. WHERE los parámetros de eventos no se informan, THE MotorETL SHALL usar los parámetros KPI equivalentes y registrar en `etl_run` los valores efectivamente usados.
+5. WHEN la configuración se construye desde valores de celdas Excel, THE MotorETL SHALL interpretar `solo_tiempo_operacional = (C21 <> "No")` y `aplicar_evento_excusable = (C31 = "Yes")`, `aplicar_evento_excusable_eventos = (L14 = "Yes")`, con comparación exacta sensible a mayúsculas (F-12).
+6. WHEN se modifica una regla de negocio, THE MotorETL SHALL crear una nueva `VersionAlgoritmo` y nunca sobrescribir resultados de versiones anteriores.
 
 ---
 
-### Requirement 14: Adquisición SCADA semanal (Fase S)
+### Requirement 2: Adquisición SCADA semanal (Fase S)
 
-**User Story:** Como operador del proyecto, quiero cada lunes bajar el reporte SCADA de `RawData-PCS` a `data/inbox` y validarlo/transformarlo de forma reproducible, para alimentar el pipeline sin intervención manual de fechas y sin procesar en el server SCADA.
+**User Story:** Como operador, quiero bajar cada lunes el export SCADA a `data/inbox` y validarlo de forma reproducible, sin procesar en el server SCADA.
 
 #### Acceptance Criteria
 
-1. WHEN un archivo de export SCADA es colocado en `data/inbox`, THE ModuloAdquisicion SHALL esperar hasta que aparezca (`acquire-wait`), validarlo (nombre, no vacío, sha256, legibilidad) y registrarlo en log antes de continuar.
-2. THE ModuloAdquisicion SHALL validar que el rango de fechas del reporte coincida con la convención acordada (`DESDE = 01-01-2026` o primer dato / `HASTA = último domingo` del período o el rango explícito configurado); IF no coincide THEN SHALL fallar la etapa sin escribir el `.xlsm` de trabajo.
-3. THE ModuloAdquisicion SHALL transformar fechas de origen `mm-dd-aaaa hh:mm:ss` al formato de la hoja destino `dd-mm-aaaa hh:mm:ss` (equivalente a la conversión manual actual) y SHALL aplicar el mapping de columnas = `RawData-PCS` de la hoja destino.
-4. THE ModuloAdquisicion SHALL escribir sobre una **copia de trabajo** del `.xlsm` y conservar un backup del original; SHALL NO editar el maestro `data/AvailabilityCalculation_*.xlsm` sin backup.
-5. THE ModuloMacros SHALL ejecutar en la PC local (COM Excel) la secuencia `cmdCalcAvailability` → `mcoCreateList` → `mcoDailyAvailability` → `Graphupdate` con `C5`/`C7` del período y SHALL extraer `C12`, `C14`, `C16` y `C19` como referencia de la corrida.
-6. EL OrquestadorLunes SHALL ofrecer las etapas `acquire-wait`, `prepare-workbook`, `run-macros`, `run-etl`, `reconcile` y `notify-bi`, ejecutables individualmente o en `--stage all`.
-7. WHEN `run-etl` inicia, THE OrquestadorLunes SHALL generar un `IdCorrida` nuevo para la semana y persistir la corrida en SQL Server append-only.
-8. WHEN `reconcile` compara Python vs la referencia del Excel, THE MotorETL SHALL reportar paridad/desviaciones en niveles C12/C14/C16/C19 (y eventos si existen) según las tolerancias del SDD de reconciliación.
-9. WHEN `notify-bi` se ejecuta, THE OrquestadorLunes SHALL emitir una notificación (webhook/mensaje) al owner de Power BI (Misael) indicando que SQL está listo para refresh; SHALL NO intentar refresh vía API hasta que exista service principal (requisito posterior).
-10. THE Sistema SHALL NO ejecutar macros ni el pipeline ETL en el server SCADA; solo extracción/export allí.
-11. IF el transporte es TeamViewer (hoy) y no hay archivo en el inbox, THE `acquire-wait` SHALL fallar con mensaje accionable (riesgo J: sin API/UNC aún).
+1. WHEN se ejecuta `acquire-wait`, THE ModuloAdquisicion SHALL esperar (con timeout configurable) un archivo en `data/inbox` que cumpla la convención de nombre, validar que no está vacío y es legible, calcular su sha256 y registrarlo en log.
+2. IF no hay archivo al vencer el timeout, THEN THE ModuloAdquisicion SHALL fallar con un mensaje accionable (riesgo J: sin API/UNC).
+3. THE ModuloAdquisicion SHALL mover el original a `data/processed/<corte>/` junto a su `.sha256`; SHALL NOT modificar ese archivo después.
+4. THE ModuloAdquisicion SHALL validar el data contract acordado en P1 (columnas = encabezados de `RawData-PCS`, delimitador, encoding, formato de fecha origen) y SHALL fallar sin tocar el libro de trabajo si no se cumple.
+5. THE ModuloAdquisicion SHALL validar que el rango de fechas del reporte cumple la convención (`DESDE` = primer dato o `01-01-2026`; `HASTA` = último domingo o rango configurado).
+6. THE Sistema SHALL NOT ejecutar macros ni el pipeline ETL en el server SCADA.
 
 ---
 
-### Requirement 15: Notificación a Power BI
+### Requirement 3: Libro de trabajo y macros de referencia (Fases T/M)
 
-**User Story:** Como owner de reporting (Misael), quiero una notificación cuando el pipeline semanal termina de escribir en SQL Server, para refrescar el dashboard sin depender de un job automático de API (todavía no disponible).
+**User Story:** Como ingeniero de datos, quiero que las macros Excel corran automáticamente sobre el mismo input que el pipeline Python, para tener una referencia de paridad por corrida.
 
 #### Acceptance Criteria
 
-1. WHEN la etapa `run-etl` finaliza con éxito, THE OrquestadorLunes SHALL emitir una notificación (webhook o mensaje) con `IdCorrida`, período y estado de reconciliación si `reconcile` corrió.
-2. THE Sistema SHALL NO intentar refresh vía Power BI API hasta que exista service principal / credenciales aprobadas (requisito posterior fuera de P0–P9).
-3. WHEN `reconcile` detecta desviaciones, THE notificación SHALL incluir el resumen de desviaciones para que el owner decida si refresca o espera.
+1. WHEN se ejecuta `prepare-workbook`, THE ModuloLibroTrabajo SHALL crear una copia de trabajo del `.xlsm` maestro en `data/work/<corte>/` y un backup; SHALL NOT editar el maestro.
+2. THE ModuloLibroTrabajo SHALL escribir `RawData-PCS` en la copia de trabajo **vía COM** (no `openpyxl`), con la columna A como fecha/serial Excel real; el formato `dd-mm-aaaa hh:mm:ss` SHALL ser solo formato de visualización (F-21, F-22).
+3. THE ModuloLibroTrabajo SHALL convertir fechas origen `mm-dd-aaaa hh:mm:ss` con un parser estricto; IF alguna fecha no parsea, THEN SHALL fallar la etapa.
+4. WHEN termina la carga, THE ModuloLibroTrabajo SHALL verificar la alineación por fila con `PlantActivity` (timestamp de `PlantActivity!B` = `RawData-PCS!A` en cada fila donde exista) y reportar las filas desalineadas o sin timestamp.
+5. WHEN se ejecuta `run-macros`, THE ModuloLibroTrabajo SHALL escribir `C5`, `C7`, `C21`, `C31`, `ListOfFaults!L2`, `L4`, `L14` y `Daily!D5` desde la configuración, y ejecutar en orden `cmdCalcAvailability` → `mcoCreateList` → `mcoDailyAvailability` → `Graphupdate` en Excel local vía COM.
+6. WHEN las macros terminan, THE ModuloLibroTrabajo SHALL extraer como referencia: `C12`, `C14`, `C16`, `C19`, `C23`, `ListOfFaults!L10`, la tabla `Calculation-Availability!E4:BO<n>`, la lista completa `ListOfFaults!B6:I<n>` y `Daily!B9:G39`, y guardarla en `data/work/<corte>/referencia_excel.json` y en SQL (tablas `excel_reference_*`).
+7. IF una macro falla o excede el timeout, THEN THE ModuloLibroTrabajo SHALL cerrar solo la instancia de Excel que creó, guardar el log y marcar la referencia como ausente; el pipeline Python SHALL poder continuar con advertencia.
 
 ---
 
-### Requirement 2: Normalización
+### Requirement 4: Ingesta y staging
 
-**User Story:** Como desarrollador del motor de disponibilidad, quiero los datos PCS en formato largo (1 fila por PCS×timestamp), para que el motor pueda procesar cada combinación sin depender del índice de columna frágil del Excel.
+**User Story:** Como ingeniero de datos, quiero leer el libro de trabajo conservando el dato original, para que cualquier reproceso sea trazable.
 
 #### Acceptance Criteria
 
-1. WHEN el ModuloNormalizacion recibe los datos crudos de `RawData-PCS`, THE ModuloNormalizacion SHALL transformar el formato ancho de 244 columnas (61 PCS × 4 columnas) en formato largo con una fila por `(MarcaTiempoMuestra, NumeroPCS)`.
-2. THE ModuloNormalizacion SHALL extraer para cada PCS los cuatro campos: `CodigoFallaRaw` (CURRENT FAULT), `EstadoRaw` (CURRENT STATUS), `AdvertenciaRaw` (CURRENT WARNING) y `ModulosDisponibles` (NUMBER OF MODULES), usando el patrón de nombre `Arena - PCS XX - POWERELECTRONICS ...` donde `XX` va de `01` a `61`.
-3. WHEN el ModuloNormalizacion encuentra que el campo `NUMBER_OF_MODULES` está vacío para un `(MarcaTiempoMuestra, NumeroPCS)`, THE ModuloNormalizacion SHALL asignar `ModulosDisponibles = 4` y marcar `ModulosDisponiblesNulo = True`.
-4. WHEN el ModuloNormalizacion encuentra que el campo `NUMBER_OF_MODULES` contiene un valor numérico, THE ModuloNormalizacion SHALL asignar ese valor a `ModulosDisponibles` y marcar `ModulosDisponiblesNulo = False`.
-5. THE ModuloNormalizacion SHALL detectar y reportar: PCS faltantes respecto al total configurado, columnas faltantes por PCS, columnas con nombres inesperados, y columnas en posición desplazada.
-6. WHEN la normalización finaliza, THE ModuloNormalizacion SHALL producir un conjunto de datos normalizado ordenado por `(MarcaTiempoMuestra ASC, NumeroPCS ASC)`.
+1. WHEN el ModuloIngesta recibe la ruta de un libro válido, THE ModuloIngesta SHALL leer `RawData-PCS` y `PlantActivity` desde la fila 2 conservando todas las columnas y el número de fila origen.
+2. THE ModuloIngesta SHALL obtener `SerialFechaExcelOrigen` del valor numérico crudo de la celda (sin reconvertir desde `datetime`) y `MarcaTiempoLocalOrigen` como `datetime` local naive.
+3. IF el archivo o una hoja requerida no existe o no es legible, THEN THE ModuloIngesta SHALL marcar la corrida `Estado="failed"` con el error en `etl_run.MensajeError`.
+4. THE ModuloIngesta SHALL detectar y reportar sin abortar: huecos (salto > `minutos_muestreo`), timestamps duplicados, timestamps fuera de orden, frecuencia efectiva distinta (`ROUND(Δserial × 1440, 2)`), celdas A vacías, filas de `PlantActivity` sin timestamp o desalineadas.
+5. WHERE `modo_huecos = "excel"`, WHEN la columna A tiene la primera celda vacía, THE ModuloIngesta SHALL ignorar esa fila y todas las siguientes (como el VBA) y reportar cuántas filas se descartaron. WHERE `modo_huecos = "continuar"`, SHALL omitir solo las filas vacías.
+6. IF una celda `NUMBER_OF_MODULES` contiene texto no numérico, THEN THE ModuloIngesta SHALL rechazar la corrida en modo paridad (el VBA fallaría con *Type mismatch*) indicando fila y PCS (F-16).
+7. THE ModuloIngesta SHALL conservar el tipo crudo de `CURRENT FAULT` (texto, número o vacío).
+8. THE ModuloStaging SHALL persistir los registros sin transformaciones de negocio, asociados al `IdCorrida`.
 
 ---
 
-### Requirement 3: Enriquecimiento
+### Requirement 5: Normalización
 
-**User Story:** Como desarrollador del motor de disponibilidad, quiero unir los datos PCS normalizados con los factores de PlantActivity, para que el motor pueda aplicar los ponderadores operacional y excusable correctamente en cada intervalo.
+**User Story:** Como desarrollador del motor, quiero los datos PCS en formato largo, para no depender del índice de columna frágil del Excel.
 
 #### Acceptance Criteria
 
-1. WHEN el ModuloEnriquecimiento recibe los datos normalizados de PCS y los datos de PlantActivity, THE ModuloEnriquecimiento SHALL unir ambas fuentes por `MarcaTiempoMuestra`.
-2. THE ModuloEnriquecimiento SHALL asignar a cada registro de `raw_pcs_sample` el `FactorOperacional` (columna C de PlantActivity) y el `FactorExcusable` (columna D de PlantActivity) correspondientes al mismo timestamp.
-3. IF un `MarcaTiempoMuestra` de `raw_pcs_sample` no tiene correspondencia en `plant_activity_sample`, THEN THE ModuloEnriquecimiento SHALL registrar el hueco como advertencia y asignar valores por defecto: `FactorOperacional = 1`, `FactorExcusable = 1`.
-4. WHEN el enriquecimiento finaliza, THE ModuloEnriquecimiento SHALL producir un conjunto de datos enriquecido con todos los campos necesarios para el MotorDisponibilidad: `ModulosDisponibles`, `ModulosDisponiblesNulo`, `FactorOperacional` y `FactorExcusable`.
+1. THE ModuloNormalizacion SHALL transformar el formato ancho (61 × 4 columnas) a una fila por `(NumeroFilaOrigen, NumeroPCS)`, conservando `SerialFechaExcelOrigen` y `MarcaTiempoMuestra`.
+2. THE ModuloNormalizacion SHALL identificar las columnas por el patrón `Arena - PCS XX - POWERELECTRONICS <campo>` con los campos exactos `GEN3 HEx CURRENT FAULT`, `GEN3 HEx CURRENT STATUS`, `GEN3 HEx CURRENT WARNING`, `HEM-k NUMBER OF MODULES`.
+3. WHEN `NUMBER_OF_MODULES` está vacío, THE ModuloNormalizacion SHALL asignar `ModulosDisponibles = baterias_por_pcs`, `ModulosDisponiblesNulo = True` y `ModulosRaw = NULL`.
+4. WHEN `NUMBER_OF_MODULES` es numérico, THE ModuloNormalizacion SHALL conservar el valor como `float` **sin redondear ni truncar** (hay valores fraccionarios, F-02) y `ModulosDisponiblesNulo = False`.
+5. THE ModuloNormalizacion SHALL detectar y reportar PCS faltantes, columnas faltantes por PCS, nombres inesperados y columnas desplazadas respecto del orden `PCS k → columnas 4k-2 … 4k+1`.
+6. THE ModuloNormalizacion SHALL conservar el **orden de fila origen**; SHALL NOT reordenar ni deduplicar por timestamp en modo paridad (F-07).
 
 ---
 
-### Requirement 4: Motor de disponibilidad
+### Requirement 6: Enriquecimiento
 
-**User Story:** Como analista de disponibilidad, quiero que el motor Python calcule `BloquesMuestreo` (C12), `BloquesRacksIndisponibles` (C14) y el KPI del período reproduciéndose exactamente igual que la macro `cmdCalcAvailability`, para poder comparar los resultados antes de retirar el Excel como fuente oficial.
+**User Story:** Como desarrollador del motor, quiero asociar los factores de PlantActivity a cada fila exactamente como lo hace el VBA.
 
 #### Acceptance Criteria
 
-1. WHEN el MotorDisponibilidad procesa un período, THE MotorDisponibilidad SHALL incrementar `BloquesMuestreo` en 1 por cada intervalo de 15 minutos válido en el rango de fechas, independientemente del número de PCS.
-2. WHEN el MotorDisponibilidad evalúa `ModulosDisponibles` para un `(MarcaTiempoMuestra, NumeroPCS)`, THE MotorDisponibilidad SHALL considerar ese PCS como indisponible únicamente si `ModulosDisponibles` es numérico y `ModulosDisponibles < 4`.
-3. WHEN el MotorDisponibilidad identifica un PCS indisponible en un intervalo, THE MotorDisponibilidad SHALL calcular `BateriasIndisponibles = baterias_por_pcs - ModulosDisponibles`.
-4. WHERE el parámetro de corrida `aplicar_evento_excusable = "Yes"`, THE MotorDisponibilidad SHALL calcular `BateriasIndisponiblesPonderadas = BateriasIndisponibles * FactorExcusable`.
-5. WHERE el parámetro de corrida `aplicar_evento_excusable = "No"`, THE MotorDisponibilidad SHALL calcular `BateriasIndisponiblesPonderadas = BateriasIndisponibles`.
-6. WHERE el parámetro de corrida `solo_tiempo_operacional = "Yes"`, THE MotorDisponibilidad SHALL acumular `BloquesRacksIndisponibles += racks_por_pcs * BateriasIndisponiblesPonderadas * FactorOperacional`.
-7. WHERE el parámetro de corrida `solo_tiempo_operacional = "No"`, THE MotorDisponibilidad SHALL acumular `BloquesRacksIndisponibles += racks_por_pcs * BateriasIndisponiblesPonderadas`.
-8. WHEN el MotorDisponibilidad ha procesado todos los intervalos del período, THE MotorDisponibilidad SHALL calcular `DisponibilidadPeriodo = 1 - BloquesRacksIndisponibles / (TotalRacks * BloquesMuestreo)`.
-9. IF `BloquesMuestreo = 0` o `TotalRacks = 0`, THEN THE MotorDisponibilidad SHALL producir `DisponibilidadPeriodo = None` (equivalente al `IFERROR(..., "N/A")` del Excel).
-10. THE MotorDisponibilidad SHALL usar el factor `racks_por_pcs` proveniente de la configuración de la corrida (valor `12` durante la fase de paridad), sin asumir ese valor como constante del código.
-11. THE MotorDisponibilidad SHALL producir un registro en `availability_sample_result` por cada `(IdCorrida, MarcaTiempoMuestra, NumeroPCS)` incluyendo: `ModulosDisponibles`, `ModulosDisponiblesNulo`, `BateriasIndisponibles`, `FactorExcusable`, `FactorOperacional`, `BateriasIndisponiblesPonderadas` y `ImpactoRackPonderado`.
+1. THE ModuloEnriquecimiento SHALL asociar a cada fila de `RawData-PCS` los valores de `PlantActivity!C` (FactorOperacional) y `PlantActivity!D` (FactorExcusable) de la **misma fila origen** (F-01).
+2. IF la celda de `PlantActivity` está vacía o la fila no existe, THEN THE ModuloEnriquecimiento SHALL usar `0` (semántica de celda vacía en Excel) y registrar la anomalía.
+3. WHEN la fila de `PlantActivity` tiene timestamp distinto del de `RawData-PCS`, THE ModuloEnriquecimiento SHALL registrar la desalineación con ambos valores.
+4. THE ModuloEnriquecimiento SHALL producir para cada `(NumeroFilaOrigen, NumeroPCS)`: `ModulosDisponibles`, `ModulosDisponiblesNulo`, `FallaRaw`, `FactorOperacional`, `FactorExcusable`.
 
 ---
 
-### Requirement 5: Motor de eventos de falla
+### Requirement 7: Motor de disponibilidad (`cmdCalcAvailability`)
 
-**User Story:** Como analista de disponibilidad, quiero que el motor Python genere la lista de eventos de falla reproduciéndose exactamente igual que la macro `mcoCreateList`, incluyendo la lógica de fallback en la descripción, para poder reconciliar la lista con el Excel evento por evento.
+**User Story:** Como analista, quiero que el motor Python calcule C12, C14, C16 y C19 exactamente como la macro, para compararlos antes de retirar el Excel.
 
 #### Acceptance Criteria
 
-1. WHEN el MotorEventosFalla procesa los datos normalizados, THE MotorEventosFalla SHALL recorrer cada PCS por separado en orden temporal ascendente y agrupar secuencias consecutivas de intervalos donde `ModulosDisponibles < 4` como un único evento de falla.
-2. WHEN el MotorEventosFalla detecta el inicio de un evento de falla, THE MotorEventosFalla SHALL calcular `MarcaTiempoInicio = marca_tiempo_actual - minutos_muestreo / (24 * 60)` expresado como fracción de día (conservando la semántica exacta del VBA).
-3. WHEN el MotorEventosFalla detecta el fin de un evento de falla, THE MotorEventosFalla SHALL cerrar el evento cuando el siguiente intervalo tiene `ModulosDisponibles = 4`, está vacío, o su timestamp supera `fin_periodo + 1 día`.
-4. WHEN el MotorEventosFalla determina la descripción de un evento de falla, THE MotorEventosFalla SHALL aplicar la siguiente lógica en orden:
-   - Si la descripción del intervalo actual es distinta de `"NO FAULTS"` y no está vacía: usar la descripción actual.
-   - Si la descripción actual es `"NO FAULTS"` y el intervalo inmediatamente anterior tiene una descripción distinta de `"NO FAULTS"`: usar la descripción del intervalo anterior.
-   - Si la descripción actual es `"NO FAULTS"` y el intervalo anterior también es `"NO FAULTS"` o no existe: asignar `"F13 NO MODULES"`.
-   - Si la descripción resultante está vacía: asignar `"F1 Watchdog"`.
-5. WHEN el MotorEventosFalla aplica la descripción del intervalo anterior, THE MotorEventosFalla SHALL marcar el evento con `DescripcionFallaFallback = True`.
-6. WHEN el MotorEventosFalla calcula el código de falla, THE MotorEventosFalla SHALL extraer el primer token antes del primer espacio en la descripción final; IF la descripción no contiene espacio, THEN THE MotorEventosFalla SHALL usar `"F" + descripcion_completa`.
-7. WHEN el MotorEventosFalla calcula la duración de un evento, THE MotorEventosFalla SHALL usar `DuracionHoras = 24 * (MarcaTiempoFin - MarcaTiempoInicio)`.
-8. WHEN el MotorEventosFalla calcula el impacto de un evento, THE MotorEventosFalla SHALL usar `HorasRackIndisponibles = racks_por_pcs * DuracionHoras * (sumablocks / numBlock)`, donde `racks_por_pcs = 12` proviene de la configuración.
-9. WHERE el parámetro `aplicar_evento_excusable = "Yes"`, THE MotorEventosFalla SHALL ponderar cada bloque del acumulador `sumablocks` con el `FactorExcusable` del timestamp correspondiente.
-10. THE MotorEventosFalla SHALL producir registros en la tabla `fault_event` con todos los campos del modelo de datos: `IdCorrida`, `NumeroPCS`, `MarcaTiempoInicio`, `MarcaTiempoFin`, `DuracionHoras`, `CodigoFalla`, `DescripcionFalla`, `DescripcionFallaFallback`, `PromedioBateriasInvolucradas` y `HorasRackIndisponibles`.
+1. THE MotorDisponibilidad SHALL recorrer las filas en orden de fila origen y procesar una fila si `serial ≥ serial(inicio_periodo)` AND `serial < serial(fin_periodo) + 1`.
+2. THE MotorDisponibilidad SHALL incrementar `BloquesMuestreo` en 1 por **cada fila** procesada, independientemente del número de PCS y aunque existan timestamps repetidos.
+3. THE MotorDisponibilidad SHALL considerar un PCS indisponible en una fila únicamente si `ModulosDisponiblesNulo = False` AND `ModulosDisponibles < 4` (umbral literal del VBA, parametrizado como `baterias_por_pcs`).
+4. WHEN un PCS es indisponible, THE MotorDisponibilidad SHALL calcular `BateriasIndisponibles = baterias_por_pcs − ModulosDisponibles` como `float`.
+5. WHERE `aplicar_evento_excusable`, THE MotorDisponibilidad SHALL calcular `BateriasIndisponiblesPonderadas = BateriasIndisponibles × FactorExcusable`; en otro caso `= BateriasIndisponibles`.
+6. WHERE `solo_tiempo_operacional`, THE MotorDisponibilidad SHALL acumular `C14 += racks_por_pcs × BateriasIndisponiblesPonderadas × FactorOperacional`; en otro caso `C14 += racks_por_pcs × BateriasIndisponiblesPonderadas`.
+7. THE MotorDisponibilidad SHALL acumular C14 en el mismo orden que el VBA (fila, luego PCS 1..N) y sin redondeos intermedios.
+8. THE MotorDisponibilidad SHALL calcular `DisponibilidadPeriodo = 1 − C14 / (TotalRacks × C12)` y `DisponibilidadAnualAcumulada = 1 − C14 / (TotalRacks × 365 × 24 × 4)`; IF el denominador es 0, THEN SHALL producir `None` (equivalente a `IFERROR(…,"N/A")`).
+9. THE MotorDisponibilidad SHALL derivar `MinutosMuestreoDerivado = ROUND((serial₂ − serial₁) × 1440, 2)` de las dos primeras filas procesadas (C23) y reportar si difiere de `minutos_muestreo` (F-13).
+10. THE MotorDisponibilidad SHALL producir una fila de `availability_sample_result` por `(NumeroFilaOrigen, NumeroPCS)` procesado con: `ModulosDisponibles`, `ModulosDisponiblesNulo`, `BateriasIndisponibles`, `FactorExcusable`, `FactorOperacional`, `BateriasIndisponiblesPonderadas`, `ImpactoRackPonderado`.
 
 ---
 
-### Requirement 6: Agregaciones
+### Requirement 8: Motor de eventos de falla (`mcoCreateList`)
 
-**User Story:** Como analista de disponibilidad, quiero los KPI diarios, mensuales y el acumulado anual calculados con la misma lógica que el Excel (macros `mcoDailyAvailability` y hoja `Annual_AVA`), para comparar los resultados período a período.
+**User Story:** Como analista, quiero la lista de eventos idéntica a `ListOfFaults`, incluyendo el fallback de descripción y los defectos conocidos, para reconciliar evento por evento.
 
 #### Acceptance Criteria
 
-1. WHEN el ModuloAgregacion calcula el KPI diario para un día, THE ModuloAgregacion SHALL sumar todos los valores `ImpactoRackPonderado` de `availability_sample_result` correspondientes a ese día e `IdCorrida`.
-2. WHEN el ModuloAgregacion acumula el KPI diario, THE ModuloAgregacion SHALL calcular `BloquesRacksIndisponiblesAcumulados` como la suma desde el primer día del período hasta el día actual, inclusive.
-3. WHEN el ModuloAgregacion calcula la disponibilidad diaria acumulada para el día N del mes, THE ModuloAgregacion SHALL usar: `Disponibilidad = 1 - BloquesRacksIndisponiblesAcumulados / (TotalRacks * 24 * 60 * N / MinutosMuestreo)`.
-4. IF el denominador de la fórmula de disponibilidad diaria es cero, THEN THE ModuloAgregacion SHALL producir `Disponibilidad = None` para ese día.
-5. WHEN el ModuloAgregacion calcula la variación diaria, THE ModuloAgregacion SHALL calcular `Variacion = Disponibilidad_dia_N - Disponibilidad_dia_N_menos_1` con manejo de error equivalente a `IFERROR`.
-6. WHEN el ModuloAgregacion calcula la disponibilidad acumulada anual para una corrida, THE ModuloAgregacion SHALL usar la fórmula `DisponibilidadAnualAcumulada = 1 - BloquesRacksIndisponibles / (TotalRacks * (365 * 24 * 4))`, conservando el supuesto de 365 días y 4 bloques/hora del Excel durante la fase de paridad.
-7. THE ModuloAgregacion SHALL producir registros en `annual_availability` con: año, mes, días en el mes, bloques de muestreo, racks indisponibles, disponibilidad mensual, acumulados históricos y disponibilidad acumulada.
-8. THE ModuloAgregacion SHALL inicializar la acumulación anual desde el **08/Abril/2026** (fecha de inicio de operación de Arena BESS), sin acumular períodos anteriores a esa fecha.
+1. THE MotorEventosFalla SHALL recorrer los PCS en el orden de los bloques de encabezado de `RawData-PCS` y, para cada PCS, todas las filas en orden de fila origen, usando los **parámetros de eventos** (`L2`, `L4`, `L14`).
+2. THE MotorEventosFalla SHALL considerar una fila si `serial ≥ L2` AND `serial < L4 + 1` AND `ModulosDisponiblesNulo = False` AND `ModulosDisponibles < 4`.
+3. WHEN considera una fila, THE MotorEventosFalla SHALL acumular `sumablocks += (4 − Modulos) × FactorExcusable` si `aplicar_evento_excusable_eventos`, o `sumablocks = (sumablocks + 4) − Modulos` en otro caso (orden de evaluación del VBA), y `numBlock += 1`.
+4. THE MotorEventosFalla SHALL iniciar un registro de evento cuando la fila **anterior de la hoja completa** tiene módulos `= 4`, está vacía, o su serial es `< L2`. El inicio SHALL ser `serial_actual − MinutosMuestreoDerivado / 1440` y `NumeroPCS` el del bloque.
+5. THE MotorEventosFalla SHALL cerrar el evento cuando la **fila siguiente** tiene módulos `= 4`, está vacía (o no existe), o su serial es **estrictamente** `> L4 + 1`. El fin SHALL ser el serial de la **fila actual** (última en falla) (F-03).
+6. WHEN cierra, THE MotorEventosFalla SHALL calcular `DuracionHoras = 24 × (fin − inicio)` en seriales, `PromedioBateriasInvolucradas = sumablocks / numBlock`, `HorasRackIndisponibles = racks_por_pcs × DuracionHoras × Promedio`, acumular `L10`, y reiniciar `sumablocks` y `numBlock`.
+7. THE MotorEventosFalla SHALL mantener `sumablocks`, `numBlock` y el registro abierto **entre PCS** como el VBA; WHEN un evento quedó abierto y otro PCS lo sobrescribe o cierra, SHALL marcar `EventoArrastradoExcel = True` (F-06).
+8. WHEN determina la descripción al iniciar, THE MotorEventosFalla SHALL aplicar en orden: (a) `G = CURRENT FAULT` de la fila actual; (b) si `G = "NO FAULTS"`: si la fila anterior `≠ "NO FAULTS"` entonces `G = valor de la fila anterior` y `DescripcionFallaFallback = True`, si no `G = "F13 NO MODULES"`; (c) si `G` es vacío entonces `G = "F1 Watchdog"`. Una fila anterior vacía produce por tanto `"F1 Watchdog"` (F-04).
+9. THE MotorEventosFalla SHALL calcular `CodigoFalla` emulando `IFERROR(MID(G,1,FIND(" ",G,1)-1), "F"&G)`: texto hasta el primer espacio (cadena vacía si el espacio está en la posición 1); `"F" & texto_excel(G)` si no hay espacio; números convertidos a texto como Excel (`55` → `"F55"`) (F-14).
+10. IF un evento debe iniciar en la primera fila de datos (la anterior es el encabezado, donde el VBA falla con *Type mismatch*), THEN THE MotorEventosFalla SHALL iniciar el evento y marcarlo `ExcelHabriaFallado = True` (F-11, D-08).
+11. THE MotorEventosFalla SHALL producir registros `fault_event` con: `NumeroPCS`, `OrdenExcel`, `SerialInicio`, `SerialFin`, `MarcaTiempoInicio`, `MarcaTiempoFin`, `DuracionHoras`, `CodigoFalla`, `DescripcionFalla`, `DescripcionFallaFallback`, `NumeroBloques`, `PromedioBateriasInvolucradas`, `HorasRackIndisponibles`, `EventoArrastradoExcel`, `ExcelHabriaFallado`.
+12. THE MotorEventosFalla SHALL producir el resumen por código de falla equivalente a `ListOfFaults!N:Q` (Σ rack-hours por código, % sobre L10), ordenado de mayor a menor. No existe límite de eventos (F-18).
 
 ---
 
-### Requirement 7: Persistencia SQL Server
+### Requirement 9: Disponibilidad diaria (`mcoDailyAvailability`)
 
-**User Story:** Como administrador del sistema, quiero que todos los resultados y datos intermedios se almacenen en SQL Server de forma append-only por `IdCorrida`, para que ninguna corrida nueva destruya los resultados históricos y cada corrida sea completamente auditable.
+**User Story:** Como analista, quiero el KPI diario acumulado idéntico a la hoja `Daily`.
 
 #### Acceptance Criteria
 
-1. THE ModuloPersistencia SHALL operar en modo append-only: nunca eliminar ni sobreescribir registros existentes en ninguna tabla.
-2. THE ModuloPersistencia SHALL crear un registro en `etl_run` al inicio de cada corrida con `Estado = "running"` y actualizarlo con `Estado = "success"` o `Estado = "failed"` al finalizar.
-3. THE ModuloPersistencia SHALL insertar todos los registros de staging, resultados intermedios y KPI bajo el mismo `IdCorrida` de la corrida activa.
-4. THE ModuloPersistencia SHALL persistir las once tablas del modelo de datos: `proyecto`, `tipo_detencion`, `etl_run`, `raw_pcs_sample`, `plant_activity_sample`, `availability_sample_result`, `availability_run_result`, `fault_event`, `detencion`, `daily_availability` y `annual_availability`.
-5. WHEN el ModuloPersistencia inserta registros en `raw_pcs_sample`, THE ModuloPersistencia SHALL conservar el número de fila origen (`NumeroFilaOrigen`) y el nombre de las columnas origen (`ColumnasOrigen`) para trazabilidad.
-6. THE ModuloPersistencia SHALL almacenar en `etl_run` los parámetros completos de la corrida: `TotalPCS`, `BateriasPorPCS`, `RacksPorPCS`, `TotalRacks`, `MinutosMuestreo`, `SoloTiempoOperacional`, `AplicarEventoExcusable` y `VersionAlgoritmo`.
-7. IF la conexión a SQL Server falla durante la inserción, THEN THE ModuloPersistencia SHALL registrar el error, marcar la corrida con `Estado = "failed"` y no dejar datos parciales sin el correspondiente `etl_run` de error.
+1. THE ModuloAgregacion SHALL generar un día por fecha desde `inicio_periodo` hasta `fin_diario` inclusive (default `fin_periodo`), con un máximo de 31 días; `DiaN` = 1 para `inicio_periodo` (F-09).
+2. THE ModuloAgregacion SHALL calcular `BloquesRacksIndisponiblesDiarios` = Σ `racks_por_pcs × BateriasIndisponiblesPonderadas` de las filas procesadas por el MotorDisponibilidad cuyo serial cae en `[día, día+1)`, **sin** aplicar `FactorOperacional` (F-08).
+3. THE ModuloAgregacion SHALL calcular `BloquesRacksIndisponiblesAcumulados(N) = Diario(N) + Acumulado(N−1)`.
+4. THE ModuloAgregacion SHALL calcular `Disponibilidad(N) = 1 − Acumulado(N) / (TotalRacks × 24 × 60 × DiaN / MinutosMuestreoDerivado)`; IF el denominador es 0, THEN `None`.
+5. THE ModuloAgregacion SHALL calcular `Variacion(1) = 0` y `Variacion(N) = Disponibilidad(N) − Disponibilidad(N−1)`, `None` si alguno es `None`.
+6. THE ModuloAgregacion SHALL incluir días sin datos dentro del rango con valor diario 0 (el denominador sigue creciendo, como en Excel).
 
 ---
 
-### Requirement 8: Reconciliación
+### Requirement 10: KPI mensual y acumulado anual (`Annual_AVA`)
 
-**User Story:** Como ingeniero de datos, quiero comparar automáticamente una corrida Python contra una corrida Excel en cinco niveles de detalle, para poder declarar la paridad antes de retirar el Excel como fuente oficial.
+**User Story:** Como analista, quiero el KPI mensual y el acumulado anual con la misma fórmula que la hoja `Annual_AVA`, sabiendo que esa hoja se mantiene a mano.
 
 #### Acceptance Criteria
 
-1. THE ModuloReconciliacion SHALL comparar corridas en cinco niveles: (1) input, (2) muestra individual, (3) acumulados, (4) KPI y (5) eventos.
-2. WHEN el ModuloReconciliacion ejecuta la comparación de Nivel 1 (input), THE ModuloReconciliacion SHALL verificar que coincidan: cantidad total de filas, rango de timestamps, cantidad de PCS, cantidad de registros por PCS, frecuencia de muestreo, fecha inicial y fecha final.
-3. WHEN el ModuloReconciliacion ejecuta la comparación de Nivel 2 (muestra individual), THE ModuloReconciliacion SHALL comparar por cada `(MarcaTiempoMuestra, NumeroPCS)`: `ModulosDisponibles`, `BateriasIndisponibles`, `FactorExcusable`, `FactorOperacional` y `BateriasIndisponiblesPonderadas`.
-4. WHEN el ModuloReconciliacion ejecuta la comparación de Nivel 3 (acumulados), THE ModuloReconciliacion SHALL comparar `BloquesMuestreo` (C12) y `BloquesRacksIndisponibles` (C14) entre la corrida Python y los valores del Excel.
-5. WHEN el ModuloReconciliacion ejecuta la comparación de Nivel 4 (KPI), THE ModuloReconciliacion SHALL comparar `DisponibilidadPeriodo` (C16) y `DisponibilidadAnualAcumulada` (C19), así como los KPI diarios y mensuales.
-6. WHEN el ModuloReconciliacion ejecuta la comparación de Nivel 5 (eventos), THE ModuloReconciliacion SHALL comparar campo por campo cada evento de `ListOfFaults`: `NumeroPCS`, `MarcaTiempoInicio`, `MarcaTiempoFin`, `DuracionHoras`, `CodigoFalla`, `PromedioBateriasInvolucradas` y `HorasRackIndisponibles`.
-7. WHEN el ModuloReconciliacion compara valores numéricos de punto flotante, THE ModuloReconciliacion SHALL usar una tolerancia absoluta de `1e-9` para los cálculos internos y reportar cualquier diferencia que supere ese umbral.
-8. WHEN el ModuloReconciliacion detecta que el período analizado supera 167 eventos, THE ModuloReconciliacion SHALL documentar que el Excel solo ordena hasta 167 eventos y excluir la comparación de posición para los eventos adicionales.
-9. WHEN el ModuloReconciliacion finaliza, THE ModuloReconciliacion SHALL producir un `ReporteReconciliacion` estructurado que indique el resultado (pass/fail) por nivel y el detalle de las discrepancias encontradas.
+1. THE ModuloAgregacion SHALL mantener una tabla `monthly_official_kpi` con una fila vigente por `(IdProyecto, Anio, Mes)`: `DiasMes`, `BloquesMuestreo`, `BloquesRacksIndisponibles`, `Origen` (`corrida` | `excel_manual`) e `IdCorrida` (nullable).
+2. WHEN una corrida marcada como oficial cubre un mes, THE ModuloAgregacion SHALL registrar para ese mes `BloquesRacksIndisponibles = C14` y `DiasMes = serial(última fila en rango) − serial(primer día del mes)` si el mes está incompleto, o los días calendario si está completo; `BloquesMuestreo = DiasMes × 24 × 60 / minutos_muestreo`.
+3. THE ModuloAgregacion SHALL calcular por mes `DisponibilidadMensual = 1 − Indisp / (TotalRacks × Bloques)` y los acumulados `BloquesMuestreoAcumulados`, `BloquesIndisponiblesAcumulados` y `DisponibilidadAcumulada = 1 − IndispAcum / (TotalRacks × BloquesAcum)` desde `mes_inicio_acumulado` (D-06).
+4. THE ModuloAgregacion SHALL permitir importar como `Origen = excel_manual` las filas históricas de `Annual_AVA` que no se pueden reproducir (jul/ago 2026) (F-20).
+5. THE ModuloAgregacion SHALL registrar `DisponibilidadContractual` (0,98 por defecto) por mes.
+6. THE MotorETL SHALL documentar que C19 (fórmula 365 días sobre el período) y `DisponibilidadAcumulada` (Annual_AVA!J) son métricas distintas y persistir ambas.
 
 ---
 
-### Requirement 9: Auditoría y trazabilidad
+### Requirement 11: Persistencia SQL Server
 
-**User Story:** Como auditor del KPI contractual, quiero poder rastrear cualquier valor de disponibilidad hasta su dato de entrada original, para poder responder preguntas sobre por qué se obtuvo un determinado resultado.
+**User Story:** Como administrador, quiero que resultados e intermedios se guarden append-only por `IdCorrida`.
 
 #### Acceptance Criteria
 
-1. THE MotorETL SHALL garantizar trazabilidad completa desde el KPI final hasta el dato crudo: `availability_run_result` -> `availability_sample_result` -> `raw_pcs_sample` -> registro del Excel original.
-2. THE MotorETL SHALL identificar cada corrida con un `IdCorrida` único y una `VersionAlgoritmo` que permita saber qué versión de la lógica produjo ese resultado.
-3. WHEN el MotorETL almacena registros de `raw_pcs_sample`, THE MotorETL SHALL conservar el `NumeroFilaOrigen` de la fila en el Excel origen y los nombres de columna originales en `ColumnasOrigen`.
-4. THE MotorETL SHALL identificar y hacer consultables todos los intervalos con `ModulosDisponiblesNulo = True` a lo largo de toda la historia del activo, sin suprimir esos registros.
-5. THE MotorETL SHALL identificar y hacer consultables todos los eventos con `DescripcionFallaFallback = True`, reportando la frecuencia de ese caso en cada corrida.
-6. THE MotorETL SHALL incluir en cada corrida un reporte de calidad de datos que indique: cantidad de intervalos con `ModulosDisponiblesNulo`, cantidad de eventos con `DescripcionFallaFallback`, anomalías de timestamp detectadas, y PCS o columnas faltantes.
+1. THE ModuloPersistencia SHALL operar append-only sobre las tablas de corrida: nunca `DELETE` ni `UPDATE` de filas de corridas anteriores (excepto la transición de estado de su propio `etl_run`).
+2. THE ModuloPersistencia SHALL crear `etl_run` con `Estado="running"` al inicio y terminar en `success`, `failed` o `parity_failed`.
+3. THE ModuloPersistencia SHALL insertar todos los datos de la corrida en **una transacción**; IF falla, THEN SHALL hacer rollback completo y registrar `failed` en una transacción separada.
+4. THE ModuloPersistencia SHALL persistir en `etl_run` los parámetros efectivos (KPI, eventos, `fin_diario`, `modo_huecos`), `ArchivoOrigen`, `HashArchivoOrigen` (sha256), `MinutosMuestreoDerivado`, `TipoCorrida`, `EsOficial`, `VersionAlgoritmo` e `IdProyecto`.
+5. THE ModuloPersistencia SHALL usar inserción masiva (`fast_executemany` con ODBC Driver 18 o `BULK INSERT`) para las tablas de muestras.
+6. THE ModuloPersistencia SHALL almacenar módulos, baterías y factores como `FLOAT`.
 
 ---
 
-### Requirement 10: Configuración y versionado
+### Requirement 12: Proyectos, catálogo y detenciones
 
-**User Story:** Como desarrollador, quiero que todos los parámetros de negocio provengan de la configuración de la corrida y no estén hardcodeados, para que el sistema pueda adaptarse a futuros cambios sin modificar el código del motor.
+**User Story:** Como analista, quiero consultar detenciones entre proyectos y en el tiempo, con revisión operacional que sobreviva a los reprocesos semanales.
 
 #### Acceptance Criteria
 
-1. THE MotorETL SHALL leer todos los parámetros de negocio desde la `ConfiguracionCalculo` de la corrida: `total_pcs`, `baterias_por_pcs`, `racks_por_pcs`, `minutos_muestreo`, `fecha_inicio_proyecto`, `solo_tiempo_operacional` y `aplicar_evento_excusable`.
-2. THE MotorETL SHALL calcular `total_racks = total_pcs * baterias_por_pcs * racks_por_pcs` a partir de los parámetros de configuración, sin usar el valor 2.928 como constante.
-3. THE MotorETL SHALL asignar a cada corrida una `VersionAlgoritmo` que permita distinguir la versión de la lógica de cálculo. El valor por defecto para la fase de paridad es `"availability-v1-excel-parity"`.
-4. WHEN se modifica una regla de negocio en una versión futura del algoritmo, THE MotorETL SHALL crear una nueva `VersionAlgoritmo` y nunca sobreescribir resultados históricos calculados con versiones anteriores.
-5. THE MotorETL SHALL proporcionar valores por defecto para la primera versión de paridad: `nombre_proyecto = "Arena BESS"`, `fecha_inicio_proyecto = "2026-04-08"`, `total_pcs = 61`, `baterias_por_pcs = 4`, `racks_por_pcs = 12`, `minutos_muestreo = 15`.
+1. THE ModuloPersistencia SHALL mantener `proyecto` con Arena (`IdProyecto=1`, `en_ejecucion`), Copiapó A (2), Luz del Norte (3) y María Elena (4) (`por_implementar`).
+2. THE tabla `proyecto` SHALL almacenar `NumPCS`, `NumBateriasPorPCS`, `NumRacksPorBAC`, `TotalRacks` (calculado), `MinutosMuestreo`, `ZonaHoraria`, `FechaInicio`.
+3. THE ModuloPersistencia SHALL cargar `tipo_detencion` desde la hoja `PCS-Fault` completa (**167 códigos**, F0…F257) con `CodigoFalla`, `DescripcionFallaPE`, `CodigoDescripcion`, `Significado` y `Operativo` (F-19); el seed SHALL ser idempotente y generado por script.
+4. WHEN se persiste un evento, THE ModuloPersistencia SHALL insertar una fila en `detencion` con `IdProyecto`, `IdCorrida`, `NumeroPCS`, `FechaInicio`, `FechaTermino`, `DuracionSegundos`, `IdTipoDetencion` (NULL + advertencia si el código no existe), `CodigoFalla`, `DescripcionFalla`, flags de calidad y rack-hours.
+5. THE Sistema SHALL guardar el workflow (`EstadoRevision` ∈ {pendiente, revisado, excluido}, `Observacion`, `RevisadoPor`, `RevisadoEn`) en `detencion_revision`, con clave de negocio `(IdProyecto, NumeroPCS, FechaInicio)`, para que sobreviva a nuevas corridas (F-27).
+6. THE Sistema SHALL exponer `v_detencion_vigente`: detenciones de la última corrida oficial por período, unidas con su revisión.
+7. THE tabla `etl_run` SHALL incluir `IdProyecto` (FK a `proyecto`).
 
 ---
 
-### Requirement 11: Tratamiento de timestamps y DST
+### Requirement 13: Reconciliación
 
-**User Story:** Como ingeniero de datos, quiero que el sistema preserve los timestamps originales del Excel y maneje correctamente el cambio de horario de Chile, para que la paridad no se rompa en períodos que atraviesan un cambio de DST.
+**User Story:** Como ingeniero de datos, quiero comparar automáticamente cada corrida Python contra la referencia Excel en cinco niveles.
 
 #### Acceptance Criteria
 
-1. THE ModuloIngesta SHALL conservar para cada registro tanto el número serial de fecha Excel original (`SerialFechaExcelOrigen`) como el timestamp interpretado en hora local de Chile (`MarcaTiempoLocalOrigen`).
-2. THE MotorETL SHALL definir explícitamente la zona horaria de negocio como `America/Santiago` para la interpretación de timestamps.
-3. THE MotorETL SHALL no convertir timestamps a UTC sin documentar el efecto de esa conversión en el reporte de la corrida.
-4. THE ModuloReconciliacion SHALL validar especialmente los períodos que atraviesan cambios de DST, comparando los timestamps de inicio y fin de eventos entre Excel y Python.
-5. WHEN el ModuloIngesta lee timestamps de `RawData-PCS`, THE ModuloIngesta SHALL calcular la frecuencia de muestreo efectiva usando `ROUND((ts[i+1] - ts[i]) * 24 * 60, 2)` y reportar cualquier diferencia respecto a la frecuencia configurada.
+1. THE ModuloReconciliacion SHALL comparar en cinco niveles: (1) input, (2) muestra individual, (3) acumulados, (4) KPI, (5) eventos.
+2. Nivel 1 SHALL comparar: filas procesadas, primer/último serial, cantidad de PCS, `MinutosMuestreoDerivado` (C23) y parámetros efectivos (C5/C7/C21/C31/L2/L4/L14/D5).
+3. Nivel 2 SHALL comparar por `(NumeroFilaOrigen, NumeroPCS)` las `BateriasIndisponiblesPonderadas` contra la tabla de resultados de `Calculation-Availability` (celda vacía = 0).
+4. Nivel 3 SHALL comparar C12 (exacto) y C14.
+5. Nivel 4 SHALL comparar C16, C19 y la serie diaria completa (diario, acumulado, disponibilidad, variación).
+6. Nivel 5 SHALL comparar la lista de eventos **en orden de escritura** (`OrdenExcel`) campo a campo, `L10`, el conteo y el resumen por código.
+7. THE ModuloReconciliacion SHALL usar las tolerancias de la tabla única de `design.md` §Tolerancias.
+8. THE ModuloReconciliacion SHALL evaluar los invariantes cruzados: `C14 = 4 × L10` (cuando períodos y flags de ambos motores coinciden, `solo_tiempo_operacional` es falso y no hay eventos arrastrados) y por PCS `Σ ponderadas × racks / 4 = Σ rack-hours`.
+9. WHEN finaliza, THE ModuloReconciliacion SHALL producir un `ReporteReconciliacion` (pass/fail por nivel y discrepancias), persistirlo en `reconciliation_result` y, si falla algún nivel 3–5, marcar la corrida `parity_failed`.
+10. IF no hay referencia Excel para la corrida, THEN THE ModuloReconciliacion SHALL registrar `sin_referencia` sin fallar la corrida.
 
 ---
 
-### Requirement 12: Golden Reference: comparacion obligatoria contra valores reales del Excel
+### Requirement 14: Golden references
 
-**User Story:** Como ingeniero de datos, quiero que cada corrida Python sea validada automaticamente contra los valores reales calculados por el Excel (golden references), para garantizar paridad numerica exacta antes de declarar que el motor Python es equivalente al VBA.
+**User Story:** Como ingeniero de datos, quiero validar el motor contra valores congelados del Excel en CI.
 
 #### Acceptance Criteria
 
-1. THE MotorETL SHALL incluir un conjunto de golden references en `tests/golden/data/`, uno por cada mes con corrida VBA validada, en formato JSON con el esquema definido en `golden_index.json`.
-2. WHEN se agrega un nuevo mes al golden index, THE ModuloReconciliacion SHALL comparar automaticamente los resultados de la corrida Python contra ese golden reference usando las tolerancias definidas.
-3. THE golden reference de cada mes SHALL contener como minimo: parametros de la corrida (`TotalPCS`, `BateriasPorPCS`, `TotalRacks`, `MinutosMuestreo`, `SoloTiempoOperacional`, `AplicarEventoExcusable`), KPI del periodo (`BloquesMuestreo` (C12), `BloquesRacksIndisponibles` (C14), `DisponibilidadPeriodo` (C16), `DisponibilidadAnualAcumulada` (C19)), disponibilidad diaria completa del mes, snapshot de Annual_AVA, y los primeros 20 eventos de ListOfFaults con el total de rack-hours.
-4. WHEN el ModuloReconciliacion compara KPI del periodo (`DisponibilidadPeriodo` (C16), `DisponibilidadAnualAcumulada` (C19)), THE ModuloReconciliacion SHALL usar tolerancia absoluta de **1e-6**.
-5. WHEN el ModuloReconciliacion compara `BloquesMuestreo` (C12), THE ModuloReconciliacion SHALL usar igualdad exacta de enteros.
-6. WHEN el ModuloReconciliacion compara `BloquesRacksIndisponibles` (C14), THE ModuloReconciliacion SHALL usar tolerancia absoluta de **1e-6**.
-7. WHEN el ModuloReconciliacion compara disponibilidad diaria (`Disponibilidad` por dia), THE ModuloReconciliacion SHALL usar tolerancia absoluta de **1e-6**.
-8. WHEN el ModuloReconciliacion compara total de rack-hours de ListOfFaults, THE ModuloReconciliacion SHALL usar tolerancia absoluta de **1e-3**.
-9. IF cualquier comparacion contra el golden reference falla, THEN THE MotorETL SHALL marcar la corrida con `Estado = "parity_failed"` y producir un reporte detallado con las discrepancias.
-10. THE golden reference SHALL ser extraido del Excel usando el script `tests/golden/extract_golden.py`, que usa `openpyxl` con `data_only=True` para leer los valores calculados por la macro VBA, no las formulas.
-11. THE golden index en `tests/golden/data/golden_index.json` SHALL ser la fuente de verdad sobre que meses tienen golden reference validado y cuales estan pendientes.
-
-#### Golden References disponibles
-
-| Mes | Archivo | BloquesMuestreo (C12) | DisponibilidadPeriodo (C16) | DisponibilidadAnualAcumulada (C19) | Estado |
-|---|---|---|---|---|---|
-| Julio 2026  | `golden_2026_07_july.json`   | 2976 | 0.9503529130 | 0.9957833981 | pending — re-extract tras macros (posible cap 295 eventos) |
-| Agosto 2026 | `golden_2026_08_august.json` | 2976 | 0.9394752689 | 0.9948595434 | pending — re-extract (daily hand-fix) |
-| Septiembre 2026 (parcial 1-21) | `golden_2026_09_september.json` | 1975 | 0.9819924099 | 0.9989850174 | pending — periodo parcial; Daily corregido 2026-09-24; C12=1975 vs Annual_AVA 1977 = fórmula calendario (ver `golden_index.json`) |
-
-> Fuente de verdad de estado: `tests/golden/data/golden_index.json` (campo `status` + `discrepancies`). Tras re-extract limpio con macros, marcar `verified`. `tests/golden/test_golden_integrity.py` valida invariantes de los 3 JSON.
-
-#### Tolerancias de comparacion
-
-| Campo | Tolerancia | Justificacion |
-|---|---|---|
-| BloquesMuestreo (C12) | exacto (int) | Contador de enteros, no puede diferir |
-| BloquesRacksIndisponibles (C14) | abs <= 1e-6 | Suma de floats; diferencias por orden de operaciones son aceptables |
-| DisponibilidadPeriodo (C16) | abs <= 1e-6 | KPI presentado; precision suficiente para 6 decimales |
-| DisponibilidadAnualAcumulada (C19) | abs <= 1e-6 | Idem |
-| Disponibilidad diaria | abs <= 1e-6 | Por dia; tolerancia igual al KPI del periodo |
-| total rack-hours (ListOfFaults) | abs <= 1e-3 | Suma de muchos floats; margen mayor aceptable |
-| DuracionHoras por evento | abs <= 0.01 | Diferencias de 36 segundos son irrelevantes operacionalmente |
-| HorasRackIndisponibles por evento | abs <= 0.1 | Derivado de DuracionHoras y PromedioBateriasInvolucradas |
+1. THE repositorio SHALL contener goldens en `tests/golden/data/` indexados por `golden_index.json` (fuente de verdad del estado `pending` / `verified`).
+2. THE golden de cada mes SHALL contener: parámetros efectivos (incl. L2/L4/L14, Daily!D5, C23), KPI (C12/C14/C16/C19, L10), Daily completo, snapshot `Annual_AVA`, **todos** los eventos de `ListOfFaults` en orden de escritura, el resumen por código y la tabla de resultados de `Calculation-Availability` (archivo comprimido aparte si excede 1 MB).
+3. THE extractor `tests/golden/extract_golden.py` SHALL leer valores con `openpyxl data_only=True`, validar invariantes y fallar si no se cumplen; el invariante `Σ daily = C14` SHALL aplicarse solo si `C21 = "No"`.
+4. THE suite SHALL ejecutar el golden runner sobre todos los meses `verified` y el test de integridad sobre todos los meses.
+5. IF una comparación contra un golden `verified` falla, THEN el test SHALL fallar con el detalle de la discrepancia.
+6. Los valores de `Annual_AVA` de meses no vinculados a C14 SHALL tratarse como históricos, nunca como esperado de paridad (GT-5).
 
 ---
 
-### Requirement 13: Modelo de proyectos y detenciones
+### Requirement 15: Auditoría, trazabilidad y calidad de datos
 
-**User Story:** Como analista de disponibilidad, quiero que la base de datos soporte múltiples proyectos BESS y almacene las detenciones de forma estructurada con su tipo, duración y estado de revisión, para poder consultar y analizar fallas entre proyectos y a lo largo del tiempo.
+**User Story:** Como auditor del KPI contractual, quiero rastrear cualquier valor hasta la celda de origen.
 
 #### Acceptance Criteria
 
-1. THE ModuloPersistencia SHALL mantener una tabla `proyecto` con un registro por cada activo BESS gestionado: Arena (`IdProyecto=1`, en ejecución), Copiapo A (`IdProyecto=2`), Luz del Norte (`IdProyecto=3`) y Maria Elena (`IdProyecto=4`), con `Estado = 'por_implementar'` para los tres últimos.
-2. THE tabla `proyecto` SHALL almacenar los parámetros de configuración del activo: `NumPCS`, `NumBateriasPorPCS`, `NumRacksPorBAC`, `TotalRacks` (calculado), `MinutosMuestreo`, `ZonaHoraria` y `FechaInicio`.
-3. THE ModuloPersistencia SHALL mantener una tabla `tipo_detencion` con el catálogo completo de 68 códigos de falla extraído de la hoja `PCS-Fault` del Excel, con campos `CodigoFalla` (ej: F55), `DescripcionFallaPE` (ej: Fallo externo) y `CodigoDescripcion` (ej: F55 Fallo externo).
-4. WHEN el MotorEventosFalla persiste un evento de falla, THE ModuloPersistencia SHALL insertar un registro en `detencion` con: `IdProyecto`, `IdCorrida`, `NumeroPCS`, `FechaInicio`, `FechaTermino`, `DuracionSegundos` (calculado como DATEDIFF en segundos), `IdTipoDetencion` (FK al catálogo), `CodigoFalla`, `DescripcionFalla`, `DescripcionFallaFallback`, `PromedioBateriasInvolucradas` y `HorasRackIndisponibles`.
-5. THE tabla `detencion` SHALL incluir campos de calidad de datos: `ModulosDisponiblesNulo` (BIT) y `EsExcusable` (BIT).
-6. THE tabla `detencion` SHALL incluir campos de workflow operacional: `Observacion` (NVARCHAR(500), nullable) para anotaciones libres y `EstadoRevision` (NVARCHAR(20)) con valor por defecto pendiente y valores permitidos: pendiente, revisado, excluido.
-7. WHEN el ModuloPersistencia resuelve `IdTipoDetencion` para una detención, THE ModuloPersistencia SHALL buscar en `tipo_detencion` por `CodigoFalla`; IF el código no existe en el catálogo, THEN THE ModuloPersistencia SHALL insertar la detención con `IdTipoDetencion = NULL` y registrar una advertencia.
-8. THE tabla `detencion` es la vista operacional de `fault_event`: ambas tablas coexisten. `fault_event` es la tabla técnica de auditoría (append-only por `IdCorrida`), `detencion` es la tabla de negocio consultada por analistas y sistemas de reporting.
-9. THE tabla `etl_run` SHALL incluir el campo `IdProyecto` (INT FK -> proyecto) para asociar cada corrida con su activo correspondiente.
+1. THE MotorETL SHALL garantizar la trazabilidad `availability_run_result → availability_sample_result → raw_pcs_sample → (archivo, hash, fila, columna)`.
+2. THE MotorETL SHALL persistir cada anomalía en `data_quality_issue` (tipo, fila, PCS, timestamp, detalle) y un resumen JSON en `etl_run.ResumenCalidad`.
+3. THE resumen de calidad SHALL incluir: filas con `ModulosDisponiblesNulo`, eventos con `DescripcionFallaFallback`, eventos `EventoArrastradoExcel` y `ExcelHabriaFallado`, anomalías de timestamp, filas truncadas por `modo_huecos`, desalineaciones y vacíos de PlantActivity, PCS/columnas faltantes, diferencia C23 vs config y descripciones numéricas.
+4. THE MotorETL SHALL hacer consultables en toda la historia los intervalos `ModulosDisponiblesNulo = True`, sin suprimirlos.
+
+---
+
+### Requirement 16: Timestamps y DST
+
+**User Story:** Como ingeniero de datos, quiero preservar los timestamps originales y no romper la paridad en los cambios de horario de Chile.
+
+#### Acceptance Criteria
+
+1. THE MotorETL SHALL tratar los timestamps como hora local de Chile **naive** (zona de negocio `America/Santiago`, documentada) y SHALL NOT convertirlos a UTC ni localizarlos en los motores.
+2. THE motores de paridad SHALL filtrar, comparar y restar sobre `SerialFechaExcelOrigen` (F-15).
+3. THE ModuloIngesta SHALL reportar los saltos (p. ej. 2026-09-06 00:00 → 01:00) y repeticiones (retroceso de abril) de hora local como anomalías DST informativas.
+4. THE ModuloReconciliacion SHALL incluir al menos un período que cruce un cambio de horario en los goldens verificados (septiembre 2026).
+
+---
+
+### Requirement 17: Fidelidad a la semántica Excel/VBA
+
+**User Story:** Como responsable de la paridad, quiero que las reglas implícitas de Excel/VBA estén centralizadas y probadas, para que los motores no las reinterpreten.
+
+#### Acceptance Criteria
+
+1. THE MotorETL SHALL centralizar en un módulo `excel_semantics` las funciones: `es_vacio`, `igual_numero` (celda `= 4`), `texto_excel` (número→texto como Excel), `codigo_falla_excel` (`IFERROR/MID/FIND`), `flag_si`/`flag_no` (comparación exacta) y conversión serial↔datetime.
+2. THE módulo `excel_semantics` SHALL tener tests unitarios por cada regla con casos tomados del libro real.
+3. THE motores SHALL NOT implementar comparaciones de celdas fuera de `excel_semantics`.
+
+---
+
+### Requirement 18: Notificación a Power BI
+
+**User Story:** Como owner de reporting (Misael), quiero una notificación cuando SQL esté listo para refrescar el dashboard.
+
+#### Acceptance Criteria
+
+1. WHEN `run-etl` y `reconcile` terminan, THE OrquestadorLunes SHALL emitir una notificación con `IdCorrida`, período, estado y resumen de reconciliación y de calidad.
+2. THE destino SHALL configurarse por variable de entorno (webhook); IF no está configurado, THEN THE OrquestadorLunes SHALL escribir la notificación en `data/work/<corte>/notificacion.md` y en consola.
+3. THE Sistema SHALL NOT intentar refresh vía API de Power BI hasta que exista service principal (fuera de alcance v1).
+4. THE Sistema SHALL exponer vistas SQL estables para Power BI (`v_kpi_vigente`, `v_daily_vigente`, `v_detencion_vigente`, `v_calidad_corrida`) de modo que el dashboard no dependa de `IdCorrida`.
+
+---
+
+### Requirement 19: Orquestador semanal
+
+**User Story:** Como operador, quiero ejecutar el flujo del lunes por etapas o completo, reanudable ante fallas.
+
+#### Acceptance Criteria
+
+1. THE OrquestadorLunes SHALL ofrecer `--stage acquire-wait | prepare-workbook | run-macros | run-etl | reconcile | notify-bi | all` y los argumentos `--inbox`, `--work`, `--period-start`, `--period-end`, `--oficial`.
+2. THE OrquestadorLunes SHALL guardar el estado de cada etapa en `data/work/<corte>/run_state.json` y permitir reanudar desde la etapa fallida sin repetir las exitosas.
+3. WHEN no se informa el período, THE OrquestadorLunes SHALL calcular el período por defecto según D-07 (mes en curso hasta el último domingo; el primer lunes del mes, además, el cierre del mes anterior).
+4. THE OrquestadorLunes SHALL registrar logs estructurados por etapa con timestamps y terminar con código de salida ≠ 0 ante error.
