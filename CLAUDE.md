@@ -136,7 +136,7 @@ Trampas de paridad confirmadas en el VBA (detalle en `audit.md`):
 - `mcoDailyAvailability` no aplica el factor operacional.
 - `C12` cuenta filas (no timestamps únicos); los motores operan sobre seriales Excel en orden de fila origen.
 
-**Eventos de exclusión (`Exclusion_Matrix`, definición de negocio 2026-09-24 — F-37, ADR-11):** una columna por PCS, unida por fila. Con `C31`/`L14 = "Yes"` y `M < 4`: `0`/vacío → `4 − M`; `1` → 0 (se consideran los 4 módulos); `2` → baterías indisponibles previas al inicio del evento. Reemplaza a `PlantActivity!D`; PlantActivity queda solo para "Only Operational Time?" (C21). Macros, hojas y celdas oficiales: las de septiembre.
+**Eventos de exclusión (`Exclusion_Matrix`, definición de negocio 2026-09-24 — F-37, ADR-11):** una columna por PCS, unida por fila. Con `C31`/`L14 = "Yes"` y `M < 4`: `0`/vacío → `4 − M`; `1` → 0 (se consideran los 4 módulos); `2` → baterías indisponibles previas al inicio del evento. Reemplaza a `PlantActivity!D`; PlantActivity queda solo para "Only Operational Time?" (C21). Macros, hojas y celdas oficiales: las de septiembre, más la regla de la matriz en `cmdCalcAvailability` y `mcoCreateList` (maestro **v1.1**, D-19; ver `design.md §Libro maestro v1.1`). El pipeline nunca edita VBA.
 
 No usar el código de falla (`CURRENT FAULT`) como criterio de indisponibilidad — el comentario VBA es impreciso; la lógica ejecutable usa `NUMBER_OF_MODULES`.
 
@@ -181,7 +181,7 @@ SCADA ~03:00 AM (solo extract)
 
 Orquestador: `scripts/run_lunes.py` con etapas `acquire-wait`, `prepare-workbook`, `run-macros`, `run-etl`, `reconcile`, `notify-bi`. Fases P0–P9 y detalle en `AGENTS.md` §14 Fase S. Runbook: `docs/runbook-lunes.md`.
 
-**Reglas:** export **incremental** (desde el dato siguiente al último cargado hasta el último dato del lunes; continuidad validada al recibir; D-07); KPI semanal = mes en curso hasta el último dato; cierre mensual = mes completo; KPI oficial con `C31 = L14 = "Yes"` (D-03); transporte hoy solo TeamViewer (sin UNC/API); solo `RawData-PCS` desde SCADA; `Exclusion_Matrix` mensual (KPI semanal preliminar en exclusiones hasta su carga; D-17, F-37); PlantActivity solo para C21 (D-12); correcciones solo por `reproceso` con registro de celdas cambiadas (D-13); macros y ETL solo en PC local; Power BI modo notificación (owner Misael) hasta service principal.
+**Reglas:** export **incremental** (desde el dato siguiente al último cargado hasta el último dato del lunes; continuidad validada al recibir; D-07); KPI semanal = mes en curso hasta el último dato; cierre mensual = mes completo; KPI oficial con `C31 = L14 = "Yes"` (D-03); transporte hoy solo TeamViewer (sin UNC/API); solo `RawData-PCS` desde SCADA; `Exclusion_Matrix` la entrega Alex a fin de mes: KPI semanal oficial "Sin Exclusiones", cierre mensual oficial "Con Exclusiones" (D-17, F-37); PlantActivity solo para C21 (D-12); correcciones solo por `reproceso` con registro de celdas cambiadas (D-13); macros y ETL solo en PC local; Power BI modo notificación (owner Misael) hasta service principal.
 
 ---
 

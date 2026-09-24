@@ -92,7 +92,7 @@ Agentes disponibles en `.opencode/agent/` (OpenCode, `mode: subagent`). Son perf
   - `docs/data-contract-scada.md` a partir de 0.6: columnas (= encabezados RawData-PCS), tipos, formato `mm-dd-aaaa hh:mm:ss`, convención DESDE/HASTA, nombre de archivo.
   - _R2.4, R2.5_
 
-- [ ] 0.8 Muestra del archivo mensual de PlantActivity — **Humano (Alex / Francisco)**
+- [ ] 0.8 Muestra de la entrega mensual de `Exclusion_Matrix` (D-17) — **Humano (Alex / Francisco)**
   - Guardar en `tests/fixtures/exclusion_matrix/` la `Exclusion_Matrix` mensual tal como se entrega (D-17) y, si aplica, PlantActivity + nota: formato, quién la mantiene, período que cubre.
 
 - [ ] **Checkpoint 0 — code-reviewer**: revisar 0.3 y 0.4 (extractor, esquema del golden, `.gitignore`). Preguntar al usuario si hay ajustes.
@@ -208,6 +208,11 @@ Agentes disponibles en `.opencode/agent/` (OpenCode, `mode: subagent`). Son perf
 
 ### Fase 4 — Cadena semanal (S → T → M → E → R → B)
 
+- [ ] 4.0 Libro maestro v1.1 (D-19) — **Humano (Francisco)** + **excel-com-automation**
+  - Copiar el libro de septiembre a `…_maestro_v1.1.xlsm`, agregar la hoja `Exclusion_Matrix` y aplicar los cambios VBA de `design.md §Libro maestro v1.1` (solo `cmdCalcAvailability` rama C31 y `mcoCreateList` rama L14). Registrar el hash del maestro nuevo.
+  - Hecho cuando: (1) con `Exclusion_Matrix` vacía el libro da los mismos C12/C14/C16/C19, tabla E4:BO, Daily y `ListOfFaults` que el golden de septiembre; (2) con la matriz y el RawData de agosto, C14 y la tabla E4:BO coinciden con el libro `…_20260923_agosto_2026.xlsm` y con Python; (3) `ListOfFaults` con L14 = "Yes" coincide con `fault_events` de Python y `C14 = 4·L10` salvo arrastre.
+  - _R3.10, D-16, D-19, F-37_
+
 - [ ] 4.1 `workbook.com.SesionExcel` — **backend-architect**
   - `DispatchEx`, visible, `DisplayAlerts=False`, watchdog por PID, cierre solo de la instancia propia; verificación de *Trusted Location*.
   - _R3.7, F-23_
@@ -247,7 +252,7 @@ Agentes disponibles en `.opencode/agent/` (OpenCode, `mode: subagent`). Son perf
   - `run_lunes.py --stage all` con un export real; registrar tiempos y problemas en `docs/shadow-log.md`.
 
 - [ ] 4.12 `workbook.exclusion` + `--stage load-exclusion-matrix` — **backend-architect** *(requiere 0.8, 4.1)*
-  - Escritura por timestamp → fila de `Exclusion_Matrix` (columnas por PCS, Excused Event, Comments; crea la hoja si el libro base no la tiene) y opcionalmente PlantActivity B/C/D/E:I, rechazo de timestamps inexistentes, diff celda a celda a `correccion_dato` + `cambios.csv`, encolado del `cierre_mensual`; `ExcusablesPendientes` en corridas semanales. Test COM con una copia del libro: borrar B/C/D de un tramo, recargarlo y verificar el diff y el C14.
+  - Escritura por timestamp → fila de `Exclusion_Matrix` (columnas por PCS, Excused Event, Comments; crea la hoja si el libro base no la tiene) y opcionalmente PlantActivity B/C/D/E:I, rechazo de timestamps inexistentes, diff celda a celda a `correccion_dato` + `cambios.csv`, registro en `exclusion_matrix_carga` y encolado del `cierre_mensual` `con_exclusiones`; `EstadoExclusiones = sin_exclusiones` (oficial) en corridas semanales (D-17). Test COM con una copia del libro: borrar B/C/D de un tramo, recargarlo y verificar el diff y el C14.
   - _R3.8, R19.5, D-12_
 
 - [ ] 4.13 Reproceso con registro de cambios (`--reproceso`) — **backend-architect** + **data-engineer** *(requiere 4.7)*
@@ -291,7 +296,7 @@ Agentes disponibles en `.opencode/agent/` (OpenCode, `mode: subagent`). Son perf
     { "id": 6, "tasks": ["1.11", "2.6", "3.2"] },
     { "id": 7, "tasks": ["checkpoint-A", "checkpoint-B", "3.3"] },
     { "id": 8, "tasks": ["3.1"] },
-    { "id": 9, "tasks": ["3.4", "4.1", "4.5", "4.8"] },
+    { "id": 9, "tasks": ["3.4", "4.0", "4.1", "4.5", "4.8"] },
     { "id": 10, "tasks": ["checkpoint-C", "4.2", "4.6"] },
     { "id": 11, "tasks": ["4.3", "4.4", "4.7", "4.12"] },
     { "id": 12, "tasks": ["4.9", "4.13"] },

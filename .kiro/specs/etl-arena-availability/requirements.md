@@ -119,6 +119,7 @@ La primera versión (`availability-v1-excel-parity`) buscó **paridad exacta**; 
 7. IF una macro falla o excede el timeout, THEN THE ModuloLibroTrabajo SHALL cerrar solo la instancia de Excel que creó, guardar el log y marcar la referencia como ausente; el pipeline Python SHALL poder continuar con advertencia.
 8. WHEN se ejecuta `load-exclusion-matrix` con la `Exclusion_Matrix` del mes (y opcionalmente PlantActivity; D-12, D-17), THE ModuloLibroTrabajo SHALL escribir las columnas por PCS, `Excused Event` y `Comments` (y B/C/D/E:I de PlantActivity si vienen) en la copia de trabajo **en la fila de `RawData-PCS` con el mismo timestamp** (el Excel une por fila, F-01), SHALL rechazar timestamps que no existan en `RawData-PCS`, y SHALL registrar en `correccion_dato` cada celda cuyo valor cambie respecto al libro base.
 9. WHEN se ejecuta una corrida `reproceso` con un tramo corregido de RawData-PCS (D-13), THE ModuloLibroTrabajo SHALL sobrescribir ese tramo solo en la nueva copia de trabajo, SHALL registrar cada celda cambiada (fila, timestamp, PCS, campo, valor anterior, valor nuevo, archivo origen) en `correccion_dato` y en `data/work/<corte>/cambios.csv`, y SHALL NOT modificar el libro base ni resultados de corridas anteriores.
+10. THE libro maestro de referencia SHALL ser la versión **v1.1** (D-19): libro de septiembre + hoja `Exclusion_Matrix` + regla de la matriz en `cmdCalcAvailability` y `mcoCreateList` según `design.md §Libro maestro v1.1`; el resto de macros, hojas y celdas de septiembre SHALL quedar sin cambios. El pipeline SHALL NOT modificar VBA.
 
 ---
 
@@ -350,7 +351,7 @@ La primera versión (`availability-v1-excel-parity`) buscó **paridad exacta**; 
 
 #### Acceptance Criteria
 
-1. WHEN `run-etl` y `reconcile` terminan, THE OrquestadorLunes SHALL emitir una notificación con `IdCorrida`, período, estado y resumen de reconciliación y de calidad.
+1. WHEN `run-etl` y `reconcile` terminan, THE OrquestadorLunes SHALL emitir una notificación con `IdCorrida`, período, estado, etiqueta de exclusiones ("Sin Exclusiones" / "Con Exclusiones", R19.5) y resumen de reconciliación y de calidad.
 2. THE destino SHALL configurarse por variable de entorno (webhook); IF no está configurado, THEN THE OrquestadorLunes SHALL escribir la notificación en `data/work/<corte>/notificacion.md` y en consola.
 3. THE Sistema SHALL NOT intentar refresh vía API de Power BI hasta que exista service principal (fuera de alcance v1).
 4. THE Sistema SHALL exponer vistas SQL estables para Power BI (`v_kpi_vigente`, `v_daily_vigente`, `v_detencion_vigente`, `v_calidad_corrida`) de modo que el dashboard no dependa de `IdCorrida`.
@@ -367,4 +368,6 @@ La primera versión (`availability-v1-excel-parity`) buscó **paridad exacta**; 
 2. THE OrquestadorLunes SHALL guardar el estado de cada etapa en `data/work/<corte>/run_state.json` y permitir reanudar desde la etapa fallida sin repetir las exitosas.
 3. WHEN no se informa el período, THE OrquestadorLunes SHALL calcular el período por defecto según D-07: corrida `semanal` con `C5` = día 1 del mes del último dato cargado y `C7` = fecha del último dato (`L2`/`L4`/`Daily!D5` iguales; `C21 = "No"`, `C31 = L14 = "Yes"`); y, si los datos cargados ya cubren el último bloque de un mes (último día 23:45) sin corrida oficial `cierre_mensual`, SHALL encolar además la corrida `cierre_mensual` de ese mes (día 1 → último día).
 4. THE OrquestadorLunes SHALL registrar logs estructurados por etapa con timestamps y terminar con código de salida ≠ 0 ante error.
-5. WHILE la `Exclusion_Matrix` del mes no se haya cargado (D-17), THE OrquestadorLunes SHALL marcar las corridas `semanal` con `ExcusablesPendientes = 1` y la notificación SHALL indicar que el KPI es preliminar respecto a eventos de exclusión; THE OrquestadorLunes SHALL NOT ejecutar un `cierre_mensual` oficial hasta que la matriz del mes esté cargada y alineada por fila con `RawData-PCS!A` (F-37).
+5. THE OrquestadorLunes SHALL registrar en cada corrida `EstadoExclusiones`: `sin_exclusiones` si la `Exclusion_Matrix` del mes del período aún no se cargó (`exclusion_matrix_carga`), o `con_exclusiones` si ya se cargó (D-17). Las corridas `semanal` "Sin Exclusiones" SHALL ser **oficiales** (no preliminares) y la notificación SHALL mostrar la etiqueta "Sin Exclusiones" / "Con Exclusiones".
+6. WHEN se ejecuta `load-exclusion-matrix` para un mes (Alex la entrega una vez al mes, al final), THE OrquestadorLunes SHALL registrar la carga en `exclusion_matrix_carga` y ejecutar el `cierre_mensual` oficial `con_exclusiones`; THE OrquestadorLunes SHALL NOT ejecutar un `cierre_mensual` oficial sin la matriz del mes cargada y alineada por fila con `RawData-PCS!A`, salvo `--sin-exclusiones` explícito (F-37, D-17).
+7. THE vistas vigentes (`v_kpi_vigente`, `v_monthly_kpi_vigente`) SHALL preferir, para un mismo mes, la corrida oficial `con_exclusiones` más reciente sobre las `sin_exclusiones`.

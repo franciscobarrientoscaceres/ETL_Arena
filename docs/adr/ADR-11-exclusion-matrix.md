@@ -17,4 +17,5 @@ Opción 3. La matriz se une por fila, como el resto del libro. Con el flag en "Y
 - Contra el libro de agosto, C14 y la tabla E4:BO coinciden bit a bit; las opciones 2 y 3 dan lo mismo en todo el libro.
 - Sin la hoja (libros hasta septiembre) los resultados no cambian.
 - SQL: `availability_sample_result.ValorExclusion` reemplaza a `FactorExcusable`; nueva `exclusion_matrix_sample` con valor, baterías previas y comentario.
-- Operación: la carga mensual pasa a ser la de la matriz (`load-exclusion-matrix`); mientras falte, el KPI semanal es preliminar (D-17).
+- Operación (D-17): Alex entrega la matriz una vez al mes, al final. Las corridas semanales son **oficiales "Sin Exclusiones"**; al cargar la matriz (`load-exclusion-matrix`) el `cierre_mensual` "Con Exclusiones" pasa a ser el KPI vigente del mes.
+- Referencia Excel (D-19): el maestro pasa a **v1.1** = septiembre + `Exclusion_Matrix` + la regla en `cmdCalcAvailability` (como la macro de agosto) y en `mcoCreateList` (D-16); lo prepara un humano (tarea 4.0).

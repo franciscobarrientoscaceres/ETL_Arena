@@ -183,6 +183,46 @@ def extraer_referencia(libro: Path) -> ReferenciaExcel:
     N6:Q172, Daily B9:G39. Serializa a referencia_excel.json."""
 ```
 
+### Libro maestro v1.1 (D-19, F-37)
+
+Las macros oficiales de septiembre no conocen `Exclusion_Matrix`. Para que Excel siga siendo referencia en las corridas "Con Exclusiones", el maestro pasa a una versión **v1.1** preparada a mano (tarea 4.0; el pipeline nunca edita VBA):
+
+1. Copia del libro de septiembre con nombre versionado (`…_maestro_v1.1.xlsm`); se conserva el original.
+2. Hoja `Exclusion_Matrix` con la estructura de §3b del data contract (encabezado `Date/time`, `PCS01…PCS61`, `Excused Event`, `Comments`), alineada por fila con `RawData-PCS`.
+3. `cmdCalcAvailability` — solo la rama `C31 = "Yes"`, igual que la macro de agosto pero con las celdas de septiembre (`C3`, no `C4`); la hoja se referencia **por nombre**, no por codeName:
+
+```vba
+Set EM = Worksheets("Exclusion_Matrix")          ' antes del Do
+...
+If cmdAvailability.Cells(31, 3) = "Yes" Then
+    If EM.Cells(dblRec, intRecPCS + 1) = 2 Then
+        cmdAvailability.Cells(dblResult, intRecPCS + 5) = cmdAvailability.Cells(dblResult - 1, intRecPCS + 5)
+    Else
+        cmdAvailability.Cells(dblResult, intRecPCS + 5) = (cmdAvailability.Cells(3, 3) - Sheet2.Cells(dblRec, 4 * intRecPCS + 1)) _
+            * (1 - EM.Cells(dblRec, intRecPCS + 1))
+    End If
+Else
+    cmdAvailability.Cells(dblResult, intRecPCS + 5) = cmdAvailability.Cells(3, 3) - Sheet2.Cells(dblRec, 4 * intRecPCS + 1)
+End If
+```
+
+4. `mcoCreateList` — código nuevo (la macro de agosto seguía con `PlantActivity!D`; D-16). Variable `pondAnterior` (Double) reiniciada a 0 al empezar cada PCS; en **cada** fila del bucle interno (dentro o fuera del período), antes de la condición de período:
+
+```vba
+e = EM.Cells(dblRec, 0.5 + intColRec / 4 + 1)
+If Sheet2.Cells(dblRec, intColRec + 3) <> "" And Sheet2.Cells(dblRec, intColRec + 3) < 4 Then
+    If e = 2 Then pondFila = pondAnterior Else pondFila = (4 - Sheet2.Cells(dblRec, intColRec + 3)) * (1 - e)
+Else
+    pondFila = 0
+End If
+' … en la rama L14 = "Yes":  sumablocks = sumablocks + pondFila
+pondAnterior = pondFila                           ' al final de la fila
+```
+
+5. `Graphupdate`, `mcoDailyAvailability`, `Daily`, `Annual_AVA` y todas las celdas de parámetros: **sin cambios** (septiembre).
+
+Diferencias conocidas con los motores Python (reportadas como anomalías, la reconciliación las marca "explicadas"): en `cmdCalcAvailability` el valor 2 copia la fila anterior **del período** (si el tramo empieza en la primera fila del período copia el encabezado y la macro falla) y una fila sin falla dentro del tramo corta la copia (`ee2_difiere_macro_agosto`, `ee2_sin_fila_previa`).
+
 Notas COM: `Graphupdate` usa `ActiveWindow.SmallScroll` y todas las macros usan `.Select` → la instancia debe ser visible y el libro activo. `data/work/` debe estar registrado como *Trusted Location* (documentado en el runbook).
 
 ### ingestion (R4)
@@ -523,7 +563,7 @@ CREATE TABLE etl_run (
     IdProyecto                     INT            NOT NULL REFERENCES proyecto(IdProyecto),
     TipoCorrida                    NVARCHAR(20)   NOT NULL CHECK (TipoCorrida IN ('semanal','cierre_mensual','reproceso','golden')),
     EsOficial                      BIT            NOT NULL DEFAULT 0,
-    ExcusablesPendientes           BIT            NOT NULL DEFAULT 0,   -- Exclusion_Matrix del mes aún no cargada (D-17, R19.5)
+    EstadoExclusiones              NVARCHAR(20)   NOT NULL CHECK (EstadoExclusiones IN ('sin_exclusiones','con_exclusiones')),  -- D-17, R19.5: ambos oficiales
     ArchivoOrigen                  NVARCHAR(500)  NOT NULL,
     HashArchivoOrigen              CHAR(64)       NOT NULL,
     SistemaOrigen                  NVARCHAR(50)   NOT NULL DEFAULT 'scada_export',
@@ -591,6 +631,17 @@ CREATE TABLE plant_activity_sample (
     PorcentajeSOC                   FLOAT          NULL
 );
 CREATE CLUSTERED COLUMNSTORE INDEX CCI_plant_activity_sample ON plant_activity_sample;
+
+CREATE TABLE exclusion_matrix_carga (   -- D-17: una fila por entrega mensual de Alex (append-only; vigente = última)
+    IdCarga                 BIGINT IDENTITY PRIMARY KEY,
+    IdProyecto              INT            NOT NULL REFERENCES proyecto(IdProyecto),
+    Anio                    INT            NOT NULL,
+    Mes                     INT            NOT NULL,
+    ArchivoOrigen           NVARCHAR(500)  NOT NULL,
+    Sha256Archivo           CHAR(64)       NOT NULL,
+    CargadoEn               DATETIME2(3)   NOT NULL,
+    IdCorridaCierre         UNIQUEIDENTIFIER NULL     -- cierre_mensual con_exclusiones que la usó
+);
 
 CREATE TABLE exclusion_matrix_sample (  -- F-37: una fila por (fila, PCS) con valor ≠ 0, del período
     IdCorrida               UNIQUEIDENTIFIER NOT NULL,
@@ -821,7 +872,7 @@ CREATE TABLE reconciliation_result (
 
 ### Vistas para Power BI y auditoría (R18.4)
 
-- `v_corrida_oficial_vigente`: por `(IdProyecto, año-mes de FinPeriodo)` la última `etl_run` con `EsOficial=1` y `Estado='success'`.
+- `v_corrida_oficial_vigente`: por `(IdProyecto, año-mes de FinPeriodo)` la última `etl_run` con `EsOficial=1` y `Estado='success'`, prefiriendo `EstadoExclusiones='con_exclusiones'` sobre `sin_exclusiones` (R19.7). Expone la etiqueta "Sin Exclusiones" / "Con Exclusiones" para Power BI.
 - `v_kpi_vigente`, `v_daily_vigente`, `v_annual_vigente`, `v_fault_code_vigente`: resultados de la corrida vigente.
 - `v_detencion_vigente`: `detencion` de la corrida vigente `LEFT JOIN` a la última `detencion_revision` por clave (estado por defecto `pendiente`).
 - `v_monthly_kpi_vigente`: última fila por `(IdProyecto, Anio, Mes)` de `monthly_official_kpi`.

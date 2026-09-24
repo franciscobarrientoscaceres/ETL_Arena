@@ -63,9 +63,9 @@ python scripts/run_lunes.py --stage notify-bi
 python scripts/run_lunes.py --stage all --inbox data/inbox --work data/work
 ```
 
-> Mientras no se cargue la `Exclusion_Matrix` del mes (D-17), el KPI semanal es **preliminar** respecto a eventos de exclusión (`ExcusablesPendientes = 1`); la notificación lo indica.
+> El KPI semanal es **oficial "Sin Exclusiones"** (`EstadoExclusiones = sin_exclusiones`): la `Exclusion_Matrix` la entrega Alex a fin de mes (D-17). La notificación lleva la etiqueta.
 
-### Cierre mensual (cuando se entrega la `Exclusion_Matrix` del mes — D-17, F-37)
+### Cierre mensual "Con Exclusiones" (cuando Alex entrega la `Exclusion_Matrix` del mes, a fin de mes — D-17, F-37)
 
 ```powershell
 # carga B/C/D por timestamp, registra cada celda cambiada y encola el cierre del mes

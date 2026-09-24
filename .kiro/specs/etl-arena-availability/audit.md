@@ -221,6 +221,7 @@ Detectados al emular el VBA línea por línea y comparar contra el golden de sep
 - `Exclusion_Matrix` fila 2 (2026-04-08 00:15): PCS61 = 1 y `Excused Event` = 1; el resto de la matriz fuera de agosto está vacía. Probable residuo; confirmar (D-18).
 
 ### Decisiones asociadas
-- **D-16** (aplicada): los eventos (`mcoCreateList`, L14 = "Yes") usan la misma regla de la matriz que el KPI, para que `C14 = 4·L10` siga valiendo sin arrastre. La macro de agosto no lo hace (usa `PlantActivity!D`).
-- **D-17** (abierta): quién mantiene y cuándo entrega la `Exclusion_Matrix` (hoy la cargó F. Barrientos, solo agosto).
-- **D-18** (abierta): marca de la fila 2.
+- **D-16** (resuelta 2026-09-24, confirmada por negocio): los eventos (`mcoCreateList`, L14 = "Yes") usan la misma regla de la matriz que el KPI, para que `C14 = 4·L10` siga valiendo sin arrastre. La macro de agosto no lo hace (usa `PlantActivity!D`).
+- **D-17** (resuelta 2026-09-24): Alex entrega la `Exclusion_Matrix` una vez al mes, al final. Corridas semanales = oficiales "Sin Exclusiones"; cierre mensual = oficial "Con Exclusiones" (vigente).
+- **D-18**: la marca de la fila 2 se mantiene (F. Barrientos); pendiente confirmación de Alex.
+- **D-19** (resuelta 2026-09-24): el maestro pasa a **v1.1** (septiembre + `Exclusion_Matrix` + regla en `cmdCalcAvailability` y `mcoCreateList`) para que Excel siga siendo referencia en las corridas "Con Exclusiones" (`design.md §Libro maestro v1.1`, tarea 4.0).
