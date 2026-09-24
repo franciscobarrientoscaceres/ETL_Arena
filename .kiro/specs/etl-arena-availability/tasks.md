@@ -74,7 +74,7 @@ Las tareas siguen el orden de las fases ETL: estructura base → ingesta → nor
 
 - [ ] 4. DDL SQL Server
   - [ ] 4.1 Crear scripts DDL en `sql/`
-    - `sql/01_create_tables.sql`: DDL completo de las 8 tablas según el diseño: `etl_run`, `raw_pcs_sample`, `plant_activity_sample`, `availability_sample_result`, `availability_run_result`, `fault_event`, `daily_availability`, `annual_availability` — incluyendo índices definidos en el design.md
+    - `sql/01_create_tables.sql`: DDL completo de las 10 tablas según el diseño, en este orden: (1) `tipo_detencion` con INSERT de los 68 códigos PCS-Fault, (2) `proyecto` con INSERT de los 4 proyectos Arena/Copiapó A/Luz del Norte/María Elena, (3) `etl_run` (con campo `id_proyecto`), (4) `raw_pcs_sample`, (5) `plant_activity_sample`, (6) `availability_sample_result`, (7) `availability_run_result`, (8) `fault_event`, (9) `detencion`, (10) `daily_availability`, (11) `annual_availability` — incluyendo índices definidos en el design.md
     - `sql/02_create_indexes.sql`: crear los índices adicionales `IX_raw_pcs_sample_run_ts_pcs`, `IX_plant_activity_run_ts`, `IX_avail_sample_run_ts_pcs`, `IX_fault_event_run_pcs`, `IX_daily_avail_run_day`, `IX_annual_avail_run_ym`
     - `sql/03_queries_audit.sql`: consultas de auditoría reutilizables: trazabilidad KPI→muestra→raw, listado de intervalos con `modules_available_is_null=1`, listado de eventos con `fault_description_fallback=1`
     - _Requirements: 7.4, 9.1_
@@ -83,6 +83,11 @@ Las tareas siguen el orden de las fases ETL: estructura base → ingesta → nor
     - `sql/00_create_database.sql`: script para crear la base de datos si no existe
     - `src/persistence/schema.py`: constantes con los nombres de tablas y funciones auxiliares para verificar que el esquema existe antes de la primera corrida
     - _Requirements: 7.1_
+
+  - [ ] 4.3 Crear script de datos maestros en `sql/`
+    - `sql/04_seed_tipo_detencion.sql`: INSERT con los 68 códigos del catálogo PCS-Fault (idempotente con MERGE o IF NOT EXISTS)
+    - `sql/05_seed_proyectos.sql`: INSERT con los 4 proyectos: Arena (id=1, en_ejecucion, fecha_inicio=2026-04-08, num_pcs=61, batteries=4, racks=12), Copiapó A (id=2), Luz del Norte (id=3), María Elena (id=4) — idempotente
+    - _Requirements: 13.1, 13.2, 13.3_
 
 - [ ] 5. Checkpoint — Estructura base completa
   - Verificar que `pyproject.toml` instala correctamente todas las dependencias.
@@ -206,6 +211,7 @@ Las tareas siguen el orden de las fases ETL: estructura base → ingesta → nor
   - [ ] 10.1 Implementar PersistenceService en `src/persistence/persistence_service.py`
     - Usar `SQLAlchemy Core` con driver `pyodbc`; leer connection string de variable de entorno `ETL_ARENA_DB_URL`
     - Métodos: `begin_run`, `complete_run`, `fail_run`, `save_raw_pcs`, `save_plant_activity`, `save_sample_results`, `save_run_result`, `save_fault_events`, `save_daily`, `save_annual`
+    - Añadir método `save_detenciones(run_id, id_proyecto, fault_events)`: convierte cada `FaultEvent` en un registro `detencion`, resuelve `id_tipo_detencion` buscando en `tipo_detencion` por `fault_code`, calcula `duracion_segundos = DATEDIFF(seconds, fecha_inicio, fecha_termino)`, inserta en bulk
     - Inserciones en bulk con `executemany`; nunca `DELETE` ni `UPDATE` sobre registros de corridas anteriores
     - En caso de error: hacer rollback, llamar `fail_run` antes de relanzar la excepción
     - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7_

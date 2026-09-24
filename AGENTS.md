@@ -756,6 +756,44 @@ La base de datos debe separar:
 4. resultados;
 5. auditoría de ejecución.
 
+## 13.0 `proyecto`
+
+Tabla maestra de proyectos BESS. Se crea una sola vez y no cambia entre corridas.
+
+```text
+id_proyecto
+nombre
+estado                -- 'en_ejecucion' | 'por_implementar'
+fecha_inicio
+num_pcs
+num_baterias_por_pcs
+num_racks_por_bac
+total_racks           -- columna calculada: num_pcs * num_baterias_por_pcs * num_racks_por_bac
+sampling_minutes
+timezone
+descripcion
+```
+
+Proyectos registrados:
+
+| id | nombre | estado |
+|---|---|---|
+| 1 | Arena | en_ejecucion |
+| 2 | Copiapó A | por_implementar |
+| 3 | Luz del Norte | por_implementar |
+| 4 | María Elena | por_implementar |
+
+## 13.0b `tipo_detencion`
+
+Catálogo de códigos de falla, extraído de la hoja `PCS-Fault` del Excel. 68 registros. Se carga una sola vez como dato maestro.
+
+```text
+id_tipo_detencion     -- código numérico (ej: 55)
+fault_code            -- código texto (ej: 'F55')
+fault_description_pe  -- descripción PowerElectronics (ej: 'Fallo externo')
+code_description      -- código + descripción (ej: 'F55 Fallo externo')
+```
+
 ## 13.1 `etl_run`
 
 Campos sugeridos:
@@ -904,6 +942,40 @@ accumulated_unavailable_rack_blocks
 accumulated_availability
 contractual_availability
 ```
+
+## 13.9 `detencion`
+
+Vista operacional de detenciones. Poblada desde `fault_event` pero orientada a consultas de negocio y análisis de fallas. Coexiste con `fault_event` (tabla técnica de auditoría).
+
+```text
+id_detencion
+id_proyecto                 -- FK -> proyecto
+run_id                      -- FK -> etl_run
+pcs_number
+fecha_inicio
+fecha_termino
+duracion_segundos           -- DATEDIFF(seconds, fecha_inicio, fecha_termino)
+id_tipo_detencion           -- FK -> tipo_detencion (NULL si código no existe en catálogo)
+fault_code
+fault_description
+fault_description_fallback
+average_batteries_involved
+unavailable_rack_hours
+modules_available_is_null   -- flag de calidad de dato
+es_excusable                -- flag de evento excusable
+observacion                 -- campo libre para anotaciones operacionales
+estado_revision             -- 'pendiente' | 'revisado' | 'excluido'
+```
+
+La diferencia entre `fault_event` y `detencion`:
+
+| `fault_event` | `detencion` |
+|---|---|
+| Tabla técnica de auditoría | Tabla operacional de negocio |
+| Append-only por run_id | Permite UPDATE en observacion y estado_revision |
+| Sin FK a proyecto | Con FK a proyecto |
+| Sin duracion_segundos | Con duracion_segundos calculado |
+| Sin campos de workflow | Con estado_revision y observacion |
 
 ---
 

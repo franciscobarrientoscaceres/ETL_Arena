@@ -166,11 +166,14 @@ sql/
 | Tabla                      | Contenido                                                    |
 |----------------------------|--------------------------------------------------------------|
 | `etl_run`                  | Metadatos de cada corrida (run_id, período, parámetros)      |
+| `proyecto`                 | Tabla maestra de 4 proyectos BESS con parámetros de configuración           |
+| `tipo_detencion`           | Catálogo de 68 códigos de falla (fuente: hoja `PCS-Fault`)                  |
 | `raw_pcs_sample`           | Datos crudos normalizados (modelo largo, 1 fila por PCS×ts)  |
 | `plant_activity_sample`    | Factores de actividad y evento excusable por timestamp       |
 | `availability_sample_result` | Resultado intermedio por PCS×timestamp (auditoría)         |
 | `availability_run_result`  | KPI del período: disponibilidad y acumulados                 |
 | `fault_event`              | Eventos de falla consolidados                                |
+| `detencion`                | Vista operacional de detenciones con `id_proyecto`, `duracion_segundos`, `estado_revision` y `observacion` |
 | `daily_availability`       | KPI diario y variación                                       |
 | `annual_availability`      | KPI mensual y acumulado anual                                |
 

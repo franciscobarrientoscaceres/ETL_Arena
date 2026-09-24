@@ -40,6 +40,10 @@ src/aggregation/     -- mcoDailyAvailability + Annual_AVA
               |
               v
 src/persistence/     -- SQLAlchemy -> SQL Server (append-only por run_id)
+                     -- tablas: proyecto, tipo_detencion, etl_run,
+                     --         raw_pcs_sample, plant_activity_sample,
+                     --         availability_sample_result, availability_run_result,
+                     --         detencion, daily_availability, annual_availability
               |
               v
 src/reconciliation/  -- comparación Excel vs Python en 5 niveles
@@ -526,9 +530,131 @@ class ReconciliationService:
 ### SQL Server — DDL completo
 
 ```sql
--- Tabla de auditoría de corridas
+-- Catalogo de tipos de detencion (fuente: hoja PCS-Fault del Excel)
+CREATE TABLE tipo_detencion (
+    id_tipo_detencion   INT             NOT NULL PRIMARY KEY,
+    fault_code          NVARCHAR(10)    NOT NULL UNIQUE,   -- 'F55'
+    fault_description_pe NVARCHAR(100)  NOT NULL,          -- 'Fallo externo'
+    code_description    NVARCHAR(150)   NOT NULL           -- 'F55 Fallo externo'
+);
+
+-- Datos iniciales del catalogo PCS-Fault (68 codigos)
+INSERT INTO tipo_detencion VALUES
+(0,   'F0',   'NO FAULT',                      'F0 NO FAULT'),
+(1,   'F1',   'Watchdog',                       'F1 Watchdog'),
+(2,   'F2',   'HW Vbus',                        'F2 HW Vbus'),
+(3,   'F3',   'Carga suave',                    'F3 Carga suave'),
+(4,   'F4',   'Descarga',                       'F4 Descarga'),
+(5,   'F5',   'Alta VAC',                       'F5 Alta VAC'),
+(6,   'F6',   'Baja VAC',                       'F6 Baja VAC'),
+(7,   'F7',   'Alta frecuencia',                'F7 Alta frecuencia'),
+(8,   'F8',   'Baja frecuencia',                'F8 Baja frecuencia'),
+(10,  'F10',  'Coms CIF FPGA-DSP',              'F10 Coms CIF FPGA-DSP'),
+(11,  'F11',  'Anti-isla activo',               'F11 Anti-isla activo'),
+(13,  'F13',  'No modulos',                     'F13 No modulos'),
+(14,  'F14',  'Drive-Select DSP',               'F14 Drive-Select DSP'),
+(15,  'F15',  'Sincronizacion',                 'F15 Sincronizacion'),
+(23,  'F23',  'VAC desbalanceada',              'F23 VAC desbalanceada'),
+(25,  'F25',  'Baja VDC',                       'F25 Baja VDC'),
+(27,  'F27',  'Fallo arranque modulos',          'F27 Fallo arranque modulos'),
+(28,  'F28',  'Anti-isla pasivo',               'F28 Anti-isla pasivo'),
+(31,  'F31',  'Fallo autodiagnostico',           'F31 Fallo autodiagnostico'),
+(32,  'F32',  'Error modulo autodiagnostico',    'F32 Error modulo autodiagnostico'),
+(33,  'F33',  'Incapaz reconectar',              'F33 Incapaz reconectar'),
+(35,  'F35',  'Premag MT',                       'F35 Premag MT'),
+(40,  'F40',  'Sobretemperatura interna',        'F40 Sobretemperatura interna'),
+(41,  'F41',  'GFDI',                            'F41 GFDI'),
+(43,  'F43',  'Paro emergencia',                 'F43 Paro emergencia'),
+(44,  'F44',  'Drive-Select MCU',                'F44 Drive-Select MCU'),
+(45,  'F45',  'Aislamiento general',             'F45 Aislamiento general'),
+(46,  'F46',  'Fallo de datos',                  'F46 Fallo de datos'),
+(47,  'F47',  'Watchdog uP',                     'F47 Watchdog uP'),
+(48,  'F48',  'Comunicaciones internas',         'F48 Comunicaciones internas'),
+(49,  'F49',  'IMD autodiagnostico error',       'F49 IMD autodiagnostico error'),
+(51,  'F51',  'Comunicaciones PPC',              'F51 Comunicaciones PPC'),
+(54,  'F54',  'Sobrecorriente',                  'F54 Sobrecorriente'),
+(55,  'F55',  'Fallo externo',                   'F55 Fallo externo'),
+(56,  'F56',  'Paro emergencia remoto',          'F56 Paro emergencia remoto'),
+(58,  'F58',  'SW control incompatible',         'F58 SW control incompatible'),
+(59,  'F59',  'SW modulo incompatible',          'F59 SW modulo incompatible'),
+(62,  'F62',  'Comunicaciones DU',               'F62 Comunicaciones DU'),
+(63,  'F63',  'IMD conexion tierra',             'F63 IMD conexion tierra'),
+(64,  'F64',  'MAC invalida',                    'F64 MAC invalida'),
+(65,  'F65',  'Sobreintensidad AC',              'F65 Sobreintensidad AC'),
+(66,  'F66',  'Desbalanceo VDC modulo',          'F66 Desbalanceo VDC modulo'),
+(69,  'F69',  'Sobretension DC+',                'F69 Sobretension DC+'),
+(70,  'F70',  'Sobretension DC-',                'F70 Sobretension DC-'),
+(71,  'F71',  'Desaturacion R1(H)',              'F71 Desaturacion R1(H)'),
+(72,  'F72',  'Desaturacion R2(H)',              'F72 Desaturacion R2(H)'),
+(73,  'F73',  'Desaturacion R2(L)',              'F73 Desaturacion R2(L)'),
+(74,  'F74',  'Desaturacion R3(L)',              'F74 Desaturacion R3(L)'),
+(75,  'F75',  'Desaturacion S1(H)',              'F75 Desaturacion S1(H)'),
+(76,  'F76',  'Desaturacion S2(H)',              'F76 Desaturacion S2(H)'),
+(77,  'F77',  'Desaturacion S2(L)',              'F77 Desaturacion S2(L)'),
+(78,  'F78',  'Desaturacion S3(L)',              'F78 Desaturacion S3(L)'),
+(79,  'F79',  'Desaturacion T1(H)',              'F79 Desaturacion T1(H)'),
+(80,  'F80',  'Desaturacion T2(H)',              'F80 Desaturacion T2(H)'),
+(81,  'F81',  'Desaturacion T2(L)',              'F81 Desaturacion T2(L)'),
+(82,  'F82',  'Desaturacion T3(L)',              'F82 Desaturacion T3(L)'),
+(83,  'F83',  'Desaturaciones',                  'F83 Desaturaciones'),
+(84,  'F84',  'Comunicaciones',                  'F84 Comunicaciones'),
+(85,  'F85',  'Timeout carga suave',             'F85 Timeout carga suave'),
+(86,  'F86',  'Retroaviso seccionador',          'F86 Retroaviso seccionador'),
+(90,  'F90',  'Temperatura IGBT HF',             'F90 Temperatura IGBT HF'),
+(95,  'F95',  'Fuente PCB',                      'F95 Fuente PCB'),
+(98,  'F98',  'Derivacion Id',                   'F98 Derivacion Id'),
+(99,  'F99',  'Mod. Derivacion Iac',             'F99 Mod. Derivacion Iac'),
+(101, 'F101', 'MOD. MEDIDA DC',                  'F101 MOD. MEDIDA DC'),
+(102, 'F102', 'Corriente desbalanceada',         'F102 Corriente desbalanceada'),
+(103, 'F103', 'Temperatura IGBT',                'F103 Temperatura IGBT'),
+(104, 'F104', 'Temperatura PCB',                 'F104 Temperatura PCB'),
+(106, 'F106', 'Mod. desbalanceo VDC',            'F106 Mod. desbalanceo VDC'),
+(107, 'F107', 'Iac no alcanzada',                'F107 Iac no alcanzada'),
+(108, 'F108', 'Mod. alta VDC',                   'F108 Mod. alta VDC'),
+(109, 'F109', 'Mod. baja VDC',                   'F109 Mod. baja VDC'),
+(112, 'F112', 'Emergencia OCAC',                 'F112 Emergencia OCAC'),
+(113, 'F113', 'CRC',                             'F113 CRC'),
+(114, 'F114', 'Sensado Ir',                      'F114 Sensado Ir'),
+(115, 'F115', 'Sensado Is',                      'F115 Sensado Is'),
+(116, 'F116', 'Sensado It',                      'F116 Sensado It'),
+(118, 'F118', 'Modulo deshabilitado',            'F118 Modulo deshabilitado');
+
+-- Tabla maestra de proyectos BESS
+CREATE TABLE proyecto (
+    id_proyecto         INT             NOT NULL PRIMARY KEY,
+    nombre              NVARCHAR(100)   NOT NULL,
+    estado              NVARCHAR(20)    NOT NULL DEFAULT 'por_implementar',
+                        -- valores: 'en_ejecucion', 'por_implementar'
+    fecha_inicio        DATE            NULL,
+    num_pcs             INT             NULL,
+    num_baterias_por_pcs INT            NULL,
+    num_racks_por_bac   INT             NULL,
+    total_racks         AS (num_pcs * num_baterias_por_pcs * num_racks_por_bac) PERSISTED,
+    sampling_minutes    INT             NULL,
+    timezone            NVARCHAR(50)    NULL,
+    descripcion         NVARCHAR(500)   NULL
+);
+
+-- Datos iniciales de proyectos
+INSERT INTO proyecto (id_proyecto, nombre, estado, fecha_inicio, num_pcs, num_baterias_por_pcs, num_racks_por_bac, sampling_minutes, timezone) VALUES
+(1, 'Arena',        'en_ejecucion',    '2026-04-08', 61, 4, 12, 15, 'America/Santiago'),
+(2, 'Copiapo A',    'por_implementar', NULL,         NULL, NULL, NULL, NULL, NULL),
+(3, 'Luz del Norte','por_implementar', NULL,         NULL, NULL, NULL, NULL, NULL),
+(4, 'Maria Elena',  'por_implementar', NULL,         NULL, NULL, NULL, NULL, NULL);
+
+-- =============================================================
+-- TABLAS DE REFERENCIA (se crean primero, sin dependencias)
+-- =============================================================
+-- (tipo_detencion y proyecto ya fueron creadas arriba)
+
+-- =============================================================
+-- TABLAS DE CORRIDA (dependen de proyecto y tipo_detencion)
+-- =============================================================
+
+-- Tabla de auditoria de corridas
 CREATE TABLE etl_run (
     run_id                NVARCHAR(36)    NOT NULL PRIMARY KEY,
+    id_proyecto           INT             NULL REFERENCES proyecto(id_proyecto),
     source_file           NVARCHAR(500)   NOT NULL,
     source_system         NVARCHAR(50)    NOT NULL DEFAULT 'excel',
     started_at            DATETIME2(7)    NOT NULL,
@@ -627,6 +753,36 @@ CREATE TABLE fault_event (
 );
 CREATE INDEX IX_fault_event_run_pcs
     ON fault_event(run_id, pcs_number);
+
+-- Vista operacional de detenciones (poblada desde fault_event, consultada por analistas)
+CREATE TABLE detencion (
+    id_detencion                BIGINT          IDENTITY(1,1) PRIMARY KEY,
+    id_proyecto                 INT             NOT NULL REFERENCES proyecto(id_proyecto),
+    run_id                      NVARCHAR(36)    NOT NULL REFERENCES etl_run(run_id),
+    pcs_number                  INT             NOT NULL,
+    fecha_inicio                DATETIME2(7)    NOT NULL,
+    fecha_termino               DATETIME2(7)    NOT NULL,
+    duracion_segundos           INT             NOT NULL,
+    id_tipo_detencion           INT             NULL REFERENCES tipo_detencion(id_tipo_detencion),
+    fault_code                  NVARCHAR(10)    NULL,
+    fault_description           NVARCHAR(255)   NULL,
+    fault_description_fallback  BIT             NOT NULL DEFAULT 0,
+    average_batteries_involved  FLOAT           NOT NULL,
+    unavailable_rack_hours      FLOAT           NOT NULL,
+    modules_available_is_null   BIT             NOT NULL DEFAULT 0,
+    es_excusable                BIT             NOT NULL DEFAULT 0,
+    observacion                 NVARCHAR(500)   NULL,
+    estado_revision             NVARCHAR(20)    NOT NULL DEFAULT 'pendiente'
+    -- valores: 'pendiente', 'revisado', 'excluido'
+);
+CREATE INDEX IX_detencion_proyecto_pcs
+    ON detencion(id_proyecto, pcs_number);
+CREATE INDEX IX_detencion_run_id
+    ON detencion(run_id);
+CREATE INDEX IX_detencion_tipo
+    ON detencion(id_tipo_detencion);
+CREATE INDEX IX_detencion_fechas
+    ON detencion(id_proyecto, fecha_inicio, fecha_termino);
 
 -- KPI diario
 CREATE TABLE daily_availability (

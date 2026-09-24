@@ -49,6 +49,10 @@ El objetivo de la primera fase es obtener **paridad exacta** con el Excel: repro
 - **DST**: Daylight Saving Time. Cambio de horario de verano/invierno de Chile. Aplica en septiembre 2026.
 - **RawData-PCS**: Hoja del Excel con los registros crudos de estado y falla por intervalo de 15 min y por PCS (244 columnas de datos PCS).
 - **PlantActivity**: Hoja del Excel con el factor operacional (columna C) y el indicador de evento excusable (columna D) por intervalo de 15 min.
+- **Proyecto**: Entidad maestra que representa un activo BESS. Contiene parámetros de configuración como num_pcs, num_baterias_por_pcs, num_racks_por_bac. Arena BESS es el proyecto id=1, actualmente en ejecución. Copiapó A, Luz del Norte y María Elena están por implementar.
+- **Detencion**: Evento de indisponibilidad discreto de un PCS, equivalente a una fila de `ListOfFaults`. Tiene fecha_inicio, fecha_termino, duracion_segundos, tipo de detención, flags de calidad y campos de estado para revisión operacional.
+- **TipoDetencion**: Catálogo de códigos de falla extraído de la hoja `PCS-Fault` del Excel. 68 códigos (F0–F118). Identifica la causa técnica de cada detención.
+- **estado_revision**: Campo de workflow en `detencion`. Valores: `'pendiente'` (por defecto), `'revisado'`, `'excluido'`. Permite marcar detenciones para análisis posterior.
 
 ---
 
@@ -168,7 +172,7 @@ El objetivo de la primera fase es obtener **paridad exacta** con el Excel: repro
 1. THE Persistence_Module SHALL operar en modo append-only: nunca eliminar ni sobreescribir registros existentes en ninguna tabla.
 2. THE Persistence_Module SHALL crear un registro en `etl_run` al inicio de cada corrida con `status = "running"` y actualizarlo con `status = "success"` o `status = "failed"` al finalizar.
 3. THE Persistence_Module SHALL insertar todos los registros de staging, resultados intermedios y KPI bajo el mismo `run_id` de la corrida activa.
-4. THE Persistence_Module SHALL persistir las ocho tablas del modelo de datos: `etl_run`, `raw_pcs_sample`, `plant_activity_sample`, `availability_sample_result`, `availability_run_result`, `fault_event`, `daily_availability` y `annual_availability`.
+4. THE Persistence_Module SHALL persistir las diez tablas del modelo de datos: `proyecto`, `tipo_detencion`, `etl_run`, `raw_pcs_sample`, `plant_activity_sample`, `availability_sample_result`, `availability_run_result`, `detencion`, `daily_availability` y `annual_availability`.
 5. WHEN el Persistence_Module inserta registros en `raw_pcs_sample`, THE Persistence_Module SHALL conservar el número de fila origen (`source_row_number`) y el nombre de las columnas origen (`source_columns`) para trazabilidad.
 6. THE Persistence_Module SHALL almacenar en `etl_run` los parámetros completos de la corrida: `total_pcs`, `batteries_per_pcs`, `racks_per_pcs`, `total_racks`, `sampling_minutes`, `only_operational_time`, `apply_excused_event` y `algorithm_version`.
 7. IF la conexión a SQL Server falla durante la inserción, THEN THE Persistence_Module SHALL registrar el error, marcar la corrida con `status = "failed"` y no dejar datos parciales sin el correspondiente `etl_run` de error.
@@ -274,3 +278,21 @@ El objetivo de la primera fase es obtener **paridad exacta** con el Excel: repro
 | total rack-hours (ListOfFaults) | abs <= 1e-3 | Suma de muchos floats; margen mayor aceptable |
 | event duration_hours | abs <= 0.01 | Diferencias de 36 segundos son irrelevantes operacionalmente |
 | event rack_hours individual | abs <= 0.1 | Derivado de duration y avg_batteries |
+
+---
+
+### Requirement 13: Modelo de proyectos y detenciones
+
+**User Story:** Como analista de disponibilidad, quiero que la base de datos soporte múltiples proyectos BESS y almacene las detenciones de forma estructurada con su tipo, duración y estado de revisión, para poder consultar y analizar fallas entre proyectos y a lo largo del tiempo.
+
+#### Acceptance Criteria
+
+1. THE Persistence_Module SHALL mantener una tabla `proyecto` con un registro por cada activo BESS gestionado: Arena (id=1, en ejecución), Copiapó A (id=2), Luz del Norte (id=3) y María Elena (id=4), con estado `'por_implementar'` para los tres últimos.
+2. THE `proyecto` table SHALL almacenar los parámetros de configuración del activo: `num_pcs`, `num_baterias_por_pcs`, `num_racks_por_bac`, `total_racks` (calculado), `sampling_minutes`, `timezone` y `fecha_inicio`.
+3. THE Persistence_Module SHALL mantener una tabla `tipo_detencion` con el catálogo completo de 68 códigos de falla extraído de la hoja `PCS-Fault` del Excel, con campos `fault_code` (ej: 'F55'), `fault_description_pe` (ej: 'Fallo externo') y `code_description` (ej: 'F55 Fallo externo').
+4. WHEN el Fault_Events_Engine persiste un evento de falla, THE Persistence_Module SHALL insertar un registro en `detencion` con: `id_proyecto`, `run_id`, `pcs_number`, `fecha_inicio`, `fecha_termino`, `duracion_segundos` (calculado como DATEDIFF en segundos), `id_tipo_detencion` (FK al catálogo), `fault_code`, `fault_description`, `fault_description_fallback`, `average_batteries_involved` y `unavailable_rack_hours`.
+5. THE `detencion` table SHALL incluir campos de calidad de datos: `modules_available_is_null` (BIT) y `es_excusable` (BIT).
+6. THE `detencion` table SHALL incluir campos de workflow operacional: `observacion` (NVARCHAR(500), nullable) para anotaciones libres y `estado_revision` (NVARCHAR(20)) con valor por defecto `'pendiente'` y valores permitidos: `'pendiente'`, `'revisado'`, `'excluido'`.
+7. WHEN el Persistence_Module resuelve `id_tipo_detencion` para una detención, THE Persistence_Module SHALL buscar en `tipo_detencion` por `fault_code`; IF el código no existe en el catálogo, THEN THE Persistence_Module SHALL insertar la detención con `id_tipo_detencion = NULL` y registrar una advertencia.
+8. THE tabla `detencion` es la vista operacional de `fault_event`: ambas tablas coexisten. `fault_event` es la tabla técnica de auditoría (append-only por run_id), `detencion` es la tabla de negocio consultada por analistas y sistemas de reporting.
+9. THE `etl_run` table SHALL incluir el campo `id_proyecto` (INT FK → proyecto) para asociar cada corrida con su activo correspondiente.
