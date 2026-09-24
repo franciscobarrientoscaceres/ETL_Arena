@@ -168,3 +168,32 @@ Severidad: 🔴 rompe paridad o bloquea implementación · 🟠 alto (error func
 | `C12 = filas en rango` (DST: 1975 = 1978 − 3) | ✔ |
 | `Annual_AVA!E15 = D15·96` con `D15 = último_ts − inicio_mes` | ✔ 20,59375 × 96 = 1977 |
 | `Σ Daily = C14` (solo si `C21="No"`) | ✔ |
+
+---
+
+## 6. Hallazgos de la implementación de la Fase 1 (2026-09-24)
+
+Detectados al emular el VBA línea por línea y comparar contra el golden de septiembre (paridad bit a bit alcanzada en C12, C14, C16, C19, tabla `E4:BO`, Daily, 334 eventos, L10 y N:Q).
+
+### F-33 🟠 La serie `Daily` la gobierna `Daily!C`, no `D5`
+- **Evidencia XML:** `C9 = D3`, `C10:C29 = C(n-1)+1` y `C30:C39` **vacías**; `mcoDailyAvailability` termina en la primera `Daily!C` vacía. `D5` es un valor que no participa en la macro.
+- **Consecuencia:** extender la serie requiere arrastrar a mano las fórmulas de `C`. En septiembre coinciden (`D5` = C29 = 21-sep) por casualidad.
+- **Corrección:** `config.desde_excel` toma `fin_diario` de la última fecha contigua de `Daily!C9:C39` y anota si `D5` difiere; el runner COM (4.2) debe escribir `Daily!C9:C(8+n)` y limpiar el resto.
+
+### F-34 🔴 `ListOfFaults!C/D` se redondean al segundo (Date de VBA → celda)
+- **Evidencia:** `Sheet2.Cells(r, 1)` es un `Date` (celda con formato fecha), así que `A − C23/(24*60)` también lo es; Excel lo guarda con resolución de segundo. El libro guarda `C = 46266.010416666664` (serial exacto de 00:15:00), no `46266.01041666667` (resta en `double`); `E = 24*(D−C) = 5.5000000001164153` solo cuadra con el primero.
+- **Impacto sin corregir:** 109 de 334 eventos con Δ de 1 ulp en C, que se propaga a E, I y L10 (4,8e-7).
+- **Corrección:** `excel_semantics.fecha_vba_a_celda` (serial → datetime al segundo → serial correctamente redondeado con `Fraction`).
+
+### F-35 🟡 `PCS-Fault` tiene códigos repetidos; N:Q tiene 166 filas
+- **Evidencia:** 167 filas pero **163 códigos distintos**: F228, F230, F231 y F232 aparecen dos veces, idénticos salvo `Meaning` (`Crítico` / `Parcial`). `ListOfFaults!N6:N171` tiene 166 filas (F230–F232 dos veces) con los mismos 163 códigos.
+- **Consecuencia:** el seed de `tipo_detencion` (clave `CodigoFalla`) no puede insertar las 167 filas tal cual; qué criticidad vale para esos 4 códigos es D-14. El resumen N:Q se compara como mapa código → P.
+- **Nota:** `SUMIF` compara sin distinguir mayúsculas y `mcoOrder` es un sort estable: el orden de los empates depende del estado previo de la hoja.
+
+### F-36 🟡 `numBlock As Integer` (latente)
+- Un evento de más de 32.767 bloques seguidos (~341 días a 15 min) hace fallar `mcoCreateList` con *Overflow*. Python sigue y marca `ExcelHabriaFallado` (misma política que D-08).
+
+### Semántica VBA confirmada (sin impacto en septiembre)
+- `And`/`Or` no cortocircuitan: se evalúan todos los operandos (origen de F-11).
+- Variant vs literal `String` es comparación de texto (`169 = "NO FAULTS"` → falso, sin error); Variant de texto no numérico vs número es *Type mismatch*; `Empty` vale 0 frente a números y `""` frente a textos. Implementado en `excel_semantics.celdas`.
+- El bucle de ambas macros evalúa la salida (`A = ""`) **después** de procesar la fila: una A2 vacía no corta la lectura (se procesa como 0).

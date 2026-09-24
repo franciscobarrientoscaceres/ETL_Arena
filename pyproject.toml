@@ -12,6 +12,7 @@ dependencies = [
     "numpy>=2.1",
     "pandas>=2.2,<4",
     "openpyxl>=3.1",
+    "tzdata>=2024.1",  # zoneinfo en Windows: clasificación de anomalías DST (R16.3)
 ]
 
 [project.optional-dependencies]

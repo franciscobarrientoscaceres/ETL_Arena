@@ -4,7 +4,7 @@
     "schema_version": "1.2",
     "tolerance_internal": 1e-09,
     "tolerance_kpi": 1e-06,
-    "tolerance_rack_hours": 0.001,
+    "tolerance_rack_hours": 1e-06,
     "tolerance_daily": 1e-06,
     "how_to_add": "Ejecutar las macros en el libro para el período (cmdCalcAvailability + mcoCreateList + mcoDailyAvailability, con C5/C7/C21/C31, ListOfFaults!L2/L4/L14 y Daily!D5 seteados), luego: python tests/golden/extract_golden.py --excel <ruta> --month N --year 2026 --label <nombre>. Genera golden_*.json (schema 1.2) + golden_*_calc.json.gz. Falla si no se cumplen los invariantes.",
     "invariants": [
@@ -16,7 +16,8 @@
       "filas tabla Calculation-Availability = C12; suma 12*tabla = C14 (si C21='No')",
       "C14 = 4*L10 solo si parametros KPI y eventos equivalentes (R13.8)"
     ],
-    "annual_ava_policy": "Las filas historicas de Annual_AVA (meses distintos al linkado a C14 de la corrida actual) pueden divergir del C14 del periodo: son estado historico del Excel, NO se usan como asercion de paridad (ver GT-5 en design.md). sampling_blocks de Annual usa formula de calendario (p.ej. 1977 para sep parcial) y no equivale a C12 de filas RawData (1975 con gap DST)."
+    "annual_ava_policy": "Las filas historicas de Annual_AVA (meses distintos al linkado a C14 de la corrida actual) pueden divergir del C14 del periodo: son estado historico del Excel, NO se usan como asercion de paridad (ver GT-5 en design.md). sampling_blocks de Annual usa formula de calendario (p.ej. 1977 para sep parcial) y no equivale a C12 de filas RawData (1975 con gap DST).",
+    "tolerance_note": "Tabla única en design.md §Tolerancias y src/etl_arena/reconciliation/tolerancias.py; tolerance_rack_hours endurecida de 1e-3 a 1e-6 al verificar septiembre (2026-09-24)."
   },
   "months": [
     {
@@ -100,8 +101,7 @@
         "c16_availability_period": 0.9819924099052362,
         "c19_accumulated_annual": 0.9989850173961998
       },
-      "status": "pending",
-      "pending_reason": "Invariantes OK. Pasa a verified cuando el golden runner (tasks 1.11) reproduzca niveles 2-5.",
+      "status": "verified",
       "discrepancies": [
         {
           "id": "c12_vs_annual_sampling_blocks",
@@ -118,8 +118,8 @@
         {
           "id": "l14_differs_c31",
           "detail": "ListOfFaults!L14='Yes' (eventos con factor excusable) mientras C31='No' (KPI sin factor). C14-4*L10=-1.3e-7 (no aplica el invariante cruzado).",
-          "resolution": "decision de negocio D-03; el golden conserva los parametros efectivos y el motor los recibe por separado",
-          "status": "open"
+          "resolution": "D-03 resuelta 2026-09-24: la corrida oficial usa C31 = L14 = 'Yes'. El golden conserva los parámetros efectivos del libro (C31='No', L14='Yes') y el runner los aplica por separado; en sep 1-21 no hay filas excusadas, así que el KPI no cambia.",
+          "status": "resolved"
         }
       ],
       "schema_version": "1.2",
@@ -132,6 +132,11 @@
         "L14": "Yes",
         "D5": "2026-09-21",
         "C23": 15
+      },
+      "verified": {
+        "date": "2026-09-24",
+        "by": "tests/golden/test_golden_runner.py",
+        "result": "niveles 2-5 dentro de tolerancia; paridad bit a bit en C12, C14, C16, C19, tabla E4:BO (1975x61), 21 dias de Daily, 334 eventos campo a campo, L10 y resumen N:Q"
       }
     }
   ]

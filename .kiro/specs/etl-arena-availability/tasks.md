@@ -99,54 +99,55 @@ Agentes disponibles en `.opencode/agent/` (OpenCode, `mode: subagent`). Son perf
 
 ### Fase 1 — Núcleo de paridad (Python puro)
 
-- [ ] 1.1 `config` — **data-engineer**
+- [x] 1.1 `config` — **data-engineer**
   - `ConfiguracionCalculo`, `CONFIG_POR_DEFECTO`, `construir_config()`, `desde_excel.leer_parametros()` con semántica `flag_si/flag_no`.
   - Tests: `total_racks`, defaults, validaciones, parámetros de eventos por defecto = KPI (R1.4), `"no"`≠`"No"` (R1.5).
   - _R1_
 
-- [ ] 1.2 `excel_semantics` — **data-engineer** (revisión reforzada de **code-reviewer**)
+- [x] 1.2 `excel_semantics` — **data-engineer** (revisión reforzada de **code-reviewer**)
   - Funciones de `design.md §excel_semantics`. Casos de test tomados del libro: descripción numérica `55`→`"F55"`, `"F55 EXTERNAL FAULT/OVGR"`→`"F55"`, `" X"`→`""`, `"ABC"`→`"FABC"`, `ROUND` half-up, serial↔datetime de `46266.010416666664`.
   - Property 8.
   - _R17, F-12, F-14_
 
-- [ ] 1.3 `model` — **data-engineer**
+- [x] 1.3 `model` — **data-engineer**
   - `MatrizPCS`, `DatosActividad`, `Anomalia`, `RegistroLista`, `EventoFalla`, `MuestraDisponibilidad`, `DiaDisponibilidad`, `KpiMensual`.
 
-- [ ] 1.4 `ingestion` — **data-engineer**
+- [x] 1.4 `ingestion` — **data-engineer**
   - `xlsx_stream` (iterparse + sharedStrings + rels), `lector_libro` (RawData-PCS, PlantActivity, `modo_huecos`), `anomalias_timestamp`.
   - Test: serial exacto de fila 2 = serial del XML; 15.990 filas del libro real (marker `golden`); anomalía DST en 2026-09-06; rechazo de módulos texto con fixture sintético.
   - Property 2.
   - _R4, R16, F-10, F-16_
 
-- [ ] 1.5 `normalization` — **data-engineer**
+- [x] 1.5 `normalization` — **data-engineer**
   - `validar_esquema`, `a_matriz`, `a_formato_largo`. Property 1.
   - _R5, F-02_
 
-- [ ] 1.6 `enrichment` — **data-engineer**
+- [x] 1.6 `enrichment` — **data-engineer**
   - Unión por fila; vacío = 0; anomalías `pa_vacio`, `pa_sin_timestamp`, `pa_desalineado`. Test contra libro real: 659 filas `pa_sin_timestamp` (GT-8).
   - _R6, F-01, F-31_
 
-- [ ] 1.7 `availability` — **data-engineer**
+- [x] 1.7 `availability` — **data-engineer**
   - `MotorDisponibilidad.calcular` según `design.md`. Properties 3, 4, 5. Unit: 3 filas × 2 PCS a mano; fila fuera de rango; C23 derivado; `solo_tiempo_operacional` con factor 0.
   - _R7, F-07, F-13_
 
-- [ ] 1.8 `fault_events` — **data-engineer** (revisión reforzada de **code-reviewer**)
+- [x] 1.8 `fault_events` — **data-engineer** (revisión reforzada de **code-reviewer**)
   - Emulación de `mcoCreateList` con `RegistroLista`; `resumen_por_codigo`.
   - Unit: los 4 caminos de descripción (incl. anterior vacío → `F1 Watchdog`); fin = última fila en falla; evento partido por celda vacía; cierre estricto `> L4+1`; arrastre entre PCS; `ExcelHabriaFallado` en fila 2; orden de suma `(s+4)-m`.
   - Properties 6, 7, 11.
   - _R8, F-03, F-04, F-06, F-11, F-18_
 
-- [ ] 1.9 `aggregation.diaria` — **data-engineer**
+- [x] 1.9 `aggregation.diaria` — **data-engineer**
   - Emulación de `mcoDailyAvailability` (sin factor operacional), días desde `inicio_periodo` hasta `fin_diario`. Property 9.
   - _R9, F-08, F-09_
 
-- [ ] 1.10 `aggregation.mensual_anual` — **data-engineer**
-  - `registrar_mes_oficial` (DiasMes = 20.59375 y 1977 bloques para sep) y `calcular_anual` (fórmulas G/H/I/J de Annual_AVA). Test con las filas jul/ago/sep de GT-5 → `J15 = 0.96725164144625086`.
+- [x] 1.10 `aggregation.mensual_anual` — **data-engineer**
+  - `registrar_mes_oficial` (DiasMes = 20.59375 y **BloquesMuestreo = C12 = 1975** para sep, D-07; `bloques_calendario` = 1977 solo para emular la hoja) y `calcular_anual` (fórmulas G/H/I/J de Annual_AVA). Test con las filas jul/ago/sep de GT-5 → `J15 = 0.96725164144625086`.
   - _R10, F-20_
 
-- [ ] 1.11 Golden runner — **data-engineer**
+- [x] 1.11 Golden runner — **data-engineer**
   - `tests/golden/conftest.py` + `test_golden_runner.py`: para cada mes `verified`, ejecutar ingesta→motores con los **parámetros efectivos del golden** y comparar niveles 2–5 con la tabla de tolerancias. Sep marcado `verified` al pasar.
   - Hecho cuando: septiembre pasa C12 exacto, C14/C16/C19, los 21 días de Daily, los 334 eventos campo a campo, L10 y el resumen N:Q.
+  - *Hecho 2026-09-24: paridad **bit a bit** en todo lo anterior y en la tabla E4:BO (1975×61); `golden_index` sep → `verified`. Hallazgos nuevos F-33…F-36 en `audit.md`.*
   - _R14, R13.7_
 
 - [ ] **Checkpoint A — code-reviewer**: checklist de paridad completo sobre Fase 1; cobertura ≥ 90 % en motores y `excel_semantics`. Preguntar al usuario si hay ajustes.
@@ -158,7 +159,7 @@ Agentes disponibles en `.opencode/agent/` (OpenCode, `mode: subagent`). Son perf
   - _R11, R12_
 
 - [ ] 2.2 Seeds — **database-optimizer** + **data-engineer**
-  - `scripts/generar_seed_tipo_detencion.py` lee `PCS-Fault` (167 filas) y genera `sql/05_seed_tipo_detencion.sql` con `MERGE`; `sql/05_seed_proyecto.sql` (4 proyectos); `sql/06_seed_annual_manual.sql` (jul/ago de Annual_AVA como `excel_manual`, según D-06).
+  - `scripts/generar_seed_tipo_detencion.py` lee `PCS-Fault` (167 filas, 163 códigos distintos: deduplicar F228/F230/F231/F232 según D-14, F-35) y genera `sql/05_seed_tipo_detencion.sql` con `MERGE`; `sql/05_seed_proyecto.sql` (4 proyectos); `sql/06_seed_annual_manual.sql` (jul/ago de Annual_AVA como `excel_manual`, según D-06).
   - _R12.1, R12.3, R10.4, F-19_
 
 - [ ] 2.3 Vistas, roles y consultas de auditoría — **database-optimizer**
@@ -207,7 +208,7 @@ Agentes disponibles en `.opencode/agent/` (OpenCode, `mode: subagent`). Son perf
   - _R3.7, F-23_
 
 - [ ] 4.2 `workbook.macros` + `workbook.referencia` — **backend-architect**
-  - Escribir C5/C7/C21/C31/L2/L4/L14/`Daily!D5`, ejecutar las 4 macros en orden, guardar; extraer referencia completa por XML → `referencia_excel.json` + `excel_reference_*`.
+  - Escribir C5/C7/C21/C31/L2/L4/L14/`Daily!D5` y las fórmulas `Daily!C9:C(8+n)` (limpiando el resto; F-33), ejecutar las 4 macros en orden, guardar; extraer referencia completa por XML → `referencia_excel.json` + `excel_reference_*`.
   - _R3.5, R3.6, F-05, F-23_
 
 - [ ] 4.3 Tests COM (marker `excel`) — **backend-architect**

@@ -134,7 +134,7 @@ Todas son **valores**, salvo `C23`. El runner COM las escribe explícitamente an
 | `ListOfFaults!L4` | Fecha fin | 46286 | Fin eventos (independiente de C7) |
 | `ListOfFaults!L14` | Excusable event? | `"Yes"` | Excusable para eventos (independiente de C31). Oficial: `"Yes"`, igual que C31 (D-03) |
 | `Daily!D3` | Fecha inicio | 46266 | `= C5` |
-| `Daily!D5` | Fecha fin | 46286 | Último día de la serie diaria; valor propio, máx. 31 días (F-09) |
+| `Daily!D5` | Fecha fin | 46286 | Informativo: la macro corta en la primera `Daily!C` vacía (C9 = D3, C10:C29 = anterior + 1, extendidas a mano; máx. 31 días) — F-09, F-33 |
 
 Salidas de referencia (las escriben las macros): `C12` (1975), `C14`, `C16`, `C19`, `ListOfFaults!L10`, tabla `Calculation-Availability!E4:BO` (E = serial; F…BN = `PCS01…PCS61`; BO = factor excusable con encabezado `"1=No, 0=Yes"`), `ListOfFaults!B6:I` y `Daily!B9:G39`. Las celdas `C25`/`C27`/`C29` (tiempos de la macro) no son parámetros.
 
@@ -147,6 +147,8 @@ Invariante de conteo observado: `C12 = 1975` = filas en [01-sep 00:00, 21-sep 14
 ### `PCS-Fault` → `tipo_detencion`
 - Encabezado en la **fila 2**, columnas B:G: `Code Number`, `Code Fault`, `Description PE`, `Code + Description`, `Meaning`, `Operative`.
 - 167 filas de datos (3…169): de `0 / F0 / NO FAULT / "F0 NO FAULT" / No fault / Yes` a `257 / F257 / Timeout carga suave AC`.
+- **163 códigos distintos:** F228, F230, F231 y F232 están dos veces, idénticos salvo `Meaning` (`Crítico` / `Parcial`) — F-35, D-14.
+- `ListOfFaults!N6:N171` (resumen N:Q) tiene 166 filas con esos mismos 163 códigos (F230–F232 repetidos).
 - El seed se genera desde la hoja (`scripts/generar_seed_tipo_detencion.py`), nunca hardcodeado (F-19).
 
 ### `PCS-Status`

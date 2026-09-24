@@ -338,7 +338,7 @@ def detectar_eventos(m, act, cfg, c23) -> ResultadoEventos:
                     actual.arrastrado_excel = True
                 actual.numero_pcs = pcs
                 actual.pcs_iniciados.add(pcs)
-                actual.serial_inicio = s - c23 / (24 * 60)
+                actual.serial_inicio = fecha_vba_a_celda(s - c23 / (24 * 60))   # Date → celda al segundo (F-34)
                 g, fallback = m.falla[i, j], False
                 if igual_texto(g, "NO FAULTS"):
                     prev = m.falla[i-1, j] if i > 0 else None
@@ -361,7 +361,7 @@ def detectar_eventos(m, act, cfg, c23) -> ResultadoEventos:
             if cierra:
                 if pcs not in actual.pcs_iniciados or len(actual.pcs_iniciados) > 1:
                     actual.arrastrado_excel = True
-                actual.serial_fin = s                    # última fila en falla (F-03)
+                actual.serial_fin = fecha_vba_a_celda(s) # última fila en falla (F-03, F-34)
                 actual.duracion_horas = 24 * (actual.serial_fin - actual.serial_inicio)
                 actual.promedio_baterias = sumablocks / numblock
                 actual.horas_rack = cfg.racks_por_pcs * actual.duracion_horas * actual.promedio_baterias
@@ -382,7 +382,7 @@ def detectar_eventos(m, act, cfg, c23) -> ResultadoEventos:
 
 ```python
 def calcular_diaria(res: ResultadoDisponibilidad, m, cfg) -> list[DiaDisponibilidad]:
-    n_dias = (cfg.fin_diario - cfg.inicio_periodo).days + 1          # ≤ 31
+    n_dias = (cfg.fin_diario - cfg.inicio_periodo).days + 1          # ≤ 31; fin_diario = última Daily!C (F-33)
     dias = [datetime_a_serial(cfg.inicio_periodo) + d for d in range(n_dias)]
     diario = [0.0] * n_dias
     k, i, suma = 0, 0, 0.0
@@ -412,7 +412,8 @@ def calcular_diaria(res: ResultadoDisponibilidad, m, cfg) -> list[DiaDisponibili
 def registrar_mes_oficial(res, m, cfg) -> KpiMensual:
     # R10.2: si el período cubre el mes completo → DiasMes = días calendario
     #        si no → DiasMes = serial(última fila procesada) − serial(día 1 del mes)  (sep: 20.59375)
-    #        BloquesMuestreo = DiasMes * 24 * 60 / 15  (literal de la hoja; sep: 1977)
+    #        BloquesMuestreo = C12 (intervalos existentes, D-07; sep: 1975). La fórmula de la hoja
+    #        (DiasMes*24*60/15 = 1977) queda en bloques_calendario() para emular Annual_AVA.
 def calcular_anual(meses: list[KpiMensual], cfg, mes_inicio_acumulado) -> list[FilaAnual]:
     # G = 1 - F/(Racks*E);  H = E + H_prev;  I = F + I_prev;  J = 1 - I/(Racks*H);  K = 0.98
 ```
