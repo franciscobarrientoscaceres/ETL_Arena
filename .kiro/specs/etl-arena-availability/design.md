@@ -1098,14 +1098,14 @@ Valores extraídos de la hoja `Annual_AVA` (`data_only=True`):
 |---|---|---|---|---|---|
 | Julio 2026 | 2976 | 350972.30 | 0.959721912366 | 2976 | 350972.30 |
 | Agosto 2026 | 2976 | 305182.97 | 0.964976762185 | 5952 | 656155.27 |
-| Sep. 2026 (parcial) | 1977 | 1211931.49 | 0.790636809650 | 7929 | 1868086.76 |
+| Sep. 2026 (parcial 1-21) | 1977 | 104134.29 | 0.982010626992 | 7929 | 760289.56 |
 
 ```python
 # tests/golden/test_gt5_annual.py
 GOLDEN_ANUAL = [
     (7, 2976, 350972.2999999995,  0.959721912366326, 2976, 350972.2999999995),
     (8, 2976, 305182.9679999994,  0.964976762184911, 5952, 656155.2679999989),
-    (9, 1977, 1211931.4879999976, 0.7906368096497706, 7929, 1868086.7559999963),
+    (9, 1977, 104134.2920000001,  0.9820106269918267, 7929, 760289.559999999),    # Daily corregido 2026-09-24
 ]
 
 def test_acumulacion_anual_coincide_con_excel():
@@ -1130,18 +1130,21 @@ def test_acumulacion_anual_coincide_con_excel():
 | 4 | 1 | 2026-09-01 23:45:00 | 2026-09-02 05:15:00 | 5.5000 | F13 | F13 NO MODULES | 2.6339 | 173.838 |
 | 5 | 1 | 2026-09-02 09:00:00 | 2026-09-02 09:30:00 | 0.5000 | F13 | F13 NO MODULES | 0.2468 | 1.481 |
 
-**Total HorasRackIndisponibles de todos los eventos (ListOfFaults!L10):** `25549.875880984026`
+**Total HorasRackIndisponibles de todos los eventos (ListOfFaults!L10):** `26033.573000032695` (Daily corregido 2026-09-24; total de 334 eventos)
 
 ```python
 # tests/golden/test_gt6_fault_events.py
+# CodigoFalla = primer token (ej "F55"), DescripcionFalla = descripcion completa (ej "F55 EXTERNAL FAULT/OVGR")
+# Nota: el golden actualizado tiene 334 eventos y total_horas_rack=26033.57 (correccion Daily sep-2026)
 GOLDEN_EVENTOS_PCS1 = [
+    # (NumeroPCS, MarcaTiempoInicio, MarcaTiempoFin, DuracionHoras, CodigoFalla, DescripcionFalla, PromedioBaterias, HorasRack)
     (1, "2026-09-01 00:15:00", "2026-09-01 05:45:00", 5.5,   "F55", "F55 EXTERNAL FAULT/OVGR", 3.3182, 219.000),
     (1, "2026-09-01 08:15:00", "2026-09-01 08:30:00", 0.25,  "F13", "F13 NO MODULES",          0.3333,   1.000),
     (1, "2026-09-01 15:45:00", "2026-09-01 16:15:00", 0.5,   "F55", "F55 EXTERNAL FAULT/OVGR", 2.3343,  14.006),
     (1, "2026-09-01 23:45:00", "2026-09-02 05:15:00", 5.5,   "F13", "F13 NO MODULES",          2.6339, 173.838),
     (1, "2026-09-02 09:00:00", "2026-09-02 09:30:00", 0.5,   "F13", "F13 NO MODULES",          0.2468,   1.481),
 ]
-TOTAL_HORAS_RACK_INDISPONIBLES = 25549.875880984026
+TOTAL_HORAS_RACK_INDISPONIBLES = 26033.573000032695  # actualizado con Daily corregido (2026-09-24)
 
 def test_eventos_falla_pcs1_coincide_con_excel():
     eventos = ejecutar_motor_eventos_falla(periodo="september_2026")

@@ -6,7 +6,7 @@
     "tolerance_internal": 1e-09,
     "tolerance_kpi": 1e-06,
     "tolerance_rack_hours": 0.001,
-    "note": "Corrida VBA con Only Operational Time=No, Excusable Event=No. Periodo parcial 01-21 sep."
+    "note": "Corrida VBA con Only Operational Time=No, Excusable Event=No. Periodo parcial 01-21 sep. Daily corregido 2026-09-24. fault_code=codigo_corto (F55), fault_description=descripcion_larga (F55 EXTERNAL FAULT/OVGR). PENDIENTE verificar discrepancia c12=1975 vs annual_ava sampling_blocks=1977 el lunes con corrida completa."
   },
   "period": {
     "year": 2026,
@@ -313,8 +313,8 @@
         "start_timestamp": "2026-09-01 00:15:00",
         "end_timestamp": "2026-09-01 05:45:00",
         "duration_hours": 5.500000000116415,
-        "fault_description": "F55",
-        "fault_code": "F55 EXTERNAL FAULT/OVGR",
+        "fault_description": "F55 EXTERNAL FAULT/OVGR",
+        "fault_code": "F55",
         "average_batteries_involved": 3.3181818181818183,
         "unavailable_rack_hours": 219.00000000463547
       },
@@ -323,8 +323,8 @@
         "start_timestamp": "2026-09-01 08:15:00",
         "end_timestamp": "2026-09-01 08:30:00",
         "duration_hours": 0.24999999994179234,
-        "fault_description": "F13",
-        "fault_code": "F13 NO MODULES",
+        "fault_description": "F13 NO MODULES",
+        "fault_code": "F13",
         "average_batteries_involved": 0.33333333333332993,
         "unavailable_rack_hours": 0.9999999997671591
       },
@@ -333,8 +333,8 @@
         "start_timestamp": "2026-09-01 15:45:00",
         "end_timestamp": "2026-09-01 16:15:00",
         "duration_hours": 0.5000000000582077,
-        "fault_description": "F55",
-        "fault_code": "F55 EXTERNAL FAULT/OVGR",
+        "fault_description": "F55 EXTERNAL FAULT/OVGR",
+        "fault_code": "F55",
         "average_batteries_involved": 2.3343333333333303,
         "unavailable_rack_hours": 14.006000001630495
       },
@@ -343,8 +343,8 @@
         "start_timestamp": "2026-09-01 23:45:00",
         "end_timestamp": "2026-09-02 05:15:00",
         "duration_hours": 5.499999999941792,
-        "fault_description": "F13",
-        "fault_code": "F13 NO MODULES",
+        "fault_description": "F13 NO MODULES",
+        "fault_code": "F13",
         "average_batteries_involved": 2.633909090909091,
         "unavailable_rack_hours": 173.83799999816023
       },
@@ -353,8 +353,8 @@
         "start_timestamp": "2026-09-02 09:00:00",
         "end_timestamp": "2026-09-02 09:30:00",
         "duration_hours": 0.5000000000582077,
-        "fault_description": "F13",
-        "fault_code": "F13 NO MODULES",
+        "fault_description": "F13 NO MODULES",
+        "fault_code": "F13",
         "average_batteries_involved": 0.2468333333333299,
         "unavailable_rack_hours": 1.4810000001723906
       },
@@ -363,8 +363,8 @@
         "start_timestamp": "2026-09-02 10:00:00",
         "end_timestamp": "2026-09-02 10:30:00",
         "duration_hours": 0.5000000000582077,
-        "fault_description": "F13",
-        "fault_code": "F13 NO MODULES",
+        "fault_description": "F13 NO MODULES",
+        "fault_code": "F13",
         "average_batteries_involved": 0.24616666666666487,
         "unavailable_rack_hours": 1.4770000001719346
       },
@@ -373,8 +373,8 @@
         "start_timestamp": "2026-09-02 16:00:00",
         "end_timestamp": "2026-09-02 16:15:00",
         "duration_hours": 0.2500000001164153,
-        "fault_description": "F13",
-        "fault_code": "F13 NO MODULES",
+        "fault_description": "F13 NO MODULES",
+        "fault_code": "F13",
         "average_batteries_involved": 0.95733333333333,
         "unavailable_rack_hours": 2.872000001337369
       },
@@ -383,8 +383,8 @@
         "start_timestamp": "2026-09-02 18:30:00",
         "end_timestamp": "2026-09-02 18:45:00",
         "duration_hours": 0.24999999994179234,
-        "fault_description": "F13",
-        "fault_code": "F13 NO MODULES",
+        "fault_description": "F13 NO MODULES",
+        "fault_code": "F13",
         "average_batteries_involved": 1.0190000000000001,
         "unavailable_rack_hours": 3.0569999992882373
       },
@@ -393,8 +393,8 @@
         "start_timestamp": "2026-09-03 01:15:00",
         "end_timestamp": "2026-09-03 01:45:00",
         "duration_hours": 0.4999999998835847,
-        "fault_description": "F55",
-        "fault_code": "F55 EXTERNAL FAULT/OVGR",
+        "fault_description": "F55 EXTERNAL FAULT/OVGR",
+        "fault_code": "F55",
         "average_batteries_involved": 2.1734999999999998,
         "unavailable_rack_hours": 13.040999996963654
       },
@@ -403,8 +403,8 @@
         "start_timestamp": "2026-09-03 09:00:00",
         "end_timestamp": "2026-09-03 09:15:00",
         "duration_hours": 0.24999999994179234,
-        "fault_description": "F13",
-        "fault_code": "F13 NO MODULES",
+        "fault_description": "F13 NO MODULES",
+        "fault_code": "F13",
         "average_batteries_involved": 0.42166666666666996,
         "unavailable_rack_hours": 1.264999999705479
       },
@@ -413,8 +413,8 @@
         "start_timestamp": "2026-09-03 21:00:00",
         "end_timestamp": "2026-09-03 21:15:00",
         "duration_hours": 0.24999999994179234,
-        "fault_description": "F13",
-        "fault_code": "F13 NO MODULES",
+        "fault_description": "F13 NO MODULES",
+        "fault_code": "F13",
         "average_batteries_involved": 0.8456666666666699,
         "unavailable_rack_hours": 2.536999999409318
       },
@@ -423,8 +423,8 @@
         "start_timestamp": "2026-09-04 06:00:00",
         "end_timestamp": "2026-09-04 07:45:00",
         "duration_hours": 1.7499999999417923,
-        "fault_description": "F55",
-        "fault_code": "F55 EXTERNAL FAULT/OVGR",
+        "fault_description": "F55 EXTERNAL FAULT/OVGR",
+        "fault_code": "F55",
         "average_batteries_involved": 2.825190476190476,
         "unavailable_rack_hours": 59.328999998026624
       },
@@ -433,8 +433,8 @@
         "start_timestamp": "2026-09-04 12:15:00",
         "end_timestamp": "2026-09-05 14:15:00",
         "duration_hours": 26.000000000058208,
-        "fault_description": "F108",
-        "fault_code": "F108 MOD. HIGH VDC",
+        "fault_description": "F108 MOD. HIGH VDC",
+        "fault_code": "F108",
         "average_batteries_involved": 2.9114999999999998,
         "unavailable_rack_hours": 908.3880000020336
       },
@@ -443,8 +443,8 @@
         "start_timestamp": "2026-09-05 14:30:00",
         "end_timestamp": "2026-09-05 18:15:00",
         "duration_hours": 3.75,
-        "fault_description": "F13",
-        "fault_code": "F13 NO MODULES",
+        "fault_description": "F13 NO MODULES",
+        "fault_code": "F13",
         "average_batteries_involved": 0.8959777777777781,
         "unavailable_rack_hours": 40.31900000000002
       },
@@ -453,8 +453,8 @@
         "start_timestamp": "2026-09-06 01:00:00",
         "end_timestamp": "2026-09-06 07:30:00",
         "duration_hours": 6.500000000058208,
-        "fault_description": "F13",
-        "fault_code": "F13 NO MODULES",
+        "fault_description": "F13 NO MODULES",
+        "fault_code": "F13",
         "average_batteries_involved": 3.6137051282051287,
         "unavailable_rack_hours": 281.86900000252416
       },
@@ -463,8 +463,8 @@
         "start_timestamp": "2026-09-06 16:00:00",
         "end_timestamp": "2026-09-06 16:15:00",
         "duration_hours": 0.2500000001164153,
-        "fault_description": "F13",
-        "fault_code": "F13 NO MODULES",
+        "fault_description": "F13 NO MODULES",
+        "fault_code": "F13",
         "average_batteries_involved": 0.6666666666666701,
         "unavailable_rack_hours": 2.000000000931333
       },
@@ -473,8 +473,8 @@
         "start_timestamp": "2026-09-07 04:45:00",
         "end_timestamp": "2026-09-07 05:15:00",
         "duration_hours": 0.5000000000582077,
-        "fault_description": "F55",
-        "fault_code": "F55 EXTERNAL FAULT/OVGR",
+        "fault_description": "F55 EXTERNAL FAULT/OVGR",
+        "fault_code": "F55",
         "average_batteries_involved": 0.9703333333333299,
         "unavailable_rack_hours": 5.8220000006777495
       },
@@ -483,8 +483,8 @@
         "start_timestamp": "2026-09-07 09:00:00",
         "end_timestamp": "2026-09-07 09:15:00",
         "duration_hours": 0.24999999994179234,
-        "fault_description": "F13",
-        "fault_code": "F13 NO MODULES",
+        "fault_description": "F13 NO MODULES",
+        "fault_code": "F13",
         "average_batteries_involved": 0.4089999999999998,
         "unavailable_rack_hours": 1.2269999997143162
       },
@@ -493,8 +493,8 @@
         "start_timestamp": "2026-09-07 16:30:00",
         "end_timestamp": "2026-09-07 18:00:00",
         "duration_hours": 1.5,
-        "fault_description": "F55",
-        "fault_code": "F55 EXTERNAL FAULT/OVGR",
+        "fault_description": "F55 EXTERNAL FAULT/OVGR",
+        "fault_code": "F55",
         "average_batteries_involved": 3.148666666666667,
         "unavailable_rack_hours": 56.67600000000001
       },
@@ -503,8 +503,8 @@
         "start_timestamp": "2026-09-07 19:00:00",
         "end_timestamp": "2026-09-07 20:30:00",
         "duration_hours": 1.5,
-        "fault_description": "F55",
-        "fault_code": "F55 EXTERNAL FAULT/OVGR",
+        "fault_description": "F55 EXTERNAL FAULT/OVGR",
+        "fault_code": "F55",
         "average_batteries_involved": 3.0375555555555547,
         "unavailable_rack_hours": 54.67599999999999
       }

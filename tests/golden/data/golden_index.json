@@ -49,7 +49,7 @@
       "file": "golden_2026_09_september.json",
       "period_start": "2026-09-01",
       "period_end": "2026-09-21",
-      "note": "Periodo parcial: la macro se corrio hasta el 21-sep (C7=2026-09-21, C12=1975 bloques)",
+      "note": "Periodo parcial: la macro se corrio hasta el 21-sep (C7=2026-09-21). c12_sample_blocks=1975 (contador de RawData-PCS). Annual_AVA muestra sampling_blocks=1977 — diferencia de 2 bloques a confirmar el lunes. Dias 22-30 tienen daily_unavailable=0 pero availability > 0 (denominador crece, acumulado fijo). fault_code=codigo_corto, fault_description=descripcion_larga (corregido 2026-09-24).",
       "parameters": {
         "only_operational_time": "No",
         "apply_excused_event": "No"
@@ -57,7 +57,9 @@
       "kpi_summary": {
         "c12": 1975,
         "c16_availability_period": 0.9819924099052362,
-        "c19_accumulated_annual": 0.9989850173961998
+        "c19_accumulated_annual": 0.9989850173961998,
+        "accumulated_unavailable_blocks_annual_ava": 760289.559999999,
+        "note_discrepancy_c12": "c12=1975 vs annual_ava_sampling_blocks=1977 — verificar lunes"
       },
       "status": "verified"
     }

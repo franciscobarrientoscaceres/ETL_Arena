@@ -48,6 +48,8 @@ El objetivo de la primera fase es obtener **paridad exacta** con el Excel: repro
 - **DisponibilidadAnualAcumulada**: Disponibilidad acumulada anual = `1 - BloquesRacksIndisponibles / (total_racks × 365 × 24 × 4)`. Equivale a `C19` en el Excel.
 - **NUMBER_OF_MODULES**: Campo `Arena - PCS XX - POWERELECTRONICS HEM-k NUMBER OF MODULES` en `RawData-PCS`. Valor numérico 0–4. Valor < 4 indica indisponibilidad. Vacío se trata como 4 (disponible) con flag de auditoría.
 - **ModulosDisponiblesNulo**: Flag booleano. `True` cuando `NUMBER_OF_MODULES` estaba vacío en el origen.
+- **CodigoFalla**: Primer token antes del espacio en la descripción de falla (ej: `"F55"`). Extraído por `_extraer_codigo_falla()` del MotorEventosFalla.
+- **DescripcionFalla**: Descripción completa de la falla (ej: `"F55 EXTERNAL FAULT/OVGR"`). Puede provenir del intervalo actual o del anterior según la lógica de fallback.
 - **DescripcionFallaFallback**: Flag booleano. `True` cuando la descripción del evento fue tomada del intervalo temporal anterior.
 - **FactorExcusable**: Factor del campo `Excused Event` de PlantActivity (columna D). Valor 0 o 1.
 - **FactorOperacional**: Factor de actividad operacional de PlantActivity (columna C). Valor 0 (inactivo) o 1 (activo).
@@ -268,7 +270,7 @@ El objetivo de la primera fase es obtener **paridad exacta** con el Excel: repro
 |---|---|---|---|---|---|
 | Julio 2026  | `golden_2026_07_july.json`   | 2976 | 0.9503529130 | 0.9957833981 | verificado |
 | Agosto 2026 | `golden_2026_08_august.json` | 2976 | 0.9394752689 | 0.9948595434 | verificado |
-| Septiembre 2026 (parcial 1-21) | `golden_2026_09_september.json` | 1975 | 0.9819924099 | 0.9989850174 | verificado |
+| Septiembre 2026 (parcial 1-21) | `golden_2026_09_september.json` | 1975 | 0.9819924099 | 0.9989850174 | verificado — Daily corregido 2026-09-24; total_rack_hours=26033.57; dias 22-30 availability>0 |
 
 #### Tolerancias de comparacion
 
