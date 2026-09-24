@@ -1,4 +1,4 @@
-# Requirements Document — ETL Arena Availability
+# Requirements Document
 
 ## Introduction
 
@@ -54,7 +54,7 @@ El objetivo de la primera fase es obtener **paridad exacta** con el Excel: repro
 
 ## Requirements
 
-### Requirement 1 — Ingesta y staging
+### Requirement 1: Ingesta y staging
 
 **User Story:** Como ingeniero de datos, quiero leer los archivos origen y conservar una copia inmutable en staging, para que cualquier reprocesamiento pueda partir del mismo dato original y sea completamente trazable.
 
@@ -71,7 +71,7 @@ El objetivo de la primera fase es obtener **paridad exacta** con el Excel: repro
 
 ---
 
-### Requirement 2 — Normalización
+### Requirement 2: Normalización
 
 **User Story:** Como desarrollador del motor de disponibilidad, quiero los datos PCS en formato largo (1 fila por PCS×timestamp), para que el motor pueda procesar cada combinación sin depender del índice de columna frágil del Excel.
 
@@ -86,7 +86,7 @@ El objetivo de la primera fase es obtener **paridad exacta** con el Excel: repro
 
 ---
 
-### Requirement 3 — Enriquecimiento
+### Requirement 3: Enriquecimiento
 
 **User Story:** Como desarrollador del motor de disponibilidad, quiero unir los datos PCS normalizados con los factores de PlantActivity, para que el motor pueda aplicar los ponderadores operacional y excusable correctamente en cada intervalo.
 
@@ -99,7 +99,7 @@ El objetivo de la primera fase es obtener **paridad exacta** con el Excel: repro
 
 ---
 
-### Requirement 4 — Motor de disponibilidad
+### Requirement 4: Motor de disponibilidad
 
 **User Story:** Como analista de disponibilidad, quiero que el motor Python calcule C12, C14 y el KPI del período reproduciéndose exactamente igual que la macro `cmdCalcAvailability`, para poder comparar los resultados antes de retirar el Excel como fuente oficial.
 
@@ -119,7 +119,7 @@ El objetivo de la primera fase es obtener **paridad exacta** con el Excel: repro
 
 ---
 
-### Requirement 5 — Motor de eventos de falla
+### Requirement 5: Motor de eventos de falla
 
 **User Story:** Como analista de disponibilidad, quiero que el motor Python genere la lista de eventos de falla reproduciéndose exactamente igual que la macro `mcoCreateList`, incluyendo la lógica de fallback en la descripción, para poder reconciliar la lista con el Excel evento por evento.
 
@@ -142,7 +142,7 @@ El objetivo de la primera fase es obtener **paridad exacta** con el Excel: repro
 
 ---
 
-### Requirement 6 — Agregaciones
+### Requirement 6: Agregaciones
 
 **User Story:** Como analista de disponibilidad, quiero los KPI diarios, mensuales y el acumulado anual calculados con la misma lógica que el Excel (macros `mcoDailyAvailability` y hoja `Annual_AVA`), para comparar los resultados período a período.
 
@@ -159,7 +159,7 @@ El objetivo de la primera fase es obtener **paridad exacta** con el Excel: repro
 
 ---
 
-### Requirement 7 — Persistencia SQL Server
+### Requirement 7: Persistencia SQL Server
 
 **User Story:** Como administrador del sistema, quiero que todos los resultados y datos intermedios se almacenen en SQL Server de forma append-only por `run_id`, para que ninguna corrida nueva destruya los resultados históricos y cada corrida sea completamente auditable.
 
@@ -175,7 +175,7 @@ El objetivo de la primera fase es obtener **paridad exacta** con el Excel: repro
 
 ---
 
-### Requirement 8 — Reconciliación
+### Requirement 8: Reconciliación
 
 **User Story:** Como ingeniero de datos, quiero comparar automáticamente una corrida Python contra una corrida Excel en cinco niveles de detalle, para poder declarar la paridad antes de retirar el Excel como fuente oficial.
 
@@ -193,7 +193,7 @@ El objetivo de la primera fase es obtener **paridad exacta** con el Excel: repro
 
 ---
 
-### Requirement 9 — Auditoría y trazabilidad
+### Requirement 9: Auditoría y trazabilidad
 
 **User Story:** Como auditor del KPI contractual, quiero poder rastrear cualquier valor de disponibilidad hasta su dato de entrada original, para poder responder preguntas sobre por qué se obtuvo un determinado resultado.
 
@@ -208,7 +208,7 @@ El objetivo de la primera fase es obtener **paridad exacta** con el Excel: repro
 
 ---
 
-### Requirement 10 — Configuración y versionado
+### Requirement 10: Configuración y versionado
 
 **User Story:** Como desarrollador, quiero que todos los parámetros de negocio provengan de la configuración de la corrida y no estén hardcodeados, para que el sistema pueda adaptarse a futuros cambios sin modificar el código del motor.
 
@@ -222,7 +222,7 @@ El objetivo de la primera fase es obtener **paridad exacta** con el Excel: repro
 
 ---
 
-### Requirement 11 — Tratamiento de timestamps y DST
+### Requirement 11: Tratamiento de timestamps y DST
 
 **User Story:** Como ingeniero de datos, quiero que el sistema preserve los timestamps originales del Excel y maneje correctamente el cambio de horario de Chile, para que la paridad no se rompa en períodos que atraviesan un cambio de DST.
 
@@ -236,7 +236,7 @@ El objetivo de la primera fase es obtener **paridad exacta** con el Excel: repro
 
 ---
 
-### Requirement 12 — Golden Reference: comparacion obligatoria contra valores reales del Excel
+### Requirement 12: Golden Reference: comparacion obligatoria contra valores reales del Excel
 
 **User Story:** Como ingeniero de datos, quiero que cada corrida Python sea validada automaticamente contra los valores reales calculados por el Excel (golden references), para garantizar paridad numerica exacta antes de declarar que el motor Python es equivalente al VBA.
 
