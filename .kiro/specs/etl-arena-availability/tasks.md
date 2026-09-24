@@ -53,19 +53,19 @@ Agentes disponibles en `.opencode/agent/` (OpenCode, `mode: subagent`). Son perf
 
 ### Fase 0 — Preparación
 
-- [ ] 0.1 ADRs y registro de decisiones — **software-architect**
+- [x] 0.1 ADRs y registro de decisiones — **software-architect** *(hecho 2026-09-24: `docs/adr/ADR-01…10` + `decisiones-abiertas.md`)*
   - Crear `docs/adr/ADR-01…ADR-10.md` a partir de la tabla de decisiones de `design.md` y `docs/adr/decisiones-abiertas.md` con D-01…D-10 (default, dueño, estado).
   - Hecho cuando: cada ADR tiene contexto, opciones, decisión, consecuencias; D-03/04/06/07 marcadas "pendiente negocio".
   - _R1, R10, R11, R19_
 
-- [ ] 0.2 Resolver decisiones de negocio D-03, D-04, D-06, D-07 — **Humano (Francisco + responsable KPI)**
+- [x] 0.2 Resolver decisiones de negocio D-03, D-04, D-06, D-07 — **Humano (Francisco + responsable KPI)** *(resueltas 2026-09-24 en `docs/adr/decisiones-abiertas.md`; nuevas abiertas D-11, D-12, D-13)*
   - D-03: ¿`L14` debe igualar a `C31`? (hoy `L14="Yes"`, `C31="No"`).
   - D-04: ¿replicar el arrastre de eventos en v1? (default: sí, con flag).
   - D-06: inicio de acumulación anual (julio como el libro o backfill desde 08-abr).
   - D-07: período de la corrida semanal y cierre mensual.
   - Hecho cuando: `decisiones-abiertas.md` actualizado con la resolución y fecha. **No bloquea la Fase 1** (los defaults de paridad permiten avanzar).
 
-- [x] 0.3 Entorno de desarrollo — **backend-architect** *(hecho 2026-09-24; pendiente instalar ODBC Driver 18, requiere admin)*
+- [x] 0.3 Entorno de desarrollo — **backend-architect** *(hecho 2026-09-24. PC oficina: Python 3.14, pendiente ODBC Driver 18 (admin). FRANCISCO-PC: Python 3.13, ODBC 18, SQL Server 2025 Dev `SQLSERVER2025DEV` con auth Windows; SQLAlchemy conecta; 37 tests golden OK)*
   - Python 3.14 (todas las dependencias con wheels); crear `.venv`; `pyproject.toml` (paquete `etl_arena`, layout `src/`, extras `dev`, `sql`, `com`), config de `pytest` (markers `sql`, `excel`, `golden`), `ruff`, `coverage`.
   - `.gitignore`: `.venv/`, `data/inbox/*`, `data/processed/*`, `data/work/*` (con `.gitkeep`), `*.pyc`, `__pycache__/` (hay un `.pyc` versionado en `tests/golden/__pycache__/`: quitarlo del índice).
   - `.env.example` (`ETL_ARENA_DB_URL`, `ETL_ARENA_XLSM`, `ETL_ARENA_NOTIFY_WEBHOOK`); `docker/mssql.compose.yml` (SQL Server 2022, contraseña por variable de entorno).
@@ -81,7 +81,7 @@ Agentes disponibles en `.opencode/agent/` (OpenCode, `mode: subagent`). Son perf
   - Hecho cuando: el extractor corre sin `--force` sobre el libro actual y los tests de integridad pasan.
   - _R14, F-05, F-08, F-09, F-25_
 
-- [ ] 0.5 Data contract del libro — **technical-writer** (con **data-engineer**)
+- [x] 0.5 Data contract del libro — **technical-writer** (con **data-engineer**) *(hecho 2026-09-24: `docs/data-contract-libro.md`, perfilado del XML; §7 aporta evidencia de formato SCADA para 0.7)*
   - `docs/data-contract-libro.md`: hojas, columnas, tipos observados (módulos fraccionarios, fallas numéricas, vacíos), convención de fila 00:00, alineación por fila con PlantActivity, DST, celdas de parámetros.
   - _R4, R5, R6, GT-1/2/7/8_
 
@@ -91,6 +91,9 @@ Agentes disponibles en `.opencode/agent/` (OpenCode, `mode: subagent`). Son perf
 - [ ] 0.7 **P1** — data contract SCADA — **technical-writer**
   - `docs/data-contract-scada.md` a partir de 0.6: columnas (= encabezados RawData-PCS), tipos, formato `mm-dd-aaaa hh:mm:ss`, convención DESDE/HASTA, nombre de archivo.
   - _R2.4, R2.5_
+
+- [ ] 0.8 Muestra del archivo mensual de PlantActivity — **Humano (Alex / Francisco)**
+  - Guardar en `tests/fixtures/plant_activity/` un archivo real tal como lo entrega Alex (D-12) + nota: formato, columnas, cómo marca eventos excusables, período que cubre.
 
 - [ ] **Checkpoint 0 — code-reviewer**: revisar 0.3 y 0.4 (extractor, esquema del golden, `.gitignore`). Preguntar al usuario si hay ajustes.
 
@@ -211,7 +214,7 @@ Agentes disponibles en `.opencode/agent/` (OpenCode, `mode: subagent`). Son perf
   - Sobre una copia en `tmp` del libro: correr macros para sep 1–21 y verificar que la referencia extraída coincide con el golden v2.
 
 - [ ] 4.4 Re-extraer goldens jul/ago (y jun) vía COM — **data-engineer** + **Humano**
-  - Con los parámetros resueltos en D-03, generar `golden_2026_07/08` v2 (y junio si se quiere GT-3 como gate); correr el golden runner; marcar `verified` o registrar discrepancias. Esperado: evidencia del arrastre F-06 en los cierres de mes.
+  - Con D-03 resuelta (`C31 = L14 = "Yes"`, `C21 = "No"`), generar `golden_2026_07/08` v2 (y junio si se quiere GT-3 como gate); correr el golden runner; marcar `verified` o registrar discrepancias. Esperado: julio `C14 = 350.972,300` (= `Annual_AVA!F13`); agosto no calza con `Annual_AVA` (D-11); evidencia del arrastre F-06 en los cierres de mes. Agregar un golden de septiembre con `C31 = "Yes"` (hoy idéntico: no hay filas excusadas en sep 1–21).
   - _R14, F-06, F-25_
 
 - [ ] 4.5 `acquisition.acquire_wait` — **backend-architect**
@@ -219,11 +222,11 @@ Agentes disponibles en `.opencode/agent/` (OpenCode, `mode: subagent`). Son perf
   - _R2.1–R2.3_
 
 - [ ] 4.6 `acquisition.contrato_scada` + `lector_scada` — **data-engineer** *(requiere 0.6/0.7)*
-  - Validación de encabezados, parser de fecha estricto, rango DESDE/HASTA. Tests con el fixture P0.
+  - Validación de encabezados, parser de fecha estricto (formato real a confirmar en P0; evidencia en `data-contract-libro.md §7`: `m/d/yyyy` + `h:mm AM/PM`), continuidad incremental con el libro base (R2.5: hueco, solape idéntico, solape distinto). Tests con el fixture P0.
   - _R2.4, R2.5, R3.3_
 
 - [ ] 4.7 `workbook.preparar` — **backend-architect** *(requiere 4.1, 4.6)*
-  - Copia + backup, escritura COM de RawData-PCS con seriales reales, validación de alineación con PlantActivity. Test COM: el libro preparado con el export P0 produce en macros el mismo C12 que el libro original para el mismo rango.
+  - Copia del libro base + backup, **append** COM a RawData-PCS con seriales reales (sin tocar filas existentes), validación de alineación con PlantActivity. Test COM: truncar una copia del libro en una fecha, agregar las filas restantes como si fueran un export y verificar que las macros dan el mismo C12/C14 que el libro original.
   - _R3.1–R3.4, F-21, F-22_
 
 - [ ] 4.8 `reporting.notificacion` — **backend-architect**
@@ -231,11 +234,19 @@ Agentes disponibles en `.opencode/agent/` (OpenCode, `mode: subagent`). Son perf
   - _R18_
 
 - [ ] 4.9 `scripts/run_lunes.py` — **backend-architect**
-  - Etapas, `run_state.json` reanudable, período por defecto D-07, `--oficial`, logs por etapa.
+  - Etapas, `run_state.json` reanudable, período por defecto D-07 (mes en curso hasta el último dato + `cierre_mensual` encolado al completar un mes), promoción del libro de trabajo oficial a libro base, `--oficial`, logs por etapa.
   - _R19_
 
 - [ ] 4.10 Ensayo del lunes completo — **Humano (Francisco / Alex)** + **backend-architect**
   - `run_lunes.py --stage all` con un export real; registrar tiempos y problemas en `docs/shadow-log.md`.
+
+- [ ] 4.12 `workbook.plant_activity` + `--stage load-plant-activity` — **backend-architect** *(requiere 0.8, 4.1)*
+  - Escritura por timestamp → fila de B/C/D (y E:I), rechazo de timestamps inexistentes, diff celda a celda a `correccion_dato` + `cambios.csv`, encolado del `cierre_mensual`; `ExcusablesPendientes` en corridas semanales. Test COM con una copia del libro: borrar B/C/D de un tramo, recargarlo y verificar el diff y el C14.
+  - _R3.8, R19.5, D-12_
+
+- [ ] 4.13 Reproceso con registro de cambios (`--reproceso`) — **backend-architect** + **data-engineer** *(requiere 4.7)*
+  - Sobrescritura del tramo en una copia nueva, diff celda a celda, `v_correccion_dato` con KPI antes/después. Test: alterar 3 celdas de módulos y verificar que aparecen exactamente 3 cambios y que el C14 nuevo coincide con el de las macros.
+  - _R3.9, D-13_
 
 - [ ] 4.11 *(Opcional, P8)* Fallback RPA TeamViewer — **backend-architect** — solo si TeamViewer falla de forma recurrente; fuera del camino crítico.
 
@@ -265,7 +276,7 @@ Agentes disponibles en `.opencode/agent/` (OpenCode, `mode: subagent`). Son perf
 ```json
 {
   "waves": [
-    { "id": 0, "tasks": ["0.1", "0.2", "0.3", "0.5", "0.6"] },
+    { "id": 0, "tasks": ["0.1", "0.2", "0.3", "0.5", "0.6", "0.8"] },
     { "id": 1, "tasks": ["0.4", "0.7", "1.1", "1.2", "1.3"] },
     { "id": 2, "tasks": ["checkpoint-0", "1.4", "2.1"] },
     { "id": 3, "tasks": ["1.5", "1.6", "2.2", "2.3"] },
@@ -276,8 +287,8 @@ Agentes disponibles en `.opencode/agent/` (OpenCode, `mode: subagent`). Son perf
     { "id": 8, "tasks": ["3.1"] },
     { "id": 9, "tasks": ["3.4", "4.1", "4.5", "4.8"] },
     { "id": 10, "tasks": ["checkpoint-C", "4.2", "4.6"] },
-    { "id": 11, "tasks": ["4.3", "4.4", "4.7"] },
-    { "id": 12, "tasks": ["4.9"] },
+    { "id": 11, "tasks": ["4.3", "4.4", "4.7", "4.12"] },
+    { "id": 12, "tasks": ["4.9", "4.13"] },
     { "id": 13, "tasks": ["4.10", "checkpoint-D", "5.1", "5.2", "5.3"] },
     { "id": 14, "tasks": ["5.4"] },
     { "id": 15, "tasks": ["5.5"] }

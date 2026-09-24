@@ -1,0 +1,31 @@
+# Registro de decisiones abiertas (D-01 … D-10)
+
+Origen: `.kiro/specs/etl-arena-availability/audit.md` §4. Cada decisión tiene un **default de paridad** que permite avanzar la Fase 1 sin esperar la resolución. Al resolver una, actualizar **Estado**, **Resolución** y **Fecha**, y propagar el cambio a `requirements.md`/`design.md` si altera el comportamiento.
+
+| ID | Decisión | Default v1 (paridad) | Dueño | Estado | Resolución | Fecha |
+|---|---|---|---|---|---|---|
+| D-01 | Filas después de la primera celda vacía en `RawData-PCS!A` (F-10) | Truncar como Excel (`modo_huecos = "excel"`) y reportar | Técnico | Aceptado default | — | 2026-09-24 |
+| D-02 | Unión con `PlantActivity` (F-01) | Por número de fila; vacío = 0; reportar desalineación | Técnico | Aceptado default | — | 2026-09-24 |
+| D-03 | ¿`ListOfFaults!L14` (eventos) debe igualar a `C31` (KPI)? Hoy `L14 = "Yes"`, `C31 = "No"` (F-05) | Parámetros separados; el runner escribe ambos explícitamente | **Negocio** | **Resuelta** | El KPI oficial **descuenta** eventos excusables: `C31 = L14 = "Yes"`. Evidencia: el KPI oficial de julio en `Annual_AVA` (350.972,300) coincide exacto con el cálculo excusando. Los parámetros siguen separados en `ConfiguracionCalculo` (paridad), pero la corrida oficial usa ambos en `Yes` | 2026-09-24 |
+| D-04 | Bug de arrastre de eventos al cierre del período (F-06) | Replicar y marcar `EventoArrastradoExcel`; corregir en v2 | **Negocio** | **Resuelta** | Replicar en v1 con flag `EventoArrastradoExcel` (= default) | 2026-09-24 |
+| D-05 | Daily sin factor operacional (F-08) | Replicar | Técnico | Aceptado default | — | 2026-09-24 |
+| D-06 | Inicio de la acumulación anual (F-20) | Meses con KPI oficial (hoy desde jul-2026, como el libro); backfill abr–jun opcional | **Negocio** | **Resuelta** | Acumulación desde julio 2026, como el libro; sin backfill abr–jun | 2026-09-24 |
+| D-07 | Período que calcula cada lunes y cierre mensual (F-28) | Mes en curso hasta el último domingo; el primer lunes del mes cierra también el mes anterior | **Negocio** | **Resuelta** | (1) Export semanal **incremental**: desde el dato siguiente al último cargado (hoy 2026-09-21 14:15) hasta el último dato obtenido manualmente ese lunes (no hasta el domingo). (2) KPI semanal = **acumulado del mes en curso**: `C5` = día 1 del mes del último dato, `C7` = fecha del último dato. (3) Cierre mensual = mes completo (día 1 00:00 … último día 23:45), con denominador = **intervalos existentes** (`C12`, filas), no bloques de calendario | 2026-09-24 |
+| D-08 | Evento que inicia en la fila 2 (en Excel, *Type mismatch*) (F-11) | Abrir el evento y marcar `ExcelHabriaFallado` | Técnico | Aceptado default | — | 2026-09-24 |
+| D-09 | Retención de muestras por corrida (F-28) | Raw completo del export con columnstore; `availability_sample_result` solo del período | Técnico/DBA | Aceptado (ajustado por D-07) | Con export incremental, `raw_pcs_sample` y `plant_activity_sample` guardan las filas **del período calculado** (mes en curso, ≤ ~3.000 filas × 61 PCS) con marca `EsFilaNuevaDelExport`; no la historia completa del libro | 2026-09-24 |
+| D-10 | Versión de Python (F-29) | `requires-python >= 3.13` | Técnico | **Resuelta** | 3.14 en el PC de oficina, 3.13 en FRANCISCO-PC; ambos soportados | 2026-09-24 |
+
+## Respuestas de negocio (tarea 0.2, 2026-09-24, Francisco)
+
+1. **D-03:** los dos flags en `"Yes"`: el KPI oficial descuenta los eventos excusables y la lista de fallas también.
+2. **D-04:** replicar el arrastre en v1, con flag.
+3. **D-06:** acumulado anual desde julio 2026, como el libro.
+4. **D-07:** export incremental semanal; KPI semanal = acumulado del mes en curso hasta el último dato; cierre mensual = mes completo con denominador = intervalos existentes.
+
+## Abiertas nuevas
+
+| ID | Tema | Estado |
+|---|---|---|
+| D-11 | El KPI oficial de agosto en `Annual_AVA` (305.182,968) no se reproduce ni excusando (256.223,356) ni sin excusar (527.396,044) con el libro actual. Hipótesis: `PlantActivity!D` cambió después del cierre de agosto. Se importa como `excel_manual` (R10.4); investigar con el libro de cierre de agosto | **Postergada** (2026-09-24): prioridad septiembre; Francisco solicitará el libro de cierre de agosto |
+| D-12 | Quién actualiza `PlantActivity` (columnas B/C/D) para las filas nuevas | **Resuelta** (2026-09-24): la entrega **Alex** (ingeniero eléctrico a cargo) **una vez al mes**. Consecuencias: (1) las corridas semanales son **preliminares** respecto a excusables (`ExcusablesPendientes = 1`, avisado en la notificación); (2) el `cierre_mensual` oficial solo se ejecuta después de cargar la PlantActivity del mes (etapa `load-plant-activity`), que deja registro de cada celda cambiada en `correccion_dato`. Formato del archivo de Alex: pendiente de muestra (tarea 0.8) |
+| D-13 | Corrección de datos ya cargados | **Resuelta** (2026-09-24): la carga semanal nunca reemplaza filas (solape distinto → rechazo). La corrección se hace con una corrida `reproceso` que escribe el tramo corregido en una **nueva** copia del libro y registra **cada celda cambiada** (fila, timestamp, PCS, campo, valor anterior, valor nuevo, archivo) en `correccion_dato` y en `data/work/<corte>/cambios.csv`; el libro base y las corridas anteriores no se tocan. Requisito de Francisco: poder ver qué datos cambiaron |

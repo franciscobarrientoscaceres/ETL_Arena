@@ -17,8 +17,8 @@ Checklist operativa semanal. Detalle de diseño: `AGENTS.md` §14 Fase S.
 - [ ] PC local: Excel instalado (macros COM), Python del proyecto, TeamViewer.
 - [ ] Existe `data/inbox/` (crear si no).
 - [ ] Conoces el reporte a exportar y la convención de fechas:
-  - `DESDE = 01-01-2026` (o primer dato con valor)
-  - `HASTA = último domingo` del período
+  - `DESDE` = dato siguiente al último cargado en el libro base (ver `RawData-PCS`, última fila; hoy 2026-09-21 14:15 → desde 14:30)
+  - `HASTA` = último dato disponible al momento del export
 - [ ] Si el período es distinto al default, anotar DESDE/HASTA para `prepare-workbook`.
 
 ---
@@ -63,13 +63,35 @@ python scripts/run_lunes.py --stage notify-bi
 python scripts/run_lunes.py --stage all --inbox data/inbox --work data/work
 ```
 
+> Mientras Alex no entregue la PlantActivity del mes, el KPI semanal es **preliminar** respecto a eventos excusables (`ExcusablesPendientes = 1`); la notificación lo indica.
+
+### Cierre mensual (cuando Alex entrega PlantActivity — D-12)
+
+```powershell
+# carga B/C/D por timestamp, registra cada celda cambiada y encola el cierre del mes
+python scripts/run_lunes.py --stage load-plant-activity --inbox data/inbox --work data/work --oficial
+```
+
+- [ ] Todas las filas del mes tienen timestamp en `PlantActivity!B` alineado con `RawData-PCS!A`.
+- [ ] Revisar `data/work/<corte>/cambios.csv` (qué celdas C/D cambió Alex).
+- [ ] `cierre_mensual` oficial con reconciliación `pass`.
+
+### Corrección de datos ya cargados (D-13)
+
+```powershell
+python scripts/run_lunes.py --reproceso data/inbox/<tramo_corregido>.<ext> --work data/work --oficial
+```
+
+- [ ] Revisar `cambios.csv` / `v_correccion_dato`: cada celda cambiada con valor anterior y nuevo, y KPI antes/después.
+
 > `run_lunes.py` puede no existir aún (tareas del SDD). Hasta entonces: exportar a mano, transformar fechas, correr macros y `ejecutar_etl.py` siguiendo AGENTS §14.
 
 ---
 
 ## 3. Validación tras la corrida
 
-- [ ] `acquire-wait`: archivo presente, no vacío, rango de fechas dentro de 01-01-2026 → último domingo (o el rango acordado), sha256 registrado en log.
+- [ ] `acquire-wait`: archivo presente, no vacío, primer dato = siguiente al último cargado (sin hueco ni solape distinto), sha256 registrado en log.
+- [ ] `PlantActivity` actualizada para las filas nuevas (timestamp en B, actividad en C, **eventos excusables en D**): con `C31 = "Yes"`, un excusable no marcado no se descuenta (D-12).
 - [ ] `scada_adapter`: no quedaron fechas `mm-dd-aaaa` ni fechas como texto en la hoja de destino (deben ser serial Excel — F-21); columnas = mapping `RawData-PCS`.
 - [ ] Macros: `C12`, `C14`, `C16`, `C19` extraídos y guardados como referencia de la corrida.
 - [ ] ETL: `etl_run.Status = success`; nuevo `IdCorrida`.

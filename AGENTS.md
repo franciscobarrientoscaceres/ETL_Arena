@@ -1005,7 +1005,7 @@ La fuente cruda de `RawData-PCS` es el **server SCADA**. Cada lunes se exporta u
 
 | Regla | Detalle |
 |---|---|
-| Fechas del reporte | **Las setea quien exporta** (manual). Convención: `DESDE = 01-01-2026` (o primer dato) / `HASTA = último domingo` del período. El adapter **valida** el rango al recibir; falla si no cuadra. |
+| Fechas del reporte | **Las setea quien exporta** (manual). Export **incremental** (D-07): `DESDE` = dato siguiente al último cargado (hoy 2026-09-21 14:15), `HASTA` = último dato disponible ese lunes. El adapter **valida la continuidad** con el libro base (hueco → confirmar; solape distinto → rechazar). |
 | Transporte hoy | Solo TeamViewer. **Sin UNC / share / API** al SCADA. Pedir share o API GPM a GPM como mejora (riesgo J). |
 | Formato origen | Probable CSV; columnas = `RawData-PCS`. Fechas origen `mm-dd-aaaa hh:mm:ss` → **fecha/serial Excel real** con formato visual `dd-mm-aaaa hh:mm:ss` (transformación que hoy hace Alex a mano; escribirla como texto rompe el filtro de la macro — F-21). |
 | PlantActivity | **No** se actualiza desde SCADA. Fuente aparte; se une por fila (F-01): desalineaciones y filas sin timestamp se reportan en calidad de corrida (F-31). |
@@ -1445,7 +1445,7 @@ Nunca sobrescribir resultados históricos con una nueva lógica.
 Entregables:
 
 - `data/inbox` + `scripts/run_lunes.py` (etapas `acquire-wait` … `notify-bi`);
-- `src/etl_arena/acquisition` (fechas mm-dd → serial Excel, validación de rango 01-01-2026→último domingo, mapping columnas);
+- `src/etl_arena/acquisition` (fechas origen → serial Excel, validación de continuidad del export incremental, mapping columnas);
 - `src/etl_arena/workbook` (runner COM de las 4 macros; solo PC local);
 - runbook [`docs/runbook-lunes.md`](./docs/runbook-lunes.md);
 - handoff de notificación a Power BI (Misael).
@@ -1631,7 +1631,7 @@ Hoy no hay API GPM ni share UNC al server. El archivo se copia a mano a `data/in
 
 Origen probable: `mm-dd-aaaa hh:mm:ss`; destino hoja: `dd-mm-aaaa hh:mm:ss`.
 
-**Acción:** transformador estricto en `scada_adapter` (Fase T) + validación de rango del reporte (01-01-2026 → último domingo).
+**Acción:** transformador estricto en `scada_adapter` (Fase T) + validación de continuidad del export incremental con el libro base (D-07).
 
 ### Riesgo M — PlantActivity fuera de la cadena SCADA
 

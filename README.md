@@ -49,7 +49,7 @@ Runbook: [`docs/runbook-lunes.md`](./docs/runbook-lunes.md). Diseño: `AGENTS.md
 
 | Regla | Detalle |
 |---|---|
-| Fechas reporte | Las setea quien exporta; convención 01-01-2026 → último domingo; adapter valida |
+| Fechas reporte | Export incremental: desde el dato siguiente al último cargado hasta el último dato del lunes; el adapter valida la continuidad (D-07) |
 | Transporte | Solo TeamViewer (sin UNC/API) |
 | Formato | Origen `mm-dd-aaaa` → serial/fecha Excel real en la hoja (formato visual `dd-mm-aaaa`; nunca texto) |
 | PlantActivity | Fuente aparte (no desde SCADA) |

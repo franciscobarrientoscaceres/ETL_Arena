@@ -25,7 +25,7 @@ El sistema reproduce en Python la lógica de las macros VBA del libro `Availabil
 | ADR-07 | Timestamps naive hora local Chile; sin localizar ni convertir a UTC | Datos origen naive con salto DST (F-32) |
 | ADR-08 | SQL append-only por `IdCorrida`; workflow de revisión en tabla aparte | R11, F-27 |
 | ADR-09 | Tablas de muestras con *clustered columnstore* | Volumen ~1M filas/tabla/corrida (F-28) |
-| ADR-10 | Python 3.14 (`requires-python >= 3.13`, D-10 resuelta), ODBC Driver 18, SQL Server 2022 en Docker para desarrollo | Entorno (F-29) |
+| ADR-10 | Python ≥ 3.13 (D-10 resuelta), ODBC Driver 18; SQL de desarrollo en instancia local (`FRANCISCO-PC\SQLSERVER2025DEV`, auth Windows) o Docker 2022 | Entorno (F-29); detalle en `docs/adr/` |
 
 Convención de nombres: **SQL** en PascalCase español (`BloquesMuestreo`); **Python** en snake_case español (`bloques_muestreo`); los nombres de celda Excel (C12, L14…) se citan en comentarios.
 
@@ -118,7 +118,7 @@ class ConfiguracionCalculo:
     # Daily
     fin_diario: date                       # Daily!D5 (≤ inicio + 30 días)
     modo_huecos: Literal["excel", "continuar"]
-    tipo_corrida: Literal["semanal", "cierre_mensual", "reproceso", "golden"]
+    tipo_corrida: Literal["semanal", "cierre_mensual", "reproceso", "golden"]  # período por tipo: D-07
     es_oficial: bool
     archivo_origen: str
     zona_horaria: str = "America/Santiago" # documental (ADR-07)
@@ -166,8 +166,10 @@ class SesionExcel:                               # context manager
     watchdog con timeout mata su PID si cuelga."""
 
 def preparar_libro(maestro: Path, export: TablaExport, destino: Path) -> ResultadoPreparacion:
-    """Copia maestro→destino (+ .bak). Vía COM: limpia RawData-PCS!A2:IK<fin>, escribe
-    la tabla por bloques con Range.Value (col A = serial float, formato visual dd-mm-aaaa hh:mm:ss),
+    """Copia libro base→destino (+ .bak); libro base = libro de trabajo de la última corrida
+    oficial (o el maestro en la primera). Valida continuidad con la última fila de RawData-PCS
+    (R2.5, D-07/D-13). Vía COM: AGREGA las filas nuevas a continuación (no toca las existentes)
+    por bloques con Range.Value (col A = serial float, formato visual dd-mm-aaaa hh:mm:ss),
     guarda. Valida alineación por fila con PlantActivity!B (R3.4) y devuelve anomalías."""
 
 def ejecutar_macros(libro: Path, cfg: ConfiguracionCalculo, timeout_s=900) -> None:
@@ -464,7 +466,7 @@ Invariantes (R13.8): `C14 = 4·L10` y por PCS `Σ(racks·pond)/4 = Σ I` — sol
 ### Orquestación
 
 - `scripts/ejecutar_etl.py --libro <xlsm> --periodo-inicio … --periodo-fin … [--eventos-inicio … --eventos-fin … --eventos-excusable Yes|No] [--diario-fin …] [--solo-operacional Yes|No] [--excusable Yes|No] [--modo-huecos excel|continuar] [--oficial] [--referencia <json>]` → ejecuta [E] y opcionalmente [R].
-- `scripts/run_lunes.py --stage … ` (R19): cada etapa lee/escribe `data/work/<corte>/run_state.json` `{etapa: {estado, inicio, fin, artefactos, error}}`; `--stage all` salta etapas `ok`. Período por defecto (D-07): `inicio = día 1 del mes de HASTA`, `fin = HASTA (último domingo)`; si `HASTA` pertenece a un mes nuevo y el mes anterior no tiene corrida oficial de cierre, encola además una corrida `cierre_mensual` del mes anterior.
+- `scripts/run_lunes.py --stage … ` (R19): cada etapa lee/escribe `data/work/<corte>/run_state.json` `{etapa: {estado, inicio, fin, artefactos, error}}`; `--stage all` salta etapas `ok`. Período por defecto (D-07, R19.3): `semanal` con `inicio = día 1 del mes del último dato`, `fin = fecha del último dato` (filtro `A < fin + 1` incluye hasta ese dato); si los datos ya cubren el último bloque de un mes sin `cierre_mensual` oficial, encola además `cierre_mensual` (día 1 → último día del mes). Parámetros oficiales: `C21 = "No"`, `C31 = L14 = "Yes"` (D-03), `L2/L4/Daily!D5` = `C5/C7`. El libro de trabajo de la corrida oficial pasa a ser el libro base de la siguiente. `--stage load-plant-activity` (mensual, D-12) y `--reproceso <archivo>` (D-13) generan una nueva copia del libro base, escriben los cambios por timestamp → fila, registran cada celda cambiada en `correccion_dato` + `cambios.csv` y encadenan `run-macros → run-etl → reconcile → notify-bi`; tras `load-plant-activity` de un mes completo se encola el `cierre_mensual` oficial.
 
 ---
 
@@ -507,6 +509,7 @@ CREATE TABLE etl_run (
     IdProyecto                     INT            NOT NULL REFERENCES proyecto(IdProyecto),
     TipoCorrida                    NVARCHAR(20)   NOT NULL CHECK (TipoCorrida IN ('semanal','cierre_mensual','reproceso','golden')),
     EsOficial                      BIT            NOT NULL DEFAULT 0,
+    ExcusablesPendientes           BIT            NOT NULL DEFAULT 0,   -- PlantActivity del mes aún no cargada (D-12, R19.5)
     ArchivoOrigen                  NVARCHAR(500)  NOT NULL,
     HashArchivoOrigen              CHAR(64)       NOT NULL,
     SistemaOrigen                  NVARCHAR(50)   NOT NULL DEFAULT 'scada_export',
@@ -543,7 +546,7 @@ CREATE TABLE raw_pcs_column_map (      -- trazabilidad de columnas una vez por c
     CONSTRAINT PK_raw_pcs_column_map PRIMARY KEY (IdCorrida, NumeroPCS, Campo)
 );
 
-CREATE TABLE raw_pcs_sample (          -- todas las filas del libro (incl. fuera de período)
+CREATE TABLE raw_pcs_sample (          -- filas del período calculado + la fila anterior (fallback F-04); D-09
     IdCorrida               UNIQUEIDENTIFIER NOT NULL,
     NumeroFilaOrigen        INT            NOT NULL,
     NumeroPCS               INT            NOT NULL,
@@ -555,7 +558,8 @@ CREATE TABLE raw_pcs_sample (          -- todas las filas del libro (incl. fuera
     AdvertenciaRaw          NVARCHAR(255)  NULL,
     ModulosRaw              FLOAT          NULL,
     ModulosDisponibles      FLOAT          NOT NULL,   -- = baterias_por_pcs si nulo
-    ModulosDisponiblesNulo  BIT            NOT NULL
+    ModulosDisponiblesNulo  BIT            NOT NULL,
+    EsFilaNuevaDelExport    BIT            NOT NULL    -- aportada por el export incremental de esta corrida (D-07)
 );
 CREATE CLUSTERED COLUMNSTORE INDEX CCI_raw_pcs_sample ON raw_pcs_sample;
 
@@ -573,7 +577,25 @@ CREATE TABLE plant_activity_sample (
     PorcentajeSOC                   FLOAT          NULL
 );
 CREATE CLUSTERED COLUMNSTORE INDEX CCI_plant_activity_sample ON plant_activity_sample;
+
+CREATE TABLE correccion_dato (          -- append-only; celdas cambiadas por reproceso o carga de PlantActivity (D-12, D-13)
+    IdCorreccion            BIGINT IDENTITY PRIMARY KEY,
+    IdCorrida               UNIQUEIDENTIFIER NOT NULL REFERENCES etl_run(IdCorrida),
+    TipoCorreccion          NVARCHAR(20)   NOT NULL CHECK (TipoCorreccion IN ('reproceso_raw','plant_activity')),
+    Hoja                    NVARCHAR(40)   NOT NULL,   -- 'RawData-PCS' | 'PlantActivity'
+    NumeroFilaOrigen        INT            NOT NULL,
+    SerialFechaExcelOrigen  FLOAT          NOT NULL,
+    MarcaTiempoLocalOrigen  DATETIME2(0)   NOT NULL,
+    NumeroPCS               INT            NULL,       -- NULL en PlantActivity
+    Campo                   NVARCHAR(40)   NOT NULL,   -- FAULT | STATUS | WARNING | MODULES | B | C | D | …
+    ValorAnterior           NVARCHAR(255)  NULL,
+    ValorNuevo              NVARCHAR(255)  NULL,
+    ArchivoOrigen           NVARCHAR(260)  NOT NULL,
+    Sha256Archivo           CHAR(64)       NOT NULL
+);
 ```
+
+`v_correccion_dato` expone los cambios con `TipoCorrida`, `FechaEjecucion` y el KPI antes/después (corrida anterior del mismo período vs la corrida del reproceso).
 
 ### Resultados
 

@@ -80,7 +80,7 @@ La primera versión (`availability-v1-excel-parity`) busca **paridad exacta** co
 
 1. THE MotorETL SHALL leer los parámetros desde `ConfiguracionCalculo`: `total_pcs`, `baterias_por_pcs`, `racks_por_pcs`, `minutos_muestreo`, `fecha_inicio_proyecto`, parámetros KPI (`inicio_periodo`, `fin_periodo`, `solo_tiempo_operacional`, `aplicar_evento_excusable`), parámetros de eventos (`inicio_periodo_eventos`, `fin_periodo_eventos`, `aplicar_evento_excusable_eventos`), `fin_diario`, `modo_huecos` y `version_algoritmo`.
 2. THE MotorETL SHALL calcular `total_racks = total_pcs × baterias_por_pcs × racks_por_pcs`; SHALL NOT usar 2.928, 61, 4, 12 ni 15 como constantes en los motores.
-3. THE MotorETL SHALL proveer valores por defecto de paridad: `nombre_proyecto="Arena BESS"`, `fecha_inicio_proyecto=2026-04-08`, `total_pcs=61`, `baterias_por_pcs=4`, `racks_por_pcs=12`, `minutos_muestreo=15`, `modo_huecos="excel"`, `version_algoritmo="availability-v1-excel-parity"`.
+3. THE MotorETL SHALL proveer valores por defecto de paridad: `nombre_proyecto="Arena BESS"`, `fecha_inicio_proyecto=2026-04-08`, `total_pcs=61`, `baterias_por_pcs=4`, `racks_por_pcs=12`, `minutos_muestreo=15`, `modo_huecos="excel"`, `version_algoritmo="availability-v1-excel-parity"`, `solo_tiempo_operacional=False`, `aplicar_evento_excusable=True` y `aplicar_evento_excusable_eventos=True` (D-03: el KPI oficial descuenta eventos excusables).
 4. WHERE los parámetros de eventos no se informan, THE MotorETL SHALL usar los parámetros KPI equivalentes y registrar en `etl_run` los valores efectivamente usados.
 5. WHEN la configuración se construye desde valores de celdas Excel, THE MotorETL SHALL interpretar `solo_tiempo_operacional = (C21 <> "No")` y `aplicar_evento_excusable = (C31 = "Yes")`, `aplicar_evento_excusable_eventos = (L14 = "Yes")`, con comparación exacta sensible a mayúsculas (F-12).
 6. WHEN se modifica una regla de negocio, THE MotorETL SHALL crear una nueva `VersionAlgoritmo` y nunca sobrescribir resultados de versiones anteriores.
@@ -97,7 +97,7 @@ La primera versión (`availability-v1-excel-parity`) busca **paridad exacta** co
 2. IF no hay archivo al vencer el timeout, THEN THE ModuloAdquisicion SHALL fallar con un mensaje accionable (riesgo J: sin API/UNC).
 3. THE ModuloAdquisicion SHALL mover el original a `data/processed/<corte>/` junto a su `.sha256`; SHALL NOT modificar ese archivo después.
 4. THE ModuloAdquisicion SHALL validar el data contract acordado en P1 (columnas = encabezados de `RawData-PCS`, delimitador, encoding, formato de fecha origen) y SHALL fallar sin tocar el libro de trabajo si no se cumple.
-5. THE ModuloAdquisicion SHALL validar que el rango de fechas del reporte cumple la convención (`DESDE` = primer dato o `01-01-2026`; `HASTA` = último domingo o rango configurado).
+5. THE ModuloAdquisicion SHALL validar la continuidad del export incremental (D-07): el primer dato del export SHALL ser el siguiente al último dato de `RawData-PCS` en el libro base (último + `minutos_muestreo`, admitiendo el salto DST, que se reporta); IF hay hueco, THEN SHALL reportarlo y exigir confirmación (`--aceptar-hueco`); IF hay solape con valores distintos a los ya cargados, THEN SHALL rechazar la carga (D-13); el solape con valores idénticos SHALL descartarse y reportarse.
 6. THE Sistema SHALL NOT ejecutar macros ni el pipeline ETL en el server SCADA.
 
 ---
@@ -108,13 +108,15 @@ La primera versión (`availability-v1-excel-parity`) busca **paridad exacta** co
 
 #### Acceptance Criteria
 
-1. WHEN se ejecuta `prepare-workbook`, THE ModuloLibroTrabajo SHALL crear una copia de trabajo del `.xlsm` maestro en `data/work/<corte>/` y un backup; SHALL NOT editar el maestro.
-2. THE ModuloLibroTrabajo SHALL escribir `RawData-PCS` en la copia de trabajo **vía COM** (no `openpyxl`), con la columna A como fecha/serial Excel real; el formato `dd-mm-aaaa hh:mm:ss` SHALL ser solo formato de visualización (F-21, F-22).
+1. WHEN se ejecuta `prepare-workbook`, THE ModuloLibroTrabajo SHALL crear una copia de trabajo del **libro base** en `data/work/<corte>/` y un backup; el libro base es el libro de trabajo de la última corrida oficial exitosa (o el maestro de `data/` en la primera corrida); SHALL NOT editar el libro base.
+2. THE ModuloLibroTrabajo SHALL **agregar** las filas del export a continuación de la última fila con dato de `RawData-PCS` en la copia de trabajo, **vía COM** (no `openpyxl`), con la columna A como fecha/serial Excel real; el formato `dd-mm-aaaa hh:mm:ss` SHALL ser solo formato de visualización (F-21, F-22). Las filas existentes SHALL NOT modificarse (D-07, D-13).
 3. THE ModuloLibroTrabajo SHALL convertir fechas origen `mm-dd-aaaa hh:mm:ss` con un parser estricto; IF alguna fecha no parsea, THEN SHALL fallar la etapa.
 4. WHEN termina la carga, THE ModuloLibroTrabajo SHALL verificar la alineación por fila con `PlantActivity` (timestamp de `PlantActivity!B` = `RawData-PCS!A` en cada fila donde exista) y reportar las filas desalineadas o sin timestamp.
 5. WHEN se ejecuta `run-macros`, THE ModuloLibroTrabajo SHALL escribir `C5`, `C7`, `C21`, `C31`, `ListOfFaults!L2`, `L4`, `L14` y `Daily!D5` desde la configuración, y ejecutar en orden `cmdCalcAvailability` → `mcoCreateList` → `mcoDailyAvailability` → `Graphupdate` en Excel local vía COM.
 6. WHEN las macros terminan, THE ModuloLibroTrabajo SHALL extraer como referencia: `C12`, `C14`, `C16`, `C19`, `C23`, `ListOfFaults!L10`, la tabla `Calculation-Availability!E4:BO<n>`, la lista completa `ListOfFaults!B6:I<n>` y `Daily!B9:G39`, y guardarla en `data/work/<corte>/referencia_excel.json` y en SQL (tablas `excel_reference_*`).
 7. IF una macro falla o excede el timeout, THEN THE ModuloLibroTrabajo SHALL cerrar solo la instancia de Excel que creó, guardar el log y marcar la referencia como ausente; el pipeline Python SHALL poder continuar con advertencia.
+8. WHEN se ejecuta `load-plant-activity` con el archivo mensual de PlantActivity (D-12), THE ModuloLibroTrabajo SHALL escribir B/C/D (y E:I si vienen) en la copia de trabajo **en la fila de `RawData-PCS` con el mismo timestamp** (el Excel une por fila, F-01), SHALL rechazar timestamps que no existan en `RawData-PCS`, y SHALL registrar en `correccion_dato` cada celda cuyo valor cambie respecto al libro base.
+9. WHEN se ejecuta una corrida `reproceso` con un tramo corregido de RawData-PCS (D-13), THE ModuloLibroTrabajo SHALL sobrescribir ese tramo solo en la nueva copia de trabajo, SHALL registrar cada celda cambiada (fila, timestamp, PCS, campo, valor anterior, valor nuevo, archivo origen) en `correccion_dato` y en `data/work/<corte>/cambios.csv`, y SHALL NOT modificar el libro base ni resultados de corridas anteriores.
 
 ---
 
@@ -225,7 +227,7 @@ La primera versión (`availability-v1-excel-parity`) busca **paridad exacta** co
 #### Acceptance Criteria
 
 1. THE ModuloAgregacion SHALL mantener una tabla `monthly_official_kpi` con una fila vigente por `(IdProyecto, Anio, Mes)`: `DiasMes`, `BloquesMuestreo`, `BloquesRacksIndisponibles`, `Origen` (`corrida` | `excel_manual`) e `IdCorrida` (nullable).
-2. WHEN una corrida marcada como oficial cubre un mes, THE ModuloAgregacion SHALL registrar para ese mes `BloquesRacksIndisponibles = C14` y `DiasMes = serial(última fila en rango) − serial(primer día del mes)` si el mes está incompleto, o los días calendario si está completo; `BloquesMuestreo = DiasMes × 24 × 60 / minutos_muestreo`.
+2. WHEN una corrida marcada como oficial cubre un mes, THE ModuloAgregacion SHALL registrar para ese mes `BloquesRacksIndisponibles = C14` y `BloquesMuestreo = C12` (**intervalos existentes**, D-07); `DiasMes` (informativo) = `serial(última fila en rango) − serial(primer día del mes)` si el mes está incompleto, o los días calendario si está completo. Esto se aparta a propósito de `Annual_AVA!E` (bloques de calendario: 1977 vs `C12` = 1975 en sep-2026) y hace que `DisponibilidadMensual` coincida con `C16`.
 3. THE ModuloAgregacion SHALL calcular por mes `DisponibilidadMensual = 1 − Indisp / (TotalRacks × Bloques)` y los acumulados `BloquesMuestreoAcumulados`, `BloquesIndisponiblesAcumulados` y `DisponibilidadAcumulada = 1 − IndispAcum / (TotalRacks × BloquesAcum)` desde `mes_inicio_acumulado` (D-06).
 4. THE ModuloAgregacion SHALL permitir importar como `Origen = excel_manual` las filas históricas de `Annual_AVA` que no se pueden reproducir (jul/ago 2026) (F-20).
 5. THE ModuloAgregacion SHALL registrar `DisponibilidadContractual` (0,98 por defecto) por mes.
@@ -355,7 +357,8 @@ La primera versión (`availability-v1-excel-parity`) busca **paridad exacta** co
 
 #### Acceptance Criteria
 
-1. THE OrquestadorLunes SHALL ofrecer `--stage acquire-wait | prepare-workbook | run-macros | run-etl | reconcile | notify-bi | all` y los argumentos `--inbox`, `--work`, `--period-start`, `--period-end`, `--oficial`.
+1. THE OrquestadorLunes SHALL ofrecer `--stage acquire-wait | prepare-workbook | run-macros | run-etl | reconcile | notify-bi | all` (semanal), `--stage load-plant-activity` (mensual, D-12), `--reproceso <archivo>` (D-13) y los argumentos `--inbox`, `--work`, `--period-start`, `--period-end`, `--oficial`.
 2. THE OrquestadorLunes SHALL guardar el estado de cada etapa en `data/work/<corte>/run_state.json` y permitir reanudar desde la etapa fallida sin repetir las exitosas.
-3. WHEN no se informa el período, THE OrquestadorLunes SHALL calcular el período por defecto según D-07 (mes en curso hasta el último domingo; el primer lunes del mes, además, el cierre del mes anterior).
+3. WHEN no se informa el período, THE OrquestadorLunes SHALL calcular el período por defecto según D-07: corrida `semanal` con `C5` = día 1 del mes del último dato cargado y `C7` = fecha del último dato (`L2`/`L4`/`Daily!D5` iguales; `C21 = "No"`, `C31 = L14 = "Yes"`); y, si los datos cargados ya cubren el último bloque de un mes (último día 23:45) sin corrida oficial `cierre_mensual`, SHALL encolar además la corrida `cierre_mensual` de ese mes (día 1 → último día).
 4. THE OrquestadorLunes SHALL registrar logs estructurados por etapa con timestamps y terminar con código de salida ≠ 0 ante error.
+5. WHILE la PlantActivity del mes no se haya cargado (D-12), THE OrquestadorLunes SHALL marcar las corridas `semanal` con `ExcusablesPendientes = 1` y la notificación SHALL indicar que el KPI es preliminar respecto a eventos excusables; THE OrquestadorLunes SHALL NOT ejecutar un `cierre_mensual` oficial hasta que todas las filas del mes tengan timestamp en `PlantActivity!B` alineado con `RawData-PCS!A`.
