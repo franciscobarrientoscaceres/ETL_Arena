@@ -94,7 +94,9 @@ def extract(excel_path: str, year: int, month: int, label: str) -> dict:
     # Fault events
     total_rh = ws_faults.cell(10, 12).value
     events = []
-    for r in ws_faults.iter_rows(min_row=6, max_row=300, values_only=True):
+    # ListOfFaults puede superar 300 filas (septiembre 2026 tiene 334 eventos);
+    # se lee hasta una cota generosa y se descartan filas vacias.
+    for r in ws_faults.iter_rows(min_row=6, max_row=4000, values_only=True):
         b, c, d, e, f, g, h, i = r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8]
         if b is None:
             continue
@@ -103,8 +105,9 @@ def extract(excel_path: str, year: int, month: int, label: str) -> dict:
             "start_timestamp":            dt(c),
             "end_timestamp":              dt(d),
             "duration_hours":             e,
-            "fault_description":          f,
-            "fault_code":                 g,
+            # col F = codigo corto (ej "F55"), col G = descripcion larga (ej "F55 EXTERNAL FAULT/OVGR")
+            "fault_code":                 f,
+            "fault_description":          g,
             "average_batteries_involved": h,
             "unavailable_rack_hours":     i,
         })

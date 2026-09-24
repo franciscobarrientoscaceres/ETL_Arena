@@ -32,6 +32,7 @@
       "file": "golden_2026_08_august.json",
       "period_start": "2026-08-01",
       "period_end": "2026-08-31",
+      "note": "daily regenerado desde RawData-PCS el 2026-09-24 (el daily original era copia de julio). Suma daily = c14 y avail. dia-31 = c16. fault_code=codigo_corto, fault_description=descripcion_larga.",
       "parameters": {
         "only_operational_time": "No",
         "apply_excused_event": "No"
