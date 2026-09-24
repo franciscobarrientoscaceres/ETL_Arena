@@ -107,8 +107,8 @@ y:
 
 Luego inicializa:
 
-- `C12 = 0` → cantidad de bloques de muestreo seleccionados.
-- `C14 = 0` → acumulado de `(racks indisponibles) x bloques`.
+- `BloquesMuestreo (C12) = 0` → cantidad de bloques de muestreo seleccionados.
+- `BloquesRacksIndisponibles (C14) = 0` → acumulado de `(racks indisponibles) x bloques`.
 
 ### Paso 2 — parámetros
 
@@ -125,7 +125,7 @@ El recorrido de `RawData-PCS` comienza en la fila 2.
 Una fila de `RawData-PCS` se procesa si:
 
 ```text
-fecha >= fecha_inicio
+fecha >= FechaInicio
 AND
 fecha < fecha_fin + 1 día
 ```
@@ -157,7 +157,7 @@ PCS 3: J:M
 La columna que realmente utiliza la macro para calcular disponibilidad es:
 
 ```text
-4 * pcs_number + 1
+4 * numero_pcs + 1
 ```
 
 Ejemplos:
@@ -197,7 +197,7 @@ Por tanto, para cada PCS en cada bloque de 15 minutos:
 |---|---|
 | Numerico < 4 | **Indisponible.** `baterias_indisponibles = 4 - NUMBER_OF_MODULES` |
 | Igual a 4 | Disponible. No se acumula impacto. |
-| **Vacio / nulo** | **El Excel lo ignora. Python: tratar como disponible (= 4) y marcar `modules_available_is_null = True`.** |
+| **Vacio / nulo** | **El Excel lo ignora. Python: tratar como disponible (= 4) y marcar `ModulosDisponiblesNulo = True`.** |
 
 Decisión de negocio: asumir disponible (= 4) pero registrar el flag para identificar todos estos intervalos en la data completa.
 
@@ -367,7 +367,7 @@ La hoja `Annual_AVA` acumula mensualmente:
 
 El valor de septiembre de `Annual_AVA!F15` está enlazado directamente a:
 
-`Calculation-Availability!C14`.
+`Calculation-Availability!BloquesRacksIndisponibles (C14)`.
 
 Por lo tanto, SQL deberá poder conservar tanto el KPI mensual como el acumulado histórico.
 
@@ -387,7 +387,7 @@ No contiene lógica de negocio.
 
 En Python/SQL será reemplazada por una estrategia de corrida:
 
-- `run_id`;
+- `IdCorrida`;
 - carga de resultados de esa corrida;
 - no borrar físicamente resultados históricos.
 
@@ -540,7 +540,7 @@ Arbol de decision:
 | `"NO FAULTS"` | `"NO FAULTS"` o sin anterior | `"F13 NO MODULES"` |
 | `""` (vacio) | — | `"F1 Watchdog"` |
 
-**Esta logica de fallback al intervalo anterior es un comportamiento confirmado.** Se han identificado casos de este tipo en la data de septiembre 2026 y pueden ocurrir en cualquier periodo. Todos los eventos donde se aplico el fallback deben marcarse con `fault_description_fallback = True` en `fault_event`.
+**Esta logica de fallback al intervalo anterior es un comportamiento confirmado.** Se han identificado casos de este tipo en la data de septiembre 2026 y pueden ocurrir en cualquier periodo. Todos los eventos donde se aplico el fallback deben marcarse con `descripcion_falla_fallback = True` en `fault_event`.
 
 Luego se calcula el código de falla a partir de la descripción final:
 
@@ -562,8 +562,8 @@ Un evento termina si el siguiente registro:
 Se calcula:
 
 ```text
-duration_hours =
-    24 * (fecha_fin - fecha_inicio)
+duracion_horas =
+    24 * (fecha_fin - FechaInicio)
 ```
 
 Promedio de baterías involucradas:
@@ -578,7 +578,7 @@ Impacto:
 ```text
 unavailability_rack_hours =
     12
-    * duration_hours
+    * duracion_horas
     * average_batteries
 ```
 
@@ -621,7 +621,7 @@ La columna P contiene el impacto:
 Para SQL no se debe depender de una ordenación física. La consulta/reporte debe aplicar explícitamente:
 
 ```sql
-ORDER BY unavailable_rack_hours DESC
+ORDER BY horas_rack_indisponibles DESC
 ```
 
 cuando se requiera el ranking visual equivalente.
@@ -761,16 +761,16 @@ La base de datos debe separar:
 Tabla maestra de proyectos BESS. Se crea una sola vez y no cambia entre corridas.
 
 ```text
-id_proyecto
+IdProyecto
 nombre
 estado                -- 'en_ejecucion' | 'por_implementar'
-fecha_inicio
-num_pcs
-num_baterias_por_pcs
-num_racks_por_bac
-total_racks           -- columna calculada: num_pcs * num_baterias_por_pcs * num_racks_por_bac
-sampling_minutes
-timezone
+FechaInicio
+NumPCS
+NumBateriasPorPCS
+NumRacksPorBAC
+TotalRacks           -- columna calculada: NumPCS * NumBateriasPorPCS * NumRacksPorBAC
+minutos_muestreo
+ZonaHoraria
 descripcion
 ```
 
@@ -788,10 +788,10 @@ Proyectos registrados:
 Catálogo de códigos de falla, extraído de la hoja `PCS-Fault` del Excel. 68 registros. Se carga una sola vez como dato maestro.
 
 ```text
-id_tipo_detencion     -- código numérico (ej: 55)
-fault_code            -- código texto (ej: 'F55')
-fault_description_pe  -- descripción PowerElectronics (ej: 'Fallo externo')
-code_description      -- código + descripción (ej: 'F55 Fallo externo')
+IdTipoDetencion     -- código numérico (ej: 55)
+codigo_falla            -- código texto (ej: 'F55')
+DescripcionFallaPE  -- descripción PowerElectronics (ej: 'Fallo externo')
+CodigoDescripcion      -- código + descripción (ej: 'F55 Fallo externo')
 ```
 
 ## 13.1 `etl_run`
@@ -799,23 +799,23 @@ code_description      -- código + descripción (ej: 'F55 Fallo externo')
 Campos sugeridos:
 
 ```text
-run_id
-source_file
-source_system
-started_at
-finished_at
-period_start
-period_end
-sampling_minutes
-total_pcs
-batteries_per_pcs
-racks_per_pcs
-total_racks
-only_operational_time
-apply_excused_event
+IdCorrida
+archivo_origen
+SistemaOrigen
+IniciadoEn
+FinalizadoEn
+inicio_periodo
+fin_periodo
+minutos_muestreo
+TotalPCS
+baterias_por_pcs
+racks_por_pcs
+TotalRacks
+solo_tiempo_operacional
+aplicar_evento_excusable
 status
-error_message
-algorithm_version
+MensajeError
+version_algoritmo
 ```
 
 ## 13.2 `raw_pcs_sample`
@@ -823,20 +823,20 @@ algorithm_version
 Modelo normalizado recomendado:
 
 ```text
-run_id
-sample_timestamp
-pcs_number
-fault_code_raw
-fault_description_raw
-status_raw
-warning_raw
-modules_available
-modules_available_is_null     -- True si NUMBER_OF_MODULES estaba vacío en el origen
-source_row_number
-source_columns
+IdCorrida
+MarcaTiempoMuestra
+numero_pcs
+codigo_falla_raw
+descripcion_falla_raw
+estado_raw
+advertencia_raw
+ModulosDisponibles
+ModulosDisponiblesNulo     -- True si NUMBER_OF_MODULES estaba vacío en el origen
+NumeroFilaOrigen
+ColumnasOrigen
 ```
 
-El campo `modules_available_is_null` permite identificar todos los intervalos donde el dato estaba ausente. El valor de `modules_available` en esos registros se almacena como `4` para que el motor replique el comportamiento del Excel.
+El campo `ModulosDisponiblesNulo` permite identificar todos los intervalos donde el dato estaba ausente. El valor de `ModulosDisponibles` en esos registros se almacena como `4` para que el motor replique el comportamiento del Excel.
 
 No mantener como diseño principal las 244 columnas repetidas.
 
@@ -851,16 +851,16 @@ La ETL debe convertir ese formato ancho a formato largo.
 ## 13.3 `plant_activity_sample`
 
 ```text
-run_id
-sample_timestamp
-is_operational
-is_excused_event
-active_power_setpoint_kw
+IdCorrida
+MarcaTiempoMuestra
+EsOperacional
+EsEventoExcusable
+SetpointPotenciaActivaKW
 overfrequency_droop_enabled
 underfrequency_droop_enabled
-poi_active_power_kw
-soc_percent
-source_row_number
+PotenciaActivaPOIKW
+PorcentajeSOC
+NumeroFilaOrigen
 ```
 
 ## 13.4 `availability_sample_result`
@@ -868,22 +868,22 @@ source_row_number
 Una fila por:
 
 ```text
-run_id + sample_timestamp + pcs_number
+IdCorrida + MarcaTiempoMuestra + numero_pcs
 ```
 
 Campos:
 
 ```text
-run_id
-sample_timestamp
-pcs_number
-modules_available
-modules_available_is_null     -- propagado desde raw_pcs_sample
-batteries_unavailable
-excused_factor
-operational_factor
-weighted_batteries_unavailable
-weighted_rack_impact
+IdCorrida
+MarcaTiempoMuestra
+numero_pcs
+ModulosDisponibles
+ModulosDisponiblesNulo     -- propagado desde raw_pcs_sample
+baterias_indisponibles
+factor_excusable
+factor_operacional
+baterias_indisponibles_ponderadas
+impacto_rack_ponderado
 ```
 
 Esta tabla es fundamental para auditoría y reconciliación.
@@ -893,36 +893,36 @@ Esta tabla es fundamental para auditoría y reconciliación.
 Una fila por corrida/período:
 
 ```text
-run_id
-sample_blocks
-total_racks
-unavailable_rack_blocks
-availability_period
-availability_annual
+IdCorrida
+BloquesMuestreo
+TotalRacks
+BloquesRacksIndisponibles
+disponibilidad_periodo
+disponibilidad_anual_acumulada
 ```
 
 ## 13.6 `fault_event`
 
 ```text
-run_id
-pcs_number
-start_timestamp
-end_timestamp
-duration_hours
-fault_code
-fault_description
-fault_description_fallback    -- True si la descripción fue tomada del intervalo anterior
-average_batteries_involved
-unavailable_rack_hours
+IdCorrida
+numero_pcs
+marca_tiempo_inicio
+marca_tiempo_fin
+duracion_horas
+codigo_falla
+descripcion_falla
+descripcion_falla_fallback    -- True si la descripción fue tomada del intervalo anterior
+promedio_baterias_involucradas
+horas_rack_indisponibles
 ```
 
 ## 13.7 `daily_availability`
 
 ```text
-run_id
+IdCorrida
 day
-daily_unavailable_rack_blocks
-accumulated_unavailable_rack_blocks
+BloquesRacksIndisponiblesDiarios
+BloquesRacksIndisponiblesAcumulados
 availability
 variation
 ```
@@ -930,17 +930,17 @@ variation
 ## 13.8 `annual_availability`
 
 ```text
-run_id
+IdCorrida
 year
 month
-days_in_month
-sampling_blocks
-unavailable_rack_blocks
-monthly_availability
-accumulated_sampling_blocks
-accumulated_unavailable_rack_blocks
-accumulated_availability
-contractual_availability
+DiasMes
+BloquesMuestreo
+BloquesRacksIndisponibles
+DisponibilidadMensual
+BloquesMuestreoAcumulados
+BloquesRacksIndisponiblesAcumulados
+DisponibilidadAcumulada
+DisponibilidadContractual
 ```
 
 ## 13.9 `detencion`
@@ -948,23 +948,23 @@ contractual_availability
 Vista operacional de detenciones. Poblada desde `fault_event` pero orientada a consultas de negocio y análisis de fallas. Coexiste con `fault_event` (tabla técnica de auditoría).
 
 ```text
-id_detencion
-id_proyecto                 -- FK -> proyecto
-run_id                      -- FK -> etl_run
-pcs_number
-fecha_inicio
-fecha_termino
-duracion_segundos           -- DATEDIFF(seconds, fecha_inicio, fecha_termino)
-id_tipo_detencion           -- FK -> tipo_detencion (NULL si código no existe en catálogo)
-fault_code
-fault_description
-fault_description_fallback
-average_batteries_involved
-unavailable_rack_hours
-modules_available_is_null   -- flag de calidad de dato
-es_excusable                -- flag de evento excusable
-observacion                 -- campo libre para anotaciones operacionales
-estado_revision             -- 'pendiente' | 'revisado' | 'excluido'
+IdDetencion
+IdProyecto                 -- FK -> proyecto
+IdCorrida                      -- FK -> etl_run
+numero_pcs
+FechaInicio
+FechaTermino
+DuracionSegundos           -- DATEDIFF(seconds, FechaInicio, FechaTermino)
+IdTipoDetencion           -- FK -> tipo_detencion (NULL si código no existe en catálogo)
+codigo_falla
+descripcion_falla
+descripcion_falla_fallback
+promedio_baterias_involucradas
+horas_rack_indisponibles
+ModulosDisponiblesNulo   -- flag de calidad de dato
+EsExcusable                -- flag de evento excusable
+Observacion                 -- campo libre para anotaciones operacionales
+EstadoRevision             -- 'pendiente' | 'revisado' | 'excluido'
 ```
 
 La diferencia entre `fault_event` y `detencion`:
@@ -972,10 +972,10 @@ La diferencia entre `fault_event` y `detencion`:
 | `fault_event` | `detencion` |
 |---|---|
 | Tabla técnica de auditoría | Tabla operacional de negocio |
-| Append-only por run_id | Permite UPDATE en observacion y estado_revision |
+| Append-only por IdCorrida | Permite UPDATE en Observacion y EstadoRevision |
 | Sin FK a proyecto | Con FK a proyecto |
-| Sin duracion_segundos | Con duracion_segundos calculado |
-| Sin campos de workflow | Con estado_revision y observacion |
+| Sin DuracionSegundos | Con DuracionSegundos calculado |
+| Sin campos de workflow | Con EstadoRevision y Observacion |
 
 ---
 
@@ -1016,7 +1016,7 @@ PCS61 ...
 a filas:
 
 ```text
-timestamp | pcs_number | fault | status | warning | modules
+timestamp | numero_pcs | fault | status | warning | modules
 ```
 
 No hacer todavía el cálculo de disponibilidad.
@@ -1038,19 +1038,19 @@ Aplicando la misma semántica de los factores `C` y `D` de `PlantActivity`.
 Reproducir exactamente:
 
 ```text
-batteries_unavailable = 4 - modules_available
+baterias_indisponibles = 4 - ModulosDisponibles
 ```
 
 cuando:
 
 ```text
-modules_available < 4
+ModulosDisponibles < 4
 ```
 
 Aplicar:
 
 ```text
-excused_factor
+factor_excusable
 ```
 
 si corresponde.
@@ -1058,7 +1058,7 @@ si corresponde.
 Aplicar:
 
 ```text
-operational_factor
+factor_operacional
 ```
 
 si corresponde.
@@ -1066,12 +1066,12 @@ si corresponde.
 Acumular:
 
 ```text
-unavailable_rack_blocks
+BloquesRacksIndisponibles
 ```
 
 ## Fase F — Event Engine
 
-Construir eventos consecutivos según `modules_available < 4`.
+Construir eventos consecutivos según `ModulosDisponibles < 4`.
 
 Reproducir:
 
@@ -1095,7 +1095,7 @@ Calcular:
 
 ## Fase H — Persist
 
-Insertar resultados en SQL Server con el mismo `run_id`.
+Insertar resultados en SQL Server con el mismo `IdCorrida`.
 
 ## Fase I — Reconciliation
 
@@ -1134,8 +1134,8 @@ timestamp + PCS
 
 comparar:
 
-- modules_available;
-- batteries_unavailable;
+- ModulosDisponibles;
+- baterias_indisponibles;
 - factor excusable;
 - factor operacional;
 - valor ponderado.
@@ -1208,8 +1208,8 @@ Por ello:
 Para paridad, se recomienda conservar en staging:
 
 ```text
-source_excel_serial_datetime
-source_timestamp_local
+SerialFechaExcelOrigen
+MarcaTiempoLocalOrigen
 ```
 
 El tipo SQL definitivo debe ser decidido antes de producción.
@@ -1225,7 +1225,7 @@ El Excel depende de recorrer filas secuencialmente.
 Python debe ordenar explícitamente:
 
 ```text
-sample_timestamp ASC
+MarcaTiempoMuestra ASC
 ```
 
 antes de detectar eventos.
@@ -1265,7 +1265,7 @@ No sustituirlo por `FAULT_CODE` sin una nueva definición de negocio.
 Un intervalo con `NUMBER_OF_MODULES` vacío en `RawData-PCS` **no se acumula como indisponibilidad** (el Excel lo ignora). Python debe:
 
 1. Tratar el valor como 4 (disponible completo) en el motor de cálculo.
-2. Marcar el registro con `modules_available_is_null = True` en staging y en `availability_sample_result`.
+2. Marcar el registro con `ModulosDisponiblesNulo = True` en staging y en `availability_sample_result`.
 3. **Nunca suprimir estos registros** — deben ser consultables para identificar todos los intervalos con esta condición a lo largo de toda la historia del activo.
 
 ## Regla 6 — descripción de falla con fallback
@@ -1276,7 +1276,7 @@ Cuando un evento de falla comienza en un intervalo cuya descripción es `"NO FAU
 - Si el intervalo anterior también era `"NO FAULTS"` (o no existe), se asigna `"F13 NO MODULES"`.
 - Si la descripción resultante está vacía, se asigna `"F1 Watchdog"`.
 
-Todos los eventos donde se aplicó el fallback deben marcarse con `fault_description_fallback = True`.
+Todos los eventos donde se aplicó el fallback deben marcarse con `descripcion_falla_fallback = True`.
 
 ## Regla 7 — valores especiales de descripción
 
@@ -1341,18 +1341,18 @@ Deben provenir de una configuración/versionado de cálculo.
 Pero para la primera versión de paridad los valores por defecto deben ser:
 
 ```text
-project_name         = "Arena BESS"
-project_start_date   = "2026-04-08"
-total_pcs            = 61
-batteries_per_pcs    = 4
-racks_per_pcs        = 12
-sampling_minutes     = 15
+nombre_proyecto         = "Arena BESS"
+fecha_inicio_proyecto   = "2026-04-08"
+TotalPCS            = 61
+baterias_por_pcs    = 4
+racks_por_pcs        = 12
+minutos_muestreo     = 15
 ```
 
 La fórmula equivalente a `Total_Racks` debe ser:
 
 ```text
-total_pcs * batteries_per_pcs * racks_per_pcs
+TotalPCS * baterias_por_pcs * racks_por_pcs
 ```
 
 ---
@@ -1362,7 +1362,7 @@ total_pcs * batteries_per_pcs * racks_per_pcs
 Cada resultado SQL debe guardar:
 
 ```text
-algorithm_version
+version_algoritmo
 ```
 
 Ejemplo:
@@ -1476,17 +1476,17 @@ Excel pasa a ser herramienta de consulta/legacy, no motor oficial.
 La migración no se considera terminada hasta que:
 
 1. Una corrida Python pueda reproducir la corrida Excel usando exactamente el mismo input.
-2. `C12` sea reproducible.
-3. `C14` sea reproducible.
-4. `C16` sea reproducible.
-5. `C19` sea reproducible.
+2. `BloquesMuestreo (C12)` sea reproducible.
+3. `BloquesRacksIndisponibles (C14)` sea reproducible.
+4. `DisponibilidadPeriodo (C16)` sea reproducible.
+5. `DisponibilidadAnualAcumulada (C19)` sea reproducible.
 6. Los eventos de `ListOfFaults` sean reconciliables.
 7. La disponibilidad diaria sea reconciliable.
 8. La disponibilidad acumulada anual sea reconciliable.
 9. Los períodos que atraviesan cambio de horario sean validados.
 10. Una corrida SQL pueda ser auditada hasta:
     `KPI -> acumulado -> muestra -> input raw`.
-11. Todos los intervalos con `modules_available_is_null = True` estén identificados y accesibles en la base de datos.
+11. Todos los intervalos con `ModulosDisponiblesNulo = True` estén identificados y accesibles en la base de datos.
 
 ---
 
@@ -1532,19 +1532,19 @@ Puede haber diferencias de precisión y DST.
 
 `mcoCleanTable` y `mcoCleanList` limpian rangos.
 
-**Acción:** SQL debe ser append-only por `run_id`.
+**Acción:** SQL debe ser append-only por `IdCorrida`.
 
 ### Riesgo G — `NUMBER_OF_MODULES` vacío silencioso
 
 El Excel ignora silenciosamente los intervalos con `NUMBER_OF_MODULES` vacío. La frecuencia de este evento en el histórico completo es desconocida.
 
-**Acción:** marcar con `modules_available_is_null = True`; incluir en el reporte de calidad de datos de cada corrida.
+**Acción:** marcar con `ModulosDisponiblesNulo = True`; incluir en el reporte de calidad de datos de cada corrida.
 
 ### Riesgo H — descripción de falla con fallback al intervalo anterior
 
 La macro `mcoCreateList` puede asignar a un evento la descripción del intervalo anterior cuando el intervalo de inicio reporta `"NO FAULTS"`. Esto se ha confirmado en datos de septiembre 2026 y puede ocurrir en cualquier período.
 
-**Acción:** marcar con `fault_description_fallback = True`; reportar la frecuencia de este caso en cada corrida.
+**Acción:** marcar con `descripcion_falla_fallback = True`; reportar la frecuencia de este caso en cada corrida.
 
 ---
 
