@@ -1,12 +1,21 @@
 {
   "_meta": {
     "description": "Indice de golden references para comparacion Excel vs Python",
-    "schema_version": "1.0",
+    "schema_version": "1.1",
     "tolerance_internal": 1e-09,
     "tolerance_kpi": 1e-06,
     "tolerance_rack_hours": 0.001,
     "tolerance_daily": 1e-06,
-    "how_to_add": "Ejecutar tests/golden/extract_golden.py con el Excel configurado para el mes deseado"
+    "how_to_add": "Ejecutar la macro VBA en el Excel para el mes deseado (cmdCalcAvailability + mcoCreateList + mcoDailyAvailability), luego: python tests/golden/extract_golden.py --excel <ruta> --month N --year 2026 --label <nombre>. El script falla si sum(daily)!=C14 o si la orientacion de campos es incorrecta.",
+    "invariants": [
+      "sum(daily.unavailable) ~= C14",
+      "last_accumulated ~= C14",
+      "C16 ~= 1 - C14/(Total_Racks*C12)",
+      "fault_code corto (Fnn) / fault_description larga",
+      "duration multiple de sampling_minutes/60",
+      "unavailable_rack_hours ~= 12 * duration * average_batteries"
+    ],
+    "annual_ava_policy": "Las filas historicas de Annual_AVA (meses distintos al linkado a C14 de la corrida actual) pueden divergir del C14 del periodo: son estado historico del Excel, NO se usan como asercion de paridad (ver GT-5 en design.md). sampling_blocks de Annual usa formula de calendario (p.ej. 1977 para sep parcial) y no equivale a C12 de filas RawData (1975 con gap DST)."
   },
   "months": [
     {
@@ -24,7 +33,22 @@
         "c16_availability_period": 0.9503529130126623,
         "c19_accumulated_annual": 0.9957833980914864
       },
-      "status": "verified"
+      "status": "pending",
+      "pending_reason": "total_events=295 coincide con el cap historico del extractor (max_row=300). KPI/daily superan invariantes; re-extraer con extract_golden.py actual tras correr macros para julio y poner verified.",
+      "discrepancies": [
+        {
+          "id": "events_cap_295",
+          "detail": "fault_events_summary.total_events=295 = tope del extractor antiguo; puede estar truncado",
+          "resolution": "re-extract con script actual (scan hasta fin de ListOfFaults)",
+          "status": "open"
+        },
+        {
+          "id": "annual_ava_diverges_c14",
+          "detail": "annual['7'].unavailable=350972.30 != C14=432611.21",
+          "resolution": "historico no reproducible; fuera del gate de paridad (GT-5)",
+          "status": "resolved_wontfix"
+        }
+      ]
     },
     {
       "id": "2026_08",
@@ -32,7 +56,7 @@
       "file": "golden_2026_08_august.json",
       "period_start": "2026-08-01",
       "period_end": "2026-08-31",
-      "note": "daily regenerado desde RawData-PCS el 2026-09-24 (el daily original era copia de julio). Suma daily = c14 y avail. dia-31 = c16. fault_code=codigo_corto, fault_description=descripcion_larga.",
+      "note": "daily regenerado 2026-09-24 (el daily original de la hoja era copia de julio). sum(daily)=C14 OK. Pendiente re-corrida de mcoDailyAvailability en Excel para sustituir el hand-fix por extraccion limpia del script.",
       "parameters": {
         "only_operational_time": "No",
         "apply_excused_event": "No"
@@ -42,7 +66,22 @@
         "c16_availability_period": 0.9394752689090135,
         "c19_accumulated_annual": 0.9948595433867929
       },
-      "status": "verified"
+      "status": "pending",
+      "pending_reason": "daily fue hand-fix (regenerado desde RawData-PCS, no desde mcoDailyAvailability). KPI y invariantes OK; re-correr macro diaria y re-extraer para verified.",
+      "discrepancies": [
+        {
+          "id": "daily_hand_fix",
+          "detail": "serie daily corregida manualmente 2026-09-24; no salio del extractor sobre hoja Daily macro-run",
+          "resolution": "re-corrida cmdCalc+mcoDailyAvailability + re-extract",
+          "status": "open"
+        },
+        {
+          "id": "annual_ava_diverges_c14",
+          "detail": "annual['8'].unavailable=305182.97 != C14=527396.04",
+          "resolution": "historico no reproducible; fuera del gate de paridad (GT-5)",
+          "status": "resolved_wontfix"
+        }
+      ]
     },
     {
       "id": "2026_09",
@@ -50,7 +89,7 @@
       "file": "golden_2026_09_september.json",
       "period_start": "2026-09-01",
       "period_end": "2026-09-21",
-      "note": "Periodo parcial: la macro se corrio hasta el 21-sep (C7=2026-09-21). c12_sample_blocks=1975 (contador de RawData-PCS). Annual_AVA muestra sampling_blocks=1977 — diferencia de 2 bloques a confirmar el lunes. Dias 22-30 tienen daily_unavailable=0 pero availability > 0 (denominador crece, acumulado fijo). fault_code=codigo_corto, fault_description=descripcion_larga (corregido 2026-09-24).",
+      "note": "Periodo parcial: macro corrio hasta C7=2026-09-21. fault_code=codigo_corto, fault_description=descripcion_larga. Dias 22-30: daily_unavailable=0 y availability crece por denominador (comportamiento Excel, no invariante C16).",
       "parameters": {
         "only_operational_time": "No",
         "apply_excused_event": "No"
@@ -58,11 +97,24 @@
       "kpi_summary": {
         "c12": 1975,
         "c16_availability_period": 0.9819924099052362,
-        "c19_accumulated_annual": 0.9989850173961998,
-        "accumulated_unavailable_blocks_annual_ava": 760289.559999999,
-        "note_discrepancy_c12": "c12=1975 vs annual_ava_sampling_blocks=1977 — verificar lunes"
+        "c19_accumulated_annual": 0.9989850173961998
       },
-      "status": "verified"
+      "status": "pending",
+      "pending_reason": "Periodo parcial 01-21; para verified se recomienda corrida de mes completo (C7=2026-09-30) y re-extract. Discrepancia 1975/1977 ya resuelta documentalmente (no bloquea).",
+      "discrepancies": [
+        {
+          "id": "c12_vs_annual_sampling_blocks",
+          "detail": "C12=1975 (filas RawData 01-21 con gap DST 2026-09-06 00:00->01:00) vs annual sampling_blocks=1977 (formula de calendario Annual_AVA)",
+          "resolution": "C12=1975 es el valor correcto para paridad (contador de filas). 1977 es artefacto de formula Excel en Annual_AVA; no usar como esperado de BloquesMuestreo. Cerrado 2026-09-24.",
+          "status": "resolved"
+        },
+        {
+          "id": "daily_availability_tail",
+          "detail": "last daily availability (dia 30) != C16 en periodo parcial: el acumulado queda fijo tras el dia 21 pero el denominador diario sigue creciendo",
+          "resolution": "comportamiento documentado del Excel; tests de periodo parcial no exigen last_avail==C16",
+          "status": "resolved"
+        }
+      ]
     }
   ]
 }

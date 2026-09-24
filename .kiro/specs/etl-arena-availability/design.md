@@ -1090,26 +1090,34 @@ def test_disponibilidad_diaria_coincide_con_excel():
 
 ---
 
-### GT-5: Annual_AVA — Acumulados históricos
+### GT-5: Annual_AVA — Acumulados históricos (INFORMATIVO — no es gate de paridad)
+
+> **Estado: histórico no reproducible.** Las filas de julio/agosto en `Annual_AVA` son valores estáticos de corridas previas con datos/parámetros distintos a la corrida actual de `cmdCalcAvailability`. **Difieren deliberadamente del C14 del periodo** (jul: 350,972.30 vs C14=432,611.21; ago: 305,182.97 vs C14=527,396.04). Un motor Python correcto **no puede** producir ambos a la vez.
+>
+> - **Gate de paridad:** usar `golden_*.json` → `period.kpi` (C12/C14/C16/C19) + `daily` + `fault_events_summary` (ver `tasks.md` 13.4 y `test_golden_integrity.py`).
+> - **GT-5** solo documenta el snapshot de la hoja; cualquier test que lo use debe tratar estos valores como referencia histórica opcional, **nunca** como esperado de la corrida Python actual.
+> - `sampling_blocks` de septiembre (1977) es fórmula de calendario de `Annual_AVA`; **no** equivale a `C12=1975` (filas RawData con gap DST 2026-09-06). Discrepancia resuelta 2026-09-24.
 
 Valores extraídos de la hoja `Annual_AVA` (`data_only=True`):
 
-| Mes | BloquesMuestreo | BloquesRacksIndisp. | DisponibilidadMensual | BloquesMuestreoAcum. | BloquesIndisp.Acum. |
-|---|---|---|---|---|---|
-| Julio 2026 | 2976 | 350972.30 | 0.959721912366 | 2976 | 350972.30 |
-| Agosto 2026 | 2976 | 305182.97 | 0.964976762185 | 5952 | 656155.27 |
-| Sep. 2026 (parcial 1-21) | 1977 | 104134.29 | 0.982010626992 | 7929 | 760289.56 |
+| Mes | BloquesMuestreo | BloquesRacksIndisp. | DisponibilidadMensual | BloquesMuestreoAcum. | BloquesIndisp.Acum. | Uso en tests |
+|---|---|---|---|---|---|---|
+| Julio 2026 | 2976 | 350972.30 | 0.959721912366 | 2976 | 350972.30 | histórico — no comparar con C14 |
+| Agosto 2026 | 2976 | 305182.97 | 0.964976762185 | 5952 | 656155.27 | histórico — no comparar con C14 |
+| Sep. 2026 (parcial 1-21) | 1977* | 104134.29 | 0.982010626992 | 7929 | 760289.56 | *1977 = calendario; KPI real C12=1975 |
 
 ```python
-# tests/golden/test_gt5_annual.py
-GOLDEN_ANUAL = [
+# tests/golden/test_gt5_annual.py  (INFORMATIVO — no forma parte del gate de paridad)
+# Solo valida que el snapshot se puede leer; NO afirma paridad con la corrida Python.
+GOLDEN_ANUAL_HISTORICO = [
     (7, 2976, 350972.2999999995,  0.959721912366326, 2976, 350972.2999999995),
     (8, 2976, 305182.9679999994,  0.964976762184911, 5952, 656155.2679999989),
-    (9, 1977, 104134.2920000001,  0.9820106269918267, 7929, 760289.559999999),    # Daily corregido 2026-09-24
+    (9, 1977, 104134.2920000001,  0.9820106269918267, 7929, 760289.559999999),
 ]
 
-def test_acumulacion_anual_coincide_con_excel():
-    for mes, bloques, indisp, dispon, acc_bloques, acc_indisp in GOLDEN_ANUAL:
+def test_snapshot_annual_ava_es_legible():
+    """Documenta el estado de la hoja; no se usa como assertion de paridad C14."""
+    for mes, bloques, indisp, dispon, acc_bloques, acc_indisp in GOLDEN_ANUAL_HISTORICO:
         fila = obtener_fila_anual(anio=2026, mes=mes)
         assert fila["BloquesMuestreo"] == bloques
         assert abs(fila["BloquesRacksIndisponibles"] - indisp) < 0.01

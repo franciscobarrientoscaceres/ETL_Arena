@@ -6,7 +6,16 @@
     "tolerance_internal": 1e-09,
     "tolerance_kpi": 1e-06,
     "tolerance_rack_hours": 0.001,
-    "note": "Corrida VBA con parametros Only Operational Time=No, Excusable Event=No"
+    "note": "Corrida VBA con parametros Only Operational Time=No, Excusable Event=No",
+    "invariants": {
+      "sum_daily_equals_c14": true,
+      "c16_recompute_ok": true,
+      "fault_fields_orientation_ok": true
+    },
+    "open_issues": [
+      "total_events=295 puede reflejar el cap historico max_row=300 del extractor; re-extraer con extract_golden.py actual"
+    ],
+    "annual_ava_note": "annual['7'].unavailable=350972.30 diverge de C14=432611.21: snapshot historico no reproducible, fuera del gate de paridad (GT-5)"
   },
   "period": {
     "year": 2026,

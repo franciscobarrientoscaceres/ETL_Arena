@@ -6,7 +6,21 @@
     "tolerance_internal": 1e-09,
     "tolerance_kpi": 1e-06,
     "tolerance_rack_hours": 0.001,
-    "note": "Corrida VBA con Only Operational Time=No, Excusable Event=No | daily regenerado desde RawData-PCS 2026-09-24 (el daily original era copia de julio). suma_daily=527396.044=c14"
+    "note": "Corrida VBA con Only Operational Time=No, Excusable Event=No | daily regenerado desde RawData-PCS 2026-09-24 (el daily original era copia de julio). suma_daily=527396.044=c14",
+    "invariants": {
+      "sum_daily_equals_c14": true,
+      "c16_recompute_ok": true,
+      "fault_fields_orientation_ok": true
+    },
+    "manually_corrected": true,
+    "manually_corrected_fields": [
+      "daily"
+    ],
+    "manually_corrected_date": "2026-09-24",
+    "open_issues": [
+      "daily es hand-fix; sustituir con re-extract tras mcoDailyAvailability para status=verified"
+    ],
+    "annual_ava_note": "annual['8'].unavailable=305182.97 diverge de C14=527396.04: snapshot historico no reproducible, fuera del gate de paridad (GT-5)"
   },
   "period": {
     "year": 2026,

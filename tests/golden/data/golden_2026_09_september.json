@@ -6,7 +6,25 @@
     "tolerance_internal": 1e-09,
     "tolerance_kpi": 1e-06,
     "tolerance_rack_hours": 0.001,
-    "note": "Corrida VBA con Only Operational Time=No, Excusable Event=No. Periodo parcial 01-21 sep. Daily corregido 2026-09-24. fault_code=codigo_corto (F55), fault_description=descripcion_larga (F55 EXTERNAL FAULT/OVGR). PENDIENTE verificar discrepancia c12=1975 vs annual_ava sampling_blocks=1977 el lunes con corrida completa."
+    "note": "Corrida VBA con Only Operational Time=No, Excusable Event=No. Periodo parcial 01-21 sep. Daily corregido 2026-09-24. fault_code=codigo_corto (F55), fault_description=descripcion_larga (F55 EXTERNAL FAULT/OVGR). Discrepancia c12=1975 vs annual sampling_blocks=1977 RESUELTA: C12=1975 es correcto (filas RawData con gap DST); 1977 es formula de calendario de Annual_AVA.",
+    "invariants": {
+      "sum_daily_equals_c14": true,
+      "c16_recompute_ok": true,
+      "fault_fields_orientation_ok": true
+    },
+    "manually_corrected": true,
+    "manually_corrected_fields": [
+      "daily",
+      "fault_code/fault_description orientation"
+    ],
+    "manually_corrected_date": "2026-09-24",
+    "resolved_discrepancies": [
+      {
+        "id": "c12_vs_annual_sampling_blocks",
+        "resolution": "C12=1975 correcto para paridad; annual 1977 es artefacto de formula. Cerrado 2026-09-24."
+      }
+    ],
+    "annual_ava_note": "annual['9'].unavailable enlaza a C14 de la corrida actual (coincide). sampling_blocks=1977 no equivale a C12=1975."
   },
   "period": {
     "year": 2026,
