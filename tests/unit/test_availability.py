@@ -1,8 +1,8 @@
-"""Tests de MotorDisponibilidad (R7)."""
+"""Tests de MotorDisponibilidad (R7, F-37)."""
 
 import numpy as np
 import pytest
-from fabricas import BLOQUE, SERIAL_SEP_1, actividad, config_prueba, matriz
+from fabricas import BLOQUE, SERIAL_SEP_1, actividad, config_prueba, exclusion, matriz
 
 from etl_arena.availability import calcular
 
@@ -27,13 +27,47 @@ def test_filas_fuera_de_rango_no_cuentan():  # filtro A >= C5 y A < C7+1
     assert list(r.filas_procesadas) == [1, 2] and r.bloques_muestreo == 2
 
 
-def test_excusable_solo_con_flag():  # R7.5, F-12
+def test_exclusion_solo_con_flag():  # R7.5, F-12, F-37
     m = matriz([[2, 4], [2, 4]])
-    act = actividad(2, excusable=[0.0, 1.0])
-    con = calcular(m, act, config_prueba(aplicar_evento_excusable=True))
-    sin = calcular(m, act, config_prueba(aplicar_evento_excusable=False))
+    exc = exclusion(m, [[1, None], [0, None]])  # fila 1: EE valor 1 → 0 baterías
+    con = calcular(m, actividad(2), config_prueba(aplicar_evento_excusable=True), exc)
+    sin = calcular(m, actividad(2), config_prueba(aplicar_evento_excusable=False), exc)
     assert con.bloques_racks_indisponibles == 24.0 and sin.bloques_racks_indisponibles == 48.0
-    assert list(con.factor_excusable) == [0.0, 1.0]
+    assert list(con.ponderadas[:, 0]) == [0.0, 2.0] and con.exclusion[0, 0] == 1.0
+
+
+def test_plantactivity_d_ya_no_pondera():  # F-37: BO es solo espejo
+    m = matriz([[2]])
+    act = actividad(1)
+    act.evento_excusado_pa[:] = 0.0
+    r = calcular(m, act, config_prueba(total_pcs=1))
+    assert r.bloques_racks_indisponibles == 24.0 and list(r.bo_evento_excusado_pa) == [0.0]
+
+
+def test_exclusion_valor_2_usa_modulos_previos():  # F-37: 3 módulos antes del EE, sale por completo
+    m = matriz([[3], [0], [0.5], [3]])
+    exc = exclusion(m, [[0], [2], [2], [0]])
+    r = calcular(m, actividad(4), config_prueba(total_pcs=1), exc)
+    assert list(r.ponderadas[:, 0]) == [1.0, 1.0, 1.0, 1.0]
+    assert r.bloques_racks_indisponibles == 48.0
+
+
+def test_exclusion_valor_2_con_4_modulos_previos():  # antes del EE estaba completo → 0
+    m = matriz([[4], [0], [2]])
+    r = calcular(m, actividad(3), config_prueba(total_pcs=1), exclusion(m, [[None], [2], [2]]))
+    assert r.bloques_racks_indisponibles == 0.0
+
+
+def test_exclusion_valor_2_despues_de_valor_1():  # la fila previa ya estaba excluida (se considera completa)
+    m = matriz([[3], [2], [0]])
+    r = calcular(m, actividad(3), config_prueba(total_pcs=1), exclusion(m, [[0], [1], [2]]))
+    assert list(r.ponderadas[:, 0]) == [1.0, 0.0, 0.0]
+
+
+def test_exclusion_no_afecta_filas_sin_falla():  # el gate M < 4 manda (EE sobre un PCS completo)
+    m = matriz([[4], [None]])
+    r = calcular(m, actividad(2), config_prueba(total_pcs=1), exclusion(m, [[1], [2]]))
+    assert r.bloques_racks_indisponibles == 0.0 and np.isnan(r.ponderadas).all()
 
 
 def test_solo_tiempo_operacional_con_factor_cero():  # R7.6
@@ -72,12 +106,14 @@ def test_c2_mayor_que_matriz_falla():
 
 
 def test_muestras():
-    r = calcular(matriz([[3, 4]]), actividad(1, excusable=0.5), config_prueba())
+    m = matriz([[3, 4]])
+    r = calcular(m, actividad(1), config_prueba(), exclusion(m, [[1, 0]]))
     muestras = list(r.muestras())
     assert len(muestras) == 2
     assert (
         muestras[0].baterias_indisponibles,
         muestras[0].baterias_ponderadas,
         muestras[0].impacto_rack_ponderado,
-    ) == (1.0, 0.5, 6.0)
+    ) == (1.0, 0.0, 0.0)
+    assert muestras[0].valor_exclusion == 1.0 and muestras[1].valor_exclusion == 0.0
     assert muestras[1].impacto_rack_ponderado == 0.0

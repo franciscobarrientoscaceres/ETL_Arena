@@ -32,12 +32,12 @@ class ConfiguracionCalculo:
     # parámetros KPI (cmdCalcAvailability)
     inicio_periodo: date  # C5
     fin_periodo: date  # C7 (inclusivo a nivel día)
-    solo_tiempo_operacional: bool  # C21 <> "No"
-    aplicar_evento_excusable: bool  # C31 = "Yes"
+    solo_tiempo_operacional: bool  # C21 <> "No" → pondera por PlantActivity!C
+    aplicar_evento_excusable: bool  # C31 = "Yes" → aplica Exclusion_Matrix (F-37)
     # parámetros de eventos (mcoCreateList) — F-05
     inicio_periodo_eventos: date  # ListOfFaults!L2
     fin_periodo_eventos: date  # ListOfFaults!L4
-    aplicar_evento_excusable_eventos: bool  # ListOfFaults!L14 = "Yes"
+    aplicar_evento_excusable_eventos: bool  # ListOfFaults!L14 = "Yes" → aplica Exclusion_Matrix (F-37)
     # Daily
     fin_diario: date  # última fecha de Daily!C9:C39 (F-09, F-33)
     modo_huecos: ModoHuecos

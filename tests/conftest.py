@@ -37,8 +37,8 @@ def libro_real_sep(ruta_libro_real):
 
 @pytest.fixture(scope="session")
 def matriz_real_sep(libro_real_sep):
-    """(cfg, MatrizPCS, DatosActividad, anomalías de enriquecimiento)."""
-    from etl_arena.enrichment import asociar_actividad
+    """(cfg, MatrizPCS, DatosActividad, anomalías de enriquecimiento, DatosExclusion)."""
+    from etl_arena.enrichment import asociar_actividad, asociar_exclusion
     from etl_arena.normalization import a_matriz, validar_esquema
 
     cfg, libro = libro_real_sep
@@ -46,4 +46,5 @@ def matriz_real_sep(libro_real_sep):
     assert not anomalias, anomalias
     m = a_matriz(libro, mapa, cfg)
     act, anomalias_pa = asociar_actividad(m, libro.actividad)
-    return cfg, m, act, anomalias_pa
+    exc, _ = asociar_exclusion(m, libro.exclusion, cfg)
+    return cfg, m, act, anomalias_pa, exc

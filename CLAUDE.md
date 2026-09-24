@@ -49,7 +49,7 @@ Herramienta de cálculo de KPI (equipo Trina Solar Chile / TS-ESD) que calcula l
 | Fecha inicio | `C5` | fecha seleccionada |
 | Fecha fin | `C7` | fecha seleccionada |
 | Solo tiempo operacional | `C21` (`solo_tiempo_operacional`) | Yes/No |
-| Aplicar evento excusable | `C31` (`aplicar_evento_excusable`) | Yes/No |
+| Aplicar evento excusable | `C31` (`aplicar_evento_excusable`) | Yes/No — activa `Exclusion_Matrix` (F-37) |
 
 ### Fórmula del KPI principal
 
@@ -59,7 +59,7 @@ DisponibilidadPeriodo = 1 - BloquesRacksIndisponibles / (TotalRacks * BloquesMue
 
 donde:
 - `BloquesMuestreo` (C12) = cantidad de bloques de 15 min en el período seleccionado
-- `BloquesRacksIndisponibles` (C14) = acumulado de `(racks indisponibles) × bloques`, opcionalmente ponderado por `FactorExcusable` y `FactorOperacional`
+- `BloquesRacksIndisponibles` (C14) = acumulado de `(racks indisponibles) × bloques`, opcionalmente ponderado por `Exclusion_Matrix` (C31) y `FactorOperacional` (C21)
 - `DisponibilidadAnualAcumulada` (C19) = `1 - BloquesRacksIndisponibles / (TotalRacks * 365 * 24 * 4)`
 
 ---
@@ -74,7 +74,8 @@ donde:
 | `Sheet1`          | DateFormat_Correction      | Normalización de fechas/horas (~5 MB de XML)                |
 | `Sheet2`          | RawData-PCS                | Registros crudos de estado/falla por intervalo y PCS        |
 | `Sheet3`          | ListOfFaults               | Lista de eventos generada por `mcoCreateList`               |
-| `Sheet4`          | PlantActivity              | `FactorOperacional` (col C) y `FactorExcusable` (col D) por intervalo |
+| `Sheet4`          | PlantActivity              | `FactorOperacional` (col C) por intervalo; col D ya no pondera (F-37) |
+| —                 | Exclusion_Matrix           | Eventos de exclusión 0/1/2 por intervalo y PCS (desde agosto 2026, F-37) |
 | `Sheet5`          | PCS-Fault                  | Catálogo de 167 códigos de falla F0…F257 (TipoDetencion)   |
 | `Sheet6`          | PCS-Status                 | Catálogo de estados de PCS                                  |
 | `Sheet7`          | Verificación               | Controles de calidad                                        |
@@ -135,6 +136,8 @@ Trampas de paridad confirmadas en el VBA (detalle en `audit.md`):
 - `mcoDailyAvailability` no aplica el factor operacional.
 - `C12` cuenta filas (no timestamps únicos); los motores operan sobre seriales Excel en orden de fila origen.
 
+**Eventos de exclusión (`Exclusion_Matrix`, definición de negocio 2026-09-24 — F-37, ADR-11):** una columna por PCS, unida por fila. Con `C31`/`L14 = "Yes"` y `M < 4`: `0`/vacío → `4 − M`; `1` → 0 (se consideran los 4 módulos); `2` → baterías indisponibles previas al inicio del evento. Reemplaza a `PlantActivity!D`; PlantActivity queda solo para "Only Operational Time?" (C21). Macros, hojas y celdas oficiales: las de septiembre.
+
 No usar el código de falla (`CURRENT FAULT`) como criterio de indisponibilidad — el comentario VBA es impreciso; la lógica ejecutable usa `NUMBER_OF_MODULES`.
 
 ---
@@ -178,7 +181,7 @@ SCADA ~03:00 AM (solo extract)
 
 Orquestador: `scripts/run_lunes.py` con etapas `acquire-wait`, `prepare-workbook`, `run-macros`, `run-etl`, `reconcile`, `notify-bi`. Fases P0–P9 y detalle en `AGENTS.md` §14 Fase S. Runbook: `docs/runbook-lunes.md`.
 
-**Reglas:** export **incremental** (desde el dato siguiente al último cargado hasta el último dato del lunes; continuidad validada al recibir; D-07); KPI semanal = mes en curso hasta el último dato; cierre mensual = mes completo; KPI oficial con `C31 = L14 = "Yes"` (D-03); transporte hoy solo TeamViewer (sin UNC/API); solo `RawData-PCS` desde SCADA; `PlantActivity` la entrega Alex una vez al mes (KPI semanal preliminar en excusables hasta esa carga; D-12); correcciones solo por `reproceso` con registro de celdas cambiadas (D-13); macros y ETL solo en PC local; Power BI modo notificación (owner Misael) hasta service principal.
+**Reglas:** export **incremental** (desde el dato siguiente al último cargado hasta el último dato del lunes; continuidad validada al recibir; D-07); KPI semanal = mes en curso hasta el último dato; cierre mensual = mes completo; KPI oficial con `C31 = L14 = "Yes"` (D-03); transporte hoy solo TeamViewer (sin UNC/API); solo `RawData-PCS` desde SCADA; `Exclusion_Matrix` mensual (KPI semanal preliminar en exclusiones hasta su carga; D-17, F-37); PlantActivity solo para C21 (D-12); correcciones solo por `reproceso` con registro de celdas cambiadas (D-13); macros y ETL solo en PC local; Power BI modo notificación (owner Misael) hasta service principal.
 
 ---
 
@@ -222,8 +225,9 @@ Scripts principales: `scripts/run_lunes.py` (orquestador semanal) y `scripts/eje
 | `proyecto` | `IdProyecto`, `NumPCS`, `NumBateriasPorPCS`, `NumRacksPorBAC`, `TotalRacks`, `MinutosMuestreo`, `ZonaHoraria` |
 | `tipo_detencion` | `IdTipoDetencion`, `CodigoFalla`, `DescripcionFallaPE`, `CodigoDescripcion`, `Significado`, `Operativo` (167 códigos de `PCS-Fault`) |
 | `raw_pcs_sample` | `IdCorrida`, `MarcaTiempoMuestra`, `NumeroPCS`, `ModulosDisponibles`, `ModulosDisponiblesNulo`, `SerialFechaExcelOrigen` |
-| `plant_activity_sample` | `IdCorrida`, `MarcaTiempoMuestra`, `EsOperacional`, `EsEventoExcusable`, `PorcentajeSOC` |
-| `availability_sample_result` | `IdCorrida`, `MarcaTiempoMuestra`, `NumeroPCS`, `BateriasIndisponibles`, `FactorExcusable`, `FactorOperacional`, `ImpactoRackPonderado` |
+| `plant_activity_sample` | `IdCorrida`, `MarcaTiempoMuestra`, `EsOperacional`, `PorcentajeSOC` |
+| `exclusion_matrix_sample` | `IdCorrida`, `NumeroFilaOrigen`, `NumeroPCS`, `ValorExclusion` (1/2), `BateriasPrevias`, `Comentario` (F-37) |
+| `availability_sample_result` | `IdCorrida`, `MarcaTiempoMuestra`, `NumeroPCS`, `BateriasIndisponibles`, `ValorExclusion`, `FactorOperacional`, `ImpactoRackPonderado` |
 | `availability_run_result` | `IdCorrida`, `BloquesMuestreo`, `BloquesRacksIndisponibles`, `DisponibilidadPeriodo`, `DisponibilidadAnualAcumulada` |
 | `fault_event` | `IdCorrida`, `NumeroPCS`, `MarcaTiempoInicio`, `MarcaTiempoFin`, `DuracionHoras`, `CodigoFalla`, `DescripcionFallaFallback`, `HorasRackIndisponibles` |
 | `detencion` | `IdDetencion`, `IdProyecto`, `IdCorrida`, `FechaInicio`, `FechaTermino`, `DuracionSegundos`, `IdTipoDetencion`, `EstadoRevision`, `Observacion` |
@@ -241,7 +245,7 @@ Scripts principales: `scripts/run_lunes.py` (orquestador semanal) y `scripts/eje
 5. **Conservar timestamps originales** (`SerialFechaExcelOrigen` + `MarcaTiempoLocalOrigen`) — no convertir a UTC sin documentar.
 6. **`ModulosDisponiblesNulo`**: intervalos con `NUMBER_OF_MODULES` vacío se tratan como disponibles (= 4) pero se marcan para auditoría.
 7. **`DescripcionFallaFallback`**: eventos donde la descripción fue tomada del intervalo anterior se marcan en `fault_event` y `detencion`.
-8. **`VersionAlgoritmo`**: toda corrida debe registrar `"availability-v1-excel-parity"` durante la fase de paridad.
+8. **`VersionAlgoritmo`**: toda corrida registra `"availability-v1.1-exclusion-matrix"` (F-37); sin `Exclusion_Matrix` equivale a `"availability-v1-excel-parity"`.
 9. **No procesar en el server SCADA** — solo exportar/copy; macros y ETL solo en PC local.
 10. **`data/processed` inmutable** — el archivo de origen con sha256 no se edita; el `.xlsm` de trabajo se copia/backup antes de macros o adapter.
 11. La lógica de negocio detallada y el plan por etapas están en [`AGENTS.md`](./AGENTS.md); las reglas ejecutables, tolerancias y tareas vigentes están en `.kiro/specs/etl-arena-availability/` (revisión 2), que manda ante diferencias.

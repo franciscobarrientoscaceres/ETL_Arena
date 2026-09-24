@@ -93,7 +93,7 @@ Agentes disponibles en `.opencode/agent/` (OpenCode, `mode: subagent`). Son perf
   - _R2.4, R2.5_
 
 - [ ] 0.8 Muestra del archivo mensual de PlantActivity — **Humano (Alex / Francisco)**
-  - Guardar en `tests/fixtures/plant_activity/` un archivo real tal como lo entrega Alex (D-12) + nota: formato, columnas, cómo marca eventos excusables, período que cubre.
+  - Guardar en `tests/fixtures/exclusion_matrix/` la `Exclusion_Matrix` mensual tal como se entrega (D-17) y, si aplica, PlantActivity + nota: formato, quién la mantiene, período que cubre.
 
 - [ ] **Checkpoint 0 — code-reviewer**: revisar 0.3 y 0.4 (extractor, esquema del golden, `.gitignore`). Preguntar al usuario si hay ajustes.
 
@@ -143,6 +143,11 @@ Agentes disponibles en `.opencode/agent/` (OpenCode, `mode: subagent`). Son perf
 - [x] 1.10 `aggregation.mensual_anual` — **data-engineer**
   - `registrar_mes_oficial` (DiasMes = 20.59375 y **BloquesMuestreo = C12 = 1975** para sep, D-07; `bloques_calendario` = 1977 solo para emular la hoja) y `calcular_anual` (fórmulas G/H/I/J de Annual_AVA). Test con las filas jul/ago/sep de GT-5 → `J15 = 0.96725164144625086`.
   - _R10, F-20_
+
+- [x] 1.12 `Exclusion_Matrix` (F-37) — **data-engineer** *(hecho 2026-09-24)*
+  - Ingesta de la hoja (opcional), `enrichment.exclusion` (unión por fila, validación 0/1/2, `baterias_previas` por tramo), regla en `availability` y `fault_events` (D-16), `VersionAlgoritmo = availability-v1.1-exclusion-matrix`.
+  - Golden de agosto (`tests/golden/test_exclusion_agosto.py`): C12, C14, C16 y tabla E4:BO (2976×61) **bit a bit** contra el libro `…_20260923_agosto_2026.xlsm`; septiembre sin cambios.
+  - _R6.5–R6.8, R7.5, R8.3, F-37_
 
 - [x] 1.11 Golden runner — **data-engineer**
   - `tests/golden/conftest.py` + `test_golden_runner.py`: para cada mes `verified`, ejecutar ingesta→motores con los **parámetros efectivos del golden** y comparar niveles 2–5 con la tabla de tolerancias. Sep marcado `verified` al pasar.
@@ -241,8 +246,8 @@ Agentes disponibles en `.opencode/agent/` (OpenCode, `mode: subagent`). Son perf
 - [ ] 4.10 Ensayo del lunes completo — **Humano (Francisco / Alex)** + **backend-architect**
   - `run_lunes.py --stage all` con un export real; registrar tiempos y problemas en `docs/shadow-log.md`.
 
-- [ ] 4.12 `workbook.plant_activity` + `--stage load-plant-activity` — **backend-architect** *(requiere 0.8, 4.1)*
-  - Escritura por timestamp → fila de B/C/D (y E:I), rechazo de timestamps inexistentes, diff celda a celda a `correccion_dato` + `cambios.csv`, encolado del `cierre_mensual`; `ExcusablesPendientes` en corridas semanales. Test COM con una copia del libro: borrar B/C/D de un tramo, recargarlo y verificar el diff y el C14.
+- [ ] 4.12 `workbook.exclusion` + `--stage load-exclusion-matrix` — **backend-architect** *(requiere 0.8, 4.1)*
+  - Escritura por timestamp → fila de `Exclusion_Matrix` (columnas por PCS, Excused Event, Comments; crea la hoja si el libro base no la tiene) y opcionalmente PlantActivity B/C/D/E:I, rechazo de timestamps inexistentes, diff celda a celda a `correccion_dato` + `cambios.csv`, encolado del `cierre_mensual`; `ExcusablesPendientes` en corridas semanales. Test COM con una copia del libro: borrar B/C/D de un tramo, recargarlo y verificar el diff y el C14.
   - _R3.8, R19.5, D-12_
 
 - [ ] 4.13 Reproceso con registro de cambios (`--reproceso`) — **backend-architect** + **data-engineer** *(requiere 4.7)*
@@ -311,5 +316,5 @@ Camino crítico: 0.3 → 1.2 → 1.4 → 1.5/1.6 → 1.7 → 1.8 → 1.11 → 3.
 - P0 bloquea solo la adquisición/adapter (4.6, 4.7), no los motores ni SQL.
 - Property tests: Hypothesis, ≥ 200 ejemplos por propiedad, tag `# Feature: etl-arena-availability, Property N`.
 - Tolerancias: única tabla en `design.md §Tolerancias`; `golden_index._meta` se sincroniza con ella.
-- `VersionAlgoritmo = "availability-v1-excel-parity"` para toda corrida de esta fase.
+- `VersionAlgoritmo = "availability-v1.1-exclusion-matrix"` desde F-37 (2026-09-24); sin `Exclusion_Matrix` los resultados son idénticos a `availability-v1-excel-parity`.
 - Server SCADA: solo exportar. Macros COM y ETL solo en la PC local.

@@ -1,4 +1,4 @@
-"""Lectura de ``RawData-PCS`` y ``PlantActivity`` del libro de trabajo (R4)."""
+"""Lectura de ``RawData-PCS``, ``PlantActivity`` y ``Exclusion_Matrix`` del libro de trabajo (R4, F-37)."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from etl_arena.model import Anomalia, ErrorParidad
 
 HOJA_RAW = "RawData-PCS"
 HOJA_ACTIVIDAD = "PlantActivity"
+HOJA_EXCLUSION = "Exclusion_Matrix"
 COLUMNAS_ACTIVIDAD = 9  # A..I (A vacía, B ts, C op, D exc, E..I informativas)
 
 
@@ -31,6 +32,7 @@ class LibroCrudo:
     fila_siguiente: dict[int, object]  # fila posterior a la última leída (la que corta el VBA)
     actividad: dict[int, dict[int, object]]  # PlantActivity: fila → {col: valor}
     filas_descartadas: int = 0
+    exclusion: dict[int, dict[int, object]] | None = None  # Exclusion_Matrix: fila → {col: valor}; None si no existe
     anomalias: list[Anomalia] = field(default_factory=list)
 
 
@@ -131,6 +133,18 @@ def leer_libro(ruta: str | Path, cfg: ConfiguracionCalculo) -> LibroCrudo:
         actividad: dict[int, dict[int, object]] = {}
         for numero, celdas in libro.filas(HOJA_ACTIVIDAD, min_fila=2, max_fila=ultima, max_col=COLUMNAS_ACTIVIDAD):
             actividad[numero] = celdas
+        exclusion: dict[int, dict[int, object]] | None = None
+        if HOJA_EXCLUSION in libro.hojas:
+            # A (ts) + una columna por PCS + "Excused Event" + "Comments"
+            exclusion = dict(libro.filas(HOJA_EXCLUSION, max_fila=ultima, max_col=cfg.total_pcs + 3))
+        else:
+            anomalias.append(
+                Anomalia(
+                    "exclusion_matrix_ausente",
+                    "info",
+                    detalle="el libro no trae Exclusion_Matrix: sin eventos de exclusión (F-37)",
+                )
+            )
 
     con_serial = [f for f in filas if not (f.numero_fila == 2 and f.serial == 0.0)]
     anomalias.extend(
@@ -138,7 +152,16 @@ def leer_libro(ruta: str | Path, cfg: ConfiguracionCalculo) -> LibroCrudo:
             [f.serial for f in con_serial], [f.numero_fila for f in con_serial], cfg.minutos_muestreo, cfg.zona_horaria
         )
     )
-    return LibroCrudo(ruta, encabezado, filas, fila_siguiente, actividad, descartadas, anomalias)
+    return LibroCrudo(
+        ruta,
+        encabezado,
+        filas,
+        fila_siguiente,
+        actividad,
+        filas_descartadas=descartadas,
+        exclusion=exclusion,
+        anomalias=anomalias,
+    )
 
 
 def leer_celdas_parametros(ruta: str | Path) -> dict[str, object]:

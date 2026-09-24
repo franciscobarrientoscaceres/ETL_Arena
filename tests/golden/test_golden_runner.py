@@ -55,10 +55,10 @@ def corrida_sep(matriz_real_sep, ruta_libro_real):
         pytest.skip("el libro disponible no es la fuente del golden")
     with gzip.open(DATA / g["_meta"]["calc_table_file"]) as fh:
         tabla = json.loads(fh.read())
-    _, m, act, _ = matriz_real_sep
+    _, m, act, _, exc = matriz_real_sep
     cfg = cfg_desde_golden(g)
-    disp = calcular(m, act, cfg)
-    eventos = detectar_eventos(m, act, cfg, disp.minutos_muestreo_derivado, leer_codigos_resumen(ruta_libro_real))
+    disp = calcular(m, act, cfg, exc)
+    eventos = detectar_eventos(m, exc, cfg, disp.minutos_muestreo_derivado, leer_codigos_resumen(ruta_libro_real))
     return g, tabla, cfg, disp, eventos, calcular_diaria(disp, cfg)
 
 
@@ -76,7 +76,7 @@ def test_nivel2_tabla_de_resultados(corrida_sep):
     malas = []
     for k, (serial, valores, bo) in enumerate(filas):
         assert serial == disp.serial[k]
-        assert bo == disp.factor_excusable[k]
+        assert bo == disp.bo_evento_excusado_pa[k]
         for j, v in enumerate(valores):
             py = disp.ponderadas[k, j]
             if v is None:

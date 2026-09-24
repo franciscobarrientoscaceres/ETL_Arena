@@ -17,7 +17,8 @@
       "C14 = 4*L10 solo si parametros KPI y eventos equivalentes (R13.8)"
     ],
     "annual_ava_policy": "Las filas historicas de Annual_AVA (meses distintos al linkado a C14 de la corrida actual) pueden divergir del C14 del periodo: son estado historico del Excel, NO se usan como asercion de paridad (ver GT-5 en design.md). sampling_blocks de Annual usa formula de calendario (p.ej. 1977 para sep parcial) y no equivale a C12 de filas RawData (1975 con gap DST).",
-    "tolerance_note": "Tabla única en design.md §Tolerancias y src/etl_arena/reconciliation/tolerancias.py; tolerance_rack_hours endurecida de 1e-3 a 1e-6 al verificar septiembre (2026-09-24)."
+    "tolerance_note": "Tabla única en design.md §Tolerancias y src/etl_arena/reconciliation/tolerancias.py; tolerance_rack_hours endurecida de 1e-3 a 1e-6 al verificar septiembre (2026-09-24).",
+    "exclusion_matrix_reference": "F-37 (2026-09-24): la regla de Exclusion_Matrix se valida contra el libro AvailabilityCalculation_PCS&Batteries_20260923_agosto_2026.xlsm (C12, C14, C16 y tabla E4:BO, bit a bit) en tests/golden/test_exclusion_agosto.py. Los goldens jul/ago/sep de este índice no tienen Exclusion_Matrix: sus valores no cambian con availability-v1.1-exclusion-matrix."
   },
   "months": [
     {

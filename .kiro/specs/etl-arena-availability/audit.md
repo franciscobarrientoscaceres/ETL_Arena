@@ -197,3 +197,30 @@ Detectados al emular el VBA línea por línea y comparar contra el golden de sep
 - `And`/`Or` no cortocircuitan: se evalúan todos los operandos (origen de F-11).
 - Variant vs literal `String` es comparación de texto (`169 = "NO FAULTS"` → falso, sin error); Variant de texto no numérico vs número es *Type mismatch*; `Empty` vale 0 frente a números y `""` frente a textos. Implementado en `excel_semantics.celdas`.
 - El bucle de ambas macros evalúa la salida (`A = ""`) **después** de procesar la fila: una A2 vacía no corta la lectura (se procesa como 0).
+
+---
+
+## 7. Nueva definición de negocio: `Exclusion_Matrix` (2026-09-24)
+
+### F-37 🔴 Los eventos de exclusión vienen de `Exclusion_Matrix`, no de `PlantActivity!D`
+- **Definición (negocio, 2026-09-24):** hoja `Exclusion_Matrix` con una columna por PCS; `0`/vacío = sin evento de exclusión (EE); `1` = el PCS forma parte de un EE y se considera que mantuvo **todos** sus módulos; `2` = forma parte de un EE y se consideran los módulos que tenía **antes** del inicio del evento (p. ej. 3 módulos antes y 0 durante → se consideran 3).
+- **PlantActivity (chat F. Barrientos – A. Albornoz, 2026-09-24):** queda solo para "Only Operational Time?" (C21), que no se ha usado (propuesta a revisar con Revergy/LTSA). La columna D ya no excusa; se conserva como espejo de `Calc!BO`.
+- **Referencia oficial:** macros, hojas y celdas **de septiembre**; de la macro de agosto solo se adopta la regla de la matriz (C31/L14 = "Yes" activan la exclusión).
+- **Estructura** (libro `…_20260923_agosto_2026.xlsm`): fila 1 = `Date/time`, `PCS01`…`PCS61`, `Excused Event`, `Comments`; filas alineadas **por fila** con `RawData-PCS` (15.990 filas, 0 desalineadas). Solo trae datos de agosto: 4.982 celdas con 1 y 1.498 con 2; comentarios `CPF` (362 filas), `External` (11) y "Actualizacion de firware…" (1).
+- **Regla implementada** (`enrichment.exclusion`, `availability`, `fault_events`): con flag "Yes" y `M < 4`, `0` → `C3 − M`; `1` → `(C3 − M)·(1 − 1) = 0`; `2` → baterías previas del tramo (fila anterior al primer 2: `C3 − M` si valor 0 y `M < C3`; `0` si completo, vacío o valor 1).
+- **Validación:** contra el libro de agosto, C12 = 2976, C14 = 264.731,7679999999, C16 y las 2976 × 61 celdas de la tabla **idénticos bit a bit**. La macro de agosto implementa el 2 como `F(r) = F(r−1)` (copia encadenada); en todo el libro coincide con la definición de negocio. Difieren solo si un tramo de 2 contiene una fila sin falla (la macro dejaría 0 después) o empieza en la primera fila del período (la macro copiaría el encabezado y fallaría): se reportan como `ee2_difiere_macro_agosto` / `ee2_sin_fila_previa`.
+- **Impacto en agosto:** C14 sin exclusión 527.396,044 → con exclusión 264.731,768 (−49,8 %). El KPI oficial de `Annual_AVA` (305.182,968) sigue sin reproducirse (D-11).
+- **Versión:** `availability-v1.1-exclusion-matrix` (R1.6). Sin la hoja (libros hasta septiembre) los resultados son idénticos a v1: el golden de septiembre sigue `verified` sin cambios.
+
+### F-38 🟡 El libro de agosto trae otra versión de macros y celdas (no adoptada)
+- Parámetros movidos (`C4` baterías, `C6`/`C8` fechas, `C10` racks, `C19` excusable, sin C19 anual), C14 acumulado en variable, `Daily!D` = PCS-h y `Daily!E` = suma, `mcoCreateList` todavía pondera con `PlantActivity!D`.
+- Por instrucción de negocio las definiciones oficiales siguen siendo las de septiembre; del libro de agosto solo se usan como referencia los valores cacheados de `Calculation-Availability` (C12, C14, C16, tabla E4:BO).
+- `ListOfFaults` del libro de agosto **no se recalculó** (L2/L4/L10 de septiembre): no hay referencia Excel para eventos con exclusión.
+
+### F-39 🟡 Marca aislada fuera de agosto
+- `Exclusion_Matrix` fila 2 (2026-04-08 00:15): PCS61 = 1 y `Excused Event` = 1; el resto de la matriz fuera de agosto está vacía. Probable residuo; confirmar (D-18).
+
+### Decisiones asociadas
+- **D-16** (aplicada): los eventos (`mcoCreateList`, L14 = "Yes") usan la misma regla de la matriz que el KPI, para que `C14 = 4·L10` siga valiendo sin arrastre. La macro de agosto no lo hace (usa `PlantActivity!D`).
+- **D-17** (abierta): quién mantiene y cuándo entrega la `Exclusion_Matrix` (hoy la cargó F. Barrientos, solo agosto).
+- **D-18** (abierta): marca de la fila 2.

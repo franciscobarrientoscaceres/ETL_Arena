@@ -25,6 +25,7 @@ El sistema reproduce en Python la lógica de las macros VBA del libro `Availabil
 | ADR-07 | Timestamps naive hora local Chile; sin localizar ni convertir a UTC | Datos origen naive con salto DST (F-32) |
 | ADR-08 | SQL append-only por `IdCorrida`; workflow de revisión en tabla aparte | R11, F-27 |
 | ADR-09 | Tablas de muestras con *clustered columnstore* | Volumen ~1M filas/tabla/corrida (F-28) |
+| ADR-11 | `Exclusion_Matrix` (0/1/2 por fila y PCS) reemplaza a `PlantActivity!D` como fuente de la exclusión; unión por fila; valor 2 = baterías previas al EE (definición de negocio, igual a la macro de agosto en todo el libro) | Definición de negocio 2026-09-24 (F-37); `docs/adr/ADR-11-exclusion-matrix.md` |
 | ADR-10 | Python ≥ 3.13 (D-10 resuelta), ODBC Driver 18; SQL de desarrollo en instancia local (`FRANCISCO-PC\SQLSERVER2025DEV`, auth Windows) o Docker 2022 | Entorno (F-29); detalle en `docs/adr/` |
 
 Convención de nombres: **SQL** en PascalCase español (`BloquesMuestreo`); **Python** en snake_case español (`bloques_muestreo`); los nombres de celda Excel (C12, L14…) se citan en comentarios.
@@ -99,7 +100,7 @@ data/     inbox/  processed/  work/   (ignorados por git salvo .gitkeep)
 class ConfiguracionCalculo:
     id_corrida: str
     id_proyecto: int                       # 1 = Arena
-    version_algoritmo: str                 # "availability-v1-excel-parity"
+    version_algoritmo: str                 # "availability-v1.1-exclusion-matrix" (F-37)
     nombre_proyecto: str
     fecha_inicio_proyecto: date
     total_pcs: int                         # C2
@@ -110,11 +111,11 @@ class ConfiguracionCalculo:
     inicio_periodo: date                   # C5
     fin_periodo: date                      # C7 (inclusivo a nivel día)
     solo_tiempo_operacional: bool          # C21 <> "No"
-    aplicar_evento_excusable: bool         # C31 = "Yes"
+    aplicar_evento_excusable: bool         # C31 = "Yes" → aplica Exclusion_Matrix (F-37)
     # parámetros de eventos (mcoCreateList) — F-05
     inicio_periodo_eventos: date           # ListOfFaults!L2
     fin_periodo_eventos: date              # ListOfFaults!L4
-    aplicar_evento_excusable_eventos: bool # ListOfFaults!L14 = "Yes"
+    aplicar_evento_excusable_eventos: bool # ListOfFaults!L14 = "Yes" → aplica Exclusion_Matrix (F-37)
     # Daily
     fin_diario: date                       # Daily!D5 (≤ inicio + 30 días)
     modo_huecos: Literal["excel", "continuar"]
@@ -236,8 +237,15 @@ class MatrizPCS:                    # n = filas de datos (orden origen), p = PCS
 
 ```python
 def asociar_actividad(m: MatrizPCS, actividad: LibroCrudo.actividad) -> DatosActividad:
-    # por índice de fila: factor_operacional[i] = PlantActivity!C[fila], factor_excusable[i] = !D[fila]
-    # celda vacía o fila inexistente → 0.0 + Anomalia(pa_vacio); ts distinto → Anomalia(pa_desalineado)
+    # por índice de fila: factor_operacional[i] = PlantActivity!C[fila]; evento_excusado_pa[i] = !D[fila]
+    # (D solo espejo de Calc!BO, no pondera — F-37); C vacía → 0.0 + Anomalia(pa_vacio); ts distinto → pa_desalineado
+
+def asociar_exclusion(m: MatrizPCS, exclusion: LibroCrudo.exclusion | None, cfg) -> DatosExclusion:
+    # Exclusion_Matrix por índice de fila (F-37): valor[i, j] = hoja!(fila, j+2) ∈ {0, 1, 2}; vacío = 0
+    # sin hoja → todo 0 + Anomalia(exclusion_matrix_ausente); otro valor o encabezado distinto → ErrorParidad
+    # baterias_previas[i, j] (valor 2): por tramo contiguo de 2, fila anterior al tramo (hoja completa):
+    #     C3 − M si M < C3 y valor 0; 0 si M = C3, vacía o valor 1
+    # columnas "Excused Event" (resumen por fila) y "Comments" (causa) → trazabilidad
 ```
 
 ### availability — `cmdCalcAvailability` (R7)
@@ -265,7 +273,11 @@ def calcular(m: MatrizPCS, act: DatosActividad, cfg) -> ResultadoDisponibilidad:
         for j, pcs in enumerate(m.pcs[:cfg.total_pcs]):    # VBA: For intRecPCS = 1 To C2
             if not m.modulos_nulo[i, j] and m.modulos[i, j] < cfg.baterias_por_pcs:
                 bat = cfg.baterias_por_pcs - m.modulos[i, j]          # C3 - celda
-                pond = bat * act.factor_excusable[i] if cfg.aplicar_evento_excusable else bat
+                if cfg.aplicar_evento_excusable:                       # F-37: Exclusion_Matrix
+                    e = exc.valor[i, j]
+                    pond = exc.baterias_previas[i, j] if e == 2 else bat * (1 - e)
+                else:
+                    pond = bat
                 if cfg.solo_tiempo_operacional:
                     impacto = cfg.racks_por_pcs * pond * act.factor_operacional[i]
                 else:
@@ -322,7 +334,8 @@ def detectar_eventos(m, act, cfg, c23) -> ResultadoEventos:
             if m.modulos_nulo[i, j] or not (m.modulos[i, j] < UMBRAL):
                 continue
             if cfg.aplicar_evento_excusable_eventos:
-                sumablocks = sumablocks + (UMBRAL - m.modulos[i, j]) * act.factor_excusable[i]
+                e = exc.valor[i, j]                                     # F-37, D-16
+                sumablocks = sumablocks + (exc.baterias_previas[i, j] if e == 2 else (UMBRAL - m.modulos[i, j]) * (1 - e))
             else:
                 sumablocks = sumablocks + UMBRAL - m.modulos[i, j]   # (sumablocks + 4) - x
             numblock += 1
@@ -452,7 +465,7 @@ def reconciliar(corrida: PaqueteCorrida, ref: ReferenciaExcel | None, tol: Toler
 | Nivel | Compara | Fuente Excel |
 |---|---|---|
 | 1 Input | filas procesadas (=C12 y conteo de filas de la tabla E4:E), primer/último serial, nº PCS, C23, parámetros efectivos | parámetros + `Calc!E` |
-| 2 Muestra | `ponderadas[k, j]` vs `Calc!F:BN` fila `k+4` (vacío = 0); factor excusable vs `Calc!BO` | tabla E4:BO |
+| 2 Muestra | `ponderadas[k, j]` vs `Calc!F:BN` fila `k+4` (vacío = 0); `PlantActivity!D` (espejo) vs `Calc!BO` | tabla E4:BO |
 | 3 Acumulados | C12 (exacto), C14 | `Calc!C12`, `C14` |
 | 4 KPI | C16, C19, Daily por día (D, E, F, G) | `Calc!C16`, `C19`, `Daily!B9:G39` |
 | 5 Eventos | por `OrdenExcel`: B, C, D, E, F, G, H, I; conteo; L10; resumen N:Q | `ListOfFaults` |
@@ -467,7 +480,7 @@ Invariantes (R13.8): `C14 = 4·L10` y por PCS `Σ(racks·pond)/4 = Σ I` — sol
 ### Orquestación
 
 - `scripts/ejecutar_etl.py --libro <xlsm> --periodo-inicio … --periodo-fin … [--eventos-inicio … --eventos-fin … --eventos-excusable Yes|No] [--diario-fin …] [--solo-operacional Yes|No] [--excusable Yes|No] [--modo-huecos excel|continuar] [--oficial] [--referencia <json>]` → ejecuta [E] y opcionalmente [R].
-- `scripts/run_lunes.py --stage … ` (R19): cada etapa lee/escribe `data/work/<corte>/run_state.json` `{etapa: {estado, inicio, fin, artefactos, error}}`; `--stage all` salta etapas `ok`. Período por defecto (D-07, R19.3): `semanal` con `inicio = día 1 del mes del último dato`, `fin = fecha del último dato` (filtro `A < fin + 1` incluye hasta ese dato); si los datos ya cubren el último bloque de un mes sin `cierre_mensual` oficial, encola además `cierre_mensual` (día 1 → último día del mes). Parámetros oficiales: `C21 = "No"`, `C31 = L14 = "Yes"` (D-03), `L2/L4/Daily!D5` = `C5/C7`. El libro de trabajo de la corrida oficial pasa a ser el libro base de la siguiente. `--stage load-plant-activity` (mensual, D-12) y `--reproceso <archivo>` (D-13) generan una nueva copia del libro base, escriben los cambios por timestamp → fila, registran cada celda cambiada en `correccion_dato` + `cambios.csv` y encadenan `run-macros → run-etl → reconcile → notify-bi`; tras `load-plant-activity` de un mes completo se encola el `cierre_mensual` oficial.
+- `scripts/run_lunes.py --stage … ` (R19): cada etapa lee/escribe `data/work/<corte>/run_state.json` `{etapa: {estado, inicio, fin, artefactos, error}}`; `--stage all` salta etapas `ok`. Período por defecto (D-07, R19.3): `semanal` con `inicio = día 1 del mes del último dato`, `fin = fecha del último dato` (filtro `A < fin + 1` incluye hasta ese dato); si los datos ya cubren el último bloque de un mes sin `cierre_mensual` oficial, encola además `cierre_mensual` (día 1 → último día del mes). Parámetros oficiales: `C21 = "No"`, `C31 = L14 = "Yes"` (D-03), `L2/L4/Daily!D5` = `C5/C7`. El libro de trabajo de la corrida oficial pasa a ser el libro base de la siguiente. `--stage load-exclusion-matrix` (mensual, D-12, D-17) y `--reproceso <archivo>` (D-13) generan una nueva copia del libro base, escriben los cambios por timestamp → fila, registran cada celda cambiada en `correccion_dato` + `cambios.csv` y encadenan `run-macros → run-etl → reconcile → notify-bi`; tras `load-exclusion-matrix` de un mes completo se encola el `cierre_mensual` oficial.
 
 ---
 
@@ -510,7 +523,7 @@ CREATE TABLE etl_run (
     IdProyecto                     INT            NOT NULL REFERENCES proyecto(IdProyecto),
     TipoCorrida                    NVARCHAR(20)   NOT NULL CHECK (TipoCorrida IN ('semanal','cierre_mensual','reproceso','golden')),
     EsOficial                      BIT            NOT NULL DEFAULT 0,
-    ExcusablesPendientes           BIT            NOT NULL DEFAULT 0,   -- PlantActivity del mes aún no cargada (D-12, R19.5)
+    ExcusablesPendientes           BIT            NOT NULL DEFAULT 0,   -- Exclusion_Matrix del mes aún no cargada (D-17, R19.5)
     ArchivoOrigen                  NVARCHAR(500)  NOT NULL,
     HashArchivoOrigen              CHAR(64)       NOT NULL,
     SistemaOrigen                  NVARCHAR(50)   NOT NULL DEFAULT 'scada_export',
@@ -570,7 +583,7 @@ CREATE TABLE plant_activity_sample (
     SerialFecha                     FLOAT          NULL,      -- puede faltar (F-31)
     MarcaTiempoMuestra              DATETIME2(0)   NULL,
     FactorOperacionalRaw            FLOAT          NULL,      -- col C
-    FactorExcusableRaw              FLOAT          NULL,      -- col D
+    EventoExcusadoRaw               FLOAT          NULL,      -- col D: espejo de Calc!BO, no pondera (F-37)
     SetpointPotenciaActivaKW        FLOAT          NULL,
     DroopSobrefrecuenciaHabilitado  FLOAT          NULL,
     DroopBajafrecuenciaHabilitado   FLOAT          NULL,
@@ -578,6 +591,19 @@ CREATE TABLE plant_activity_sample (
     PorcentajeSOC                   FLOAT          NULL
 );
 CREATE CLUSTERED COLUMNSTORE INDEX CCI_plant_activity_sample ON plant_activity_sample;
+
+CREATE TABLE exclusion_matrix_sample (  -- F-37: una fila por (fila, PCS) con valor ≠ 0, del período
+    IdCorrida               UNIQUEIDENTIFIER NOT NULL,
+    NumeroFilaOrigen        INT            NOT NULL,
+    NumeroPCS               INT            NOT NULL,
+    SerialFecha             FLOAT          NULL,
+    MarcaTiempoMuestra      DATETIME2(0)   NULL,
+    ValorExclusion          TINYINT        NOT NULL CHECK (ValorExclusion IN (1, 2)),
+    BateriasPrevias         FLOAT          NULL,      -- solo valor 2
+    EventoExcusadoFila      FLOAT          NULL,      -- columna "Excused Event"
+    Comentario              NVARCHAR(500)  NULL       -- columna "Comments" (causa del EE)
+);
+CREATE CLUSTERED COLUMNSTORE INDEX CCI_exclusion_matrix_sample ON exclusion_matrix_sample;
 
 CREATE TABLE correccion_dato (          -- append-only; celdas cambiadas por reproceso o carga de PlantActivity (D-12, D-13)
     IdCorreccion            BIGINT IDENTITY PRIMARY KEY,
@@ -610,7 +636,7 @@ CREATE TABLE availability_sample_result (   -- solo filas dentro del período KP
     ModulosDisponibles               FLOAT   NOT NULL,
     ModulosDisponiblesNulo           BIT     NOT NULL,
     BateriasIndisponibles            FLOAT   NOT NULL,
-    FactorExcusable                  FLOAT   NOT NULL,
+    ValorExclusion                   TINYINT NOT NULL,   -- Exclusion_Matrix 0/1/2 (F-37)
     FactorOperacional                FLOAT   NOT NULL,
     BateriasIndisponiblesPonderadas  FLOAT   NOT NULL,
     ImpactoRackPonderado             FLOAT   NOT NULL
@@ -720,7 +746,7 @@ CREATE TABLE detencion (               -- append-only por corrida
     PromedioBateriasInvolucradas  FLOAT          NOT NULL,
     HorasRackIndisponibles        FLOAT          NOT NULL,
     CerradoPorModulosNulo         BIT            NOT NULL,   -- el evento terminó porque la fila siguiente estaba vacía
-    EsExcusable                   BIT            NOT NULL,   -- algún bloque con FactorExcusable = 0
+    EsExcusable                   BIT            NOT NULL,   -- algún bloque con Exclusion_Matrix ≠ 0 (F-37)
     EventoArrastradoExcel         BIT            NOT NULL
 );
 CREATE INDEX IX_detencion_negocio ON detencion(IdProyecto, NumeroPCS, FechaInicio);

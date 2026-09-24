@@ -2,7 +2,7 @@
 
 from datetime import date
 
-from fabricas import BLOQUE, actividad, config_prueba, matriz
+from fabricas import BLOQUE, config_prueba, matriz
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -39,7 +39,7 @@ def test_cobertura_de_eventos(filas):
     # todas las filas dentro del período y la fila siguiente a la última vacía: nunca hay arrastre
     r = detectar_eventos(
         matriz(filas, primera_fila=3),
-        actividad(len(filas), primera_fila=3),
+        None,
         config_prueba(total_pcs=p, aplicar_evento_excusable_eventos=False),
         15.0,
     )
@@ -80,7 +80,7 @@ def test_arrastre(m1, m2):
     filas = [[4.0, 4.0], [m1, m2], [m1, 4.0], [4.0, 4.0]]
     r = detectar_eventos(
         matriz(filas, seriales=seriales, primera_fila=3),
-        actividad(4, primera_fila=3),
+        None,
         config_prueba(total_pcs=2, aplicar_evento_excusable_eventos=False),
         15.0,
     )

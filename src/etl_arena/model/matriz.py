@@ -60,16 +60,64 @@ class MatrizPCS:
 
 @dataclass
 class DatosActividad:
-    """``PlantActivity`` alineada **por fila** con ``MatrizPCS`` (F-01): índice ``i`` ↔ misma fila Excel."""
+    """``PlantActivity`` alineada **por fila** con ``MatrizPCS`` (F-01): índice ``i`` ↔ misma fila Excel.
+
+    Desde F-37 solo la columna C pondera (``solo_tiempo_operacional``, C21). La columna D ya no
+    excusa: la exclusión viene de ``Exclusion_Matrix`` (``DatosExclusion``); D se conserva solo
+    como espejo de ``Calculation-Availability!BO``, que la macro de septiembre sigue copiando.
+    """
 
     numero_fila: np.ndarray  # (n,) int
     serial_pa: np.ndarray  # (n,) float64 — PlantActivity!B; NaN si vacío (F-31)
     factor_operacional: np.ndarray  # (n,) float64 — PlantActivity!C; vacío = 0
-    factor_excusable: np.ndarray  # (n,) float64 — PlantActivity!D; vacío = 0
+    evento_excusado_pa: np.ndarray  # (n,) float64 — PlantActivity!D (espejo de Calc!BO); vacío = 0
     porcentaje_soc: np.ndarray  # (n,) float64 — PlantActivity!I; NaN si vacío
 
     def __post_init__(self) -> None:
         n = len(self.numero_fila)
-        for nombre in ("serial_pa", "factor_operacional", "factor_excusable", "porcentaje_soc"):
+        for nombre in ("serial_pa", "factor_operacional", "evento_excusado_pa", "porcentaje_soc"):
             if getattr(self, nombre).shape != (n,):
                 raise ValueError(f"{nombre}: forma {getattr(self, nombre).shape} != ({n},)")
+
+
+VALORES_EXCLUSION = (0.0, 1.0, 2.0)
+
+
+@dataclass
+class DatosExclusion:
+    """``Exclusion_Matrix`` alineada **por fila** con ``MatrizPCS`` (F-37).
+
+    Por celda (fila, PCS): ``0``/vacío = sin evento de exclusión (EE); ``1`` = EE, el PCS se
+    considera con todos sus módulos; ``2`` = EE, se consideran los módulos que tenía antes del
+    inicio del evento. Solo pondera cuando ``aplicar_evento_excusable`` (C31 / L14 = "Yes").
+    """
+
+    numero_fila: np.ndarray  # (n,) int
+    serial_em: np.ndarray  # (n,) float64 — Exclusion_Matrix!A; NaN si vacío
+    valor: np.ndarray  # (n,p) float64 en {0, 1, 2}; vacío = 0
+    baterias_previas: (
+        np.ndarray
+    )  # (n,p) float64 — baterías indisponibles consideradas antes del EE (valor 2); NaN si no aplica
+    evento_excusado: np.ndarray  # (n,) float64 — columna "Excused Event" (resumen por fila, informativa); NaN si vacío
+    comentario: np.ndarray  # (n,) object — columna "Comments" (causa del EE)
+
+    def __post_init__(self) -> None:
+        n = len(self.numero_fila)
+        for nombre in ("serial_em", "evento_excusado", "comentario"):
+            if getattr(self, nombre).shape != (n,):
+                raise ValueError(f"{nombre}: forma {getattr(self, nombre).shape} != ({n},)")
+        if self.valor.shape[0] != n or self.baterias_previas.shape != self.valor.shape:
+            raise ValueError("valor/baterias_previas con forma inconsistente")
+
+    @classmethod
+    def vacia(cls, numero_fila: np.ndarray, p: int) -> DatosExclusion:
+        """Sin ``Exclusion_Matrix`` (libros anteriores a agosto 2026): todo 0."""
+        n = len(numero_fila)
+        return cls(
+            numero_fila.copy(),
+            np.full(n, np.nan),
+            np.zeros((n, p)),
+            np.full((n, p), np.nan),
+            np.full(n, np.nan),
+            np.full(n, None, dtype=object),
+        )

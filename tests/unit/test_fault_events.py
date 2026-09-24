@@ -1,9 +1,9 @@
-"""Tests de MotorEventosFalla (R8). Cada caso reproduce un camino del VBA de mcoCreateList."""
+"""Tests de MotorEventosFalla (R8, F-37). Cada caso reproduce un camino del VBA de mcoCreateList."""
 
 from datetime import date
 
 import pytest
-from fabricas import BLOQUE, SERIAL_SEP_1, actividad, config_prueba, matriz, serial_min
+from fabricas import BLOQUE, SERIAL_SEP_1, config_prueba, exclusion, matriz, serial_min
 
 from etl_arena.excel_semantics import datetime_a_serial
 from etl_arena.fault_events import detectar_eventos
@@ -11,10 +11,11 @@ from etl_arena.fault_events import detectar_eventos
 C23 = 15.0
 
 
-def _eventos(modulos, fallas=None, seriales=None, primera_fila=3, siguiente=None, fe=1.0, **cfg):
+def _eventos(modulos, fallas=None, seriales=None, primera_fila=3, siguiente=None, ee=None, **cfg):
     m = matriz(modulos, fallas=fallas, seriales=seriales, primera_fila=primera_fila, siguiente=siguiente)
     config = config_prueba(total_pcs=m.p, **cfg)
-    return detectar_eventos(m, actividad(m.n, excusable=fe, primera_fila=primera_fila), config, C23), m
+    exc = None if ee is None else exclusion(m, ee)
+    return detectar_eventos(m, exc, config, C23), m
 
 
 def test_evento_simple_inicio_menos_c23_y_fin_ultima_fila():  # F-03
@@ -61,13 +62,13 @@ def test_codigo_falla_numerica():
 
 
 def test_orden_de_suma_sin_excusable():  # (sumablocks + 4) - m
-    r, _ = _eventos([[4], [0.1], [0.2], [4]], aplicar_evento_excusable_eventos=False, fe=0.0)
+    r, _ = _eventos([[4], [0.1], [0.2], [4]], aplicar_evento_excusable_eventos=False, ee=[[0], [1], [1], [0]])
     esperado = ((0.0 + 4) - 0.1 + 4) - 0.2
     assert r.cerrados[0].suma_bloques == esperado
 
 
-def test_excusable_eventos_pondera_con_d():  # L14 = "Yes"
-    r, _ = _eventos([[4], [2], [4]], aplicar_evento_excusable_eventos=True, fe=0.0)
+def test_exclusion_valor_1_en_eventos():  # L14 = "Yes", F-37
+    r, _ = _eventos([[4], [2], [4]], aplicar_evento_excusable_eventos=True, ee=[[0], [1], [0]])
     assert r.cerrados[0].promedio_baterias == 0.0 and r.cerrados[0].horas_rack == 0.0
 
 
@@ -125,7 +126,7 @@ def test_l8_l12():
 def test_c23_indefinido():
     m = matriz([[3]])
     with pytest.raises(ValueError):
-        detectar_eventos(m, actividad(1), config_prueba(total_pcs=1), None)
+        detectar_eventos(m, None, config_prueba(total_pcs=1), None)
 
 
 def test_resumen_por_codigo_sumif_insensible_a_mayusculas():
@@ -137,8 +138,33 @@ def test_resumen_por_codigo_sumif_insensible_a_mayusculas():
         fallas=[["NO FAULTS"], ["f55 x"], ["NO FAULTS"], ["F55 Y"], ["NO FAULTS"]],
         primera_fila=3,
     )
-    r = detectar_eventos(
-        m, actividad(5, primera_fila=3), config_prueba(total_pcs=1), C23, [("F0", "NO FAULT"), ("F55", "EXTERNAL")]
-    )
+    r = detectar_eventos(m, None, config_prueba(total_pcs=1), C23, [("F0", "NO FAULT"), ("F55", "EXTERNAL")])
     assert [(f.codigo, f.horas_rack) for f in r.resumen] == [("F55", r.horas_rack_totales), ("F0", 0.0)]
     assert r.resumen[0].porcentaje == 1.0
+
+
+def test_exclusion_valor_2_en_eventos_usa_modulos_previos():  # F-37: 3 módulos antes, sale por completo
+    r, _ = _eventos([[3], [3], [0], [0], [4]], aplicar_evento_excusable_eventos=True, ee=[[0], [0], [2], [2], [0]])
+    (e,) = r.cerrados
+    # filas 1-2: 3 módulos reales (1 batería); filas 3-4: EE valor 2 → 1 batería previa
+    assert e.numero_bloques == 4 and e.suma_bloques == 4.0 and e.promedio_baterias == 1.0
+
+
+def test_exclusion_no_se_aplica_sin_flag():
+    r, _ = _eventos([[4], [2], [4]], aplicar_evento_excusable_eventos=False, ee=[[0], [1], [0]])
+    assert r.cerrados[0].promedio_baterias == 2.0
+
+
+def test_invariante_c14_igual_4_l10_con_exclusion():  # R13.8 con EE aplicados en ambos motores
+    from fabricas import actividad
+
+    from etl_arena.availability import calcular
+
+    mods = [[4, 3], [3, 0], [2, 0], [4, 4]]
+    ee = [[0, 0], [1, 2], [0, 2], [0, 0]]
+    m = matriz(mods, primera_fila=3)
+    exc = exclusion(m, ee)
+    cfg = config_prueba(total_pcs=2)
+    disp = calcular(m, actividad(4, primera_fila=3), cfg, exc)
+    ev = detectar_eventos(m, exc, cfg, disp.minutos_muestreo_derivado)
+    assert abs(disp.bloques_racks_indisponibles - 4 * ev.horas_rack_totales) <= 1e-6  # tolerancia R13.8

@@ -3,6 +3,7 @@
 from etl_arena.ingestion.anomalias_timestamp import detectar_anomalias_timestamp
 from etl_arena.ingestion.lector_libro import (
     HOJA_ACTIVIDAD,
+    HOJA_EXCLUSION,
     HOJA_RAW,
     FilaCruda,
     LibroCrudo,
@@ -13,6 +14,7 @@ from etl_arena.ingestion.xlsx_stream import ErrorCelda, ErrorLibro, LibroXlsx, i
 
 __all__ = [
     "HOJA_ACTIVIDAD",
+    "HOJA_EXCLUSION",
     "HOJA_RAW",
     "ErrorCelda",
     "ErrorLibro",

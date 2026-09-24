@@ -63,17 +63,17 @@ python scripts/run_lunes.py --stage notify-bi
 python scripts/run_lunes.py --stage all --inbox data/inbox --work data/work
 ```
 
-> Mientras Alex no entregue la PlantActivity del mes, el KPI semanal es **preliminar** respecto a eventos excusables (`ExcusablesPendientes = 1`); la notificación lo indica.
+> Mientras no se cargue la `Exclusion_Matrix` del mes (D-17), el KPI semanal es **preliminar** respecto a eventos de exclusión (`ExcusablesPendientes = 1`); la notificación lo indica.
 
-### Cierre mensual (cuando Alex entrega PlantActivity — D-12)
+### Cierre mensual (cuando se entrega la `Exclusion_Matrix` del mes — D-17, F-37)
 
 ```powershell
 # carga B/C/D por timestamp, registra cada celda cambiada y encola el cierre del mes
-python scripts/run_lunes.py --stage load-plant-activity --inbox data/inbox --work data/work --oficial
+python scripts/run_lunes.py --stage load-exclusion-matrix --inbox data/inbox --work data/work --oficial
 ```
 
-- [ ] Todas las filas del mes tienen timestamp en `PlantActivity!B` alineado con `RawData-PCS!A`.
-- [ ] Revisar `data/work/<corte>/cambios.csv` (qué celdas C/D cambió Alex).
+- [ ] `Exclusion_Matrix` alineada por fila con `RawData-PCS!A` y sin valores fuera de 0/1/2.
+- [ ] Revisar `data/work/<corte>/cambios.csv` (qué celdas de la matriz cambiaron).
 - [ ] `cierre_mensual` oficial con reconciliación `pass`.
 
 ### Corrección de datos ya cargados (D-13)
@@ -91,7 +91,7 @@ python scripts/run_lunes.py --reproceso data/inbox/<tramo_corregido>.<ext> --wor
 ## 3. Validación tras la corrida
 
 - [ ] `acquire-wait`: archivo presente, no vacío, primer dato = siguiente al último cargado (sin hueco ni solape distinto), sha256 registrado en log.
-- [ ] `PlantActivity` actualizada para las filas nuevas (timestamp en B, actividad en C, **eventos excusables en D**): con `C31 = "Yes"`, un excusable no marcado no se descuenta (D-12).
+- [ ] `Exclusion_Matrix` del mes cargada (0/1/2 por PCS, `Comments` con la causa): con `C31 = L14 = "Yes"`, un evento de exclusión no marcado **no** se descuenta (F-37, D-17). PlantActivity solo importa si `C21 = "Yes"`.
 - [ ] `scada_adapter`: no quedaron fechas `mm-dd-aaaa` ni fechas como texto en la hoja de destino (deben ser serial Excel — F-21); columnas = mapping `RawData-PCS`.
 - [ ] Macros: `C12`, `C14`, `C16`, `C19` extraídos y guardados como referencia de la corrida.
 - [ ] ETL: `etl_run.Status = success`; nuevo `IdCorrida`.

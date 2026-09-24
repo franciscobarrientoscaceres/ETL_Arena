@@ -22,7 +22,7 @@ DisponibilidadPeriodo = 1 - BloquesRacksIndisponibles / (TotalRacks × BloquesMu
 
 | Variable | Equivalente Excel | Significado |
 |---|---|---|
-| `BloquesRacksIndisponibles` | C14 | Acumulado de `(racks indisponibles) × bloques`, opcionalmente ponderado por FactorExcusable y FactorOperacional |
+| `BloquesRacksIndisponibles` | C14 | Acumulado de `(racks indisponibles) × bloques`, opcionalmente ponderado por `Exclusion_Matrix` (C31) y FactorOperacional (C21) |
 | `BloquesMuestreo` | C12 | Cantidad de bloques de 15 min en el período seleccionado |
 | `TotalRacks` | C11 | `total_pcs × baterias_por_pcs × racks_por_pcs` = 61 × 4 × 12 = **2.928** |
 
@@ -132,7 +132,8 @@ python -m venv .venv                       # Python >= 3.13 (probado con 3.14)
 | `proyecto` | Tabla maestra de 4 proyectos BESS con parámetros de configuración |
 | `tipo_detencion` | Catálogo de 167 códigos de falla (F0…F257; seed generado desde la hoja `PCS-Fault`) |
 | `raw_pcs_sample` | Datos crudos normalizados — 1 fila por `NumeroPCS × MarcaTiempoMuestra` |
-| `plant_activity_sample` | `FactorOperacional` (`EsOperacional`) y `FactorExcusable` (`EsEventoExcusable`) por timestamp |
+| `plant_activity_sample` | `FactorOperacional` (`EsOperacional`) por fila; col D solo espejo (F-37) |
+| `exclusion_matrix_sample` | Eventos de exclusión 0/1/2 por fila y PCS, baterías previas y causa (F-37) |
 | `availability_sample_result` | Resultado intermedio por `NumeroPCS × MarcaTiempoMuestra`: `BateriasIndisponibles`, factores, `ImpactoRackPonderado` |
 | `availability_run_result` | KPI del período: `DisponibilidadPeriodo` (C16), `DisponibilidadAnualAcumulada` (C19), `BloquesMuestreo` (C12), `BloquesRacksIndisponibles` (C14) |
 | `fault_event` | Eventos de falla consolidados con `DuracionHoras`, `CodigoFalla`, `PromedioBateriasInvolucradas`, `HorasRackIndisponibles` |
@@ -208,7 +209,7 @@ Tolerancias numéricas: tabla única en `.kiro/specs/etl-arena-availability/desi
 5. **Timestamps**: conservar `SerialFechaExcelOrigen` + `MarcaTiempoLocalOrigen`; no convertir a UTC sin documentar.
 6. **`ModulosDisponiblesNulo`**: intervalos con `NUMBER_OF_MODULES` vacío = disponible (= 4) + flag de auditoría.
 7. **`DescripcionFallaFallback`**: eventos con descripción tomada del intervalo anterior se marcan en `fault_event`.
-8. **Versionado**: cada resultado debe incluir `VersionAlgoritmo` (ej. `"availability-v1-excel-parity"`).
+8. **Versionado**: cada resultado debe incluir `VersionAlgoritmo` (hoy `"availability-v1.1-exclusion-matrix"`, F-37).
 
 ---
 

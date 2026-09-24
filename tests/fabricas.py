@@ -13,7 +13,7 @@ import numpy as np
 from etl_arena.config import construir_config
 from etl_arena.excel_semantics import datetime_a_serial, serial_a_datetime
 from etl_arena.ingestion import letras_columna
-from etl_arena.model import DatosActividad, MatrizPCS
+from etl_arena.model import DatosActividad, DatosExclusion, MatrizPCS
 
 CAMPOS_TXT = (
     "GEN3 HEx CURRENT FAULT",
@@ -97,15 +97,27 @@ def crear_libro(
     total_pcs: int = 2,
     actividad: dict[int, Sequence[object]] | None = None,
     encabezado: Sequence[object] | None = None,
+    exclusion: dict[int, Sequence[object]] | None = None,
 ) -> Path:
     """``filas``: listas completas a partir de la columna A (fila Excel 2 en adelante);
     ``None`` deja la celda vacía y una fila ``[]`` queda vacía. ``actividad``: fila Excel →
-    valores desde la columna A de PlantActivity (A vacía, B ts, C op, D exc…)."""
+    valores desde la columna A de PlantActivity (A vacía, B ts, C op, D exc…). ``exclusion``:
+    fila Excel → valores desde la columna A de Exclusion_Matrix (A ts, PCS01…, Excused Event,
+    Comments); si es ``None`` el libro no trae la hoja."""
     raw = {1: list(encabezado) if encabezado is not None else encabezado_raw(total_pcs)}
     raw.update({r: list(v) for r, v in enumerate(filas, start=2)})
     pa = {1: [None, "Date/Time", "Activo 1\n Inactivo 0", "Excused Event"]}
     pa.update({r: list(v) for r, v in (actividad or {}).items()})
-    return escribir_xlsx(ruta, {"RawData-PCS": raw, "PlantActivity": pa})
+    hojas = {"RawData-PCS": raw, "PlantActivity": pa}
+    if exclusion is not None:
+        em = {1: encabezado_exclusion(total_pcs)}
+        em.update({r: list(v) for r, v in exclusion.items()})
+        hojas["Exclusion_Matrix"] = em
+    return escribir_xlsx(ruta, hojas)
+
+
+def encabezado_exclusion(total_pcs: int) -> list[str]:
+    return ["Date/time", *[f"PCS{k:02d}" for k in range(1, total_pcs + 1)], "Excused Event", "Comments"]
 
 
 def fila_raw(serial: float | None, modulos: Sequence[object], fallas: Sequence[object] | None = None) -> list[object]:
@@ -150,9 +162,23 @@ def matriz(
     )
 
 
-def actividad(
-    n: int, operacional: Sequence[float] | float = 1.0, excusable: Sequence[float] | float = 1.0, primera_fila: int = 2
-) -> DatosActividad:
+def actividad(n: int, operacional: Sequence[float] | float = 1.0, primera_fila: int = 2) -> DatosActividad:
+    """PlantActivity en memoria: solo la columna C pondera (F-37); D (espejo de BO) = 1."""
     op = np.broadcast_to(np.asarray(operacional, dtype=float), (n,)).copy()
-    ex = np.broadcast_to(np.asarray(excusable, dtype=float), (n,)).copy()
-    return DatosActividad(np.arange(primera_fila, primera_fila + n), np.full(n, np.nan), op, ex, np.full(n, np.nan))
+    return DatosActividad(
+        np.arange(primera_fila, primera_fila + n), np.full(n, np.nan), op, np.ones(n), np.full(n, np.nan)
+    )
+
+
+def exclusion(m: MatrizPCS, valores: Sequence[Sequence[float | None]], baterias_por_pcs: int = 4) -> DatosExclusion:
+    """Exclusion_Matrix en memoria (``valores[i][j]``, ``None`` = vacío) pasando por el
+    enriquecimiento real, que calcula las baterías previas de los EE con valor 2."""
+    from etl_arena.enrichment import asociar_exclusion
+
+    filas = {1: dict(enumerate(encabezado_exclusion(m.p), start=1))}
+    for i, fila in enumerate(valores):
+        celdas: dict[int, object] = {1: float(m.serial[i])}
+        celdas.update({j + 2: float(v) for j, v in enumerate(fila) if v is not None})
+        filas[int(m.numero_fila[i])] = celdas
+    datos, _ = asociar_exclusion(m, filas, config_prueba(total_pcs=m.p, baterias_por_pcs=baterias_por_pcs))
+    return datos

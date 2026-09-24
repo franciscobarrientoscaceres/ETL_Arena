@@ -21,7 +21,8 @@ Convenciones: fila y columna en notación Excel (fila 1 = encabezado). "Vacío" 
 | `PCS-Fault` | `sheet7.xml` | Catálogo de fallas → seed `tipo_detencion` (§5) |
 | `PCS-Status` | `sheet8.xml` | Catálogo de estados (§5) |
 | `DateFormat_Correction` | `sheet9.xml` | Área de trabajo manual del pegado SCADA (§7); se ignora |
-| `PlantActivity` | `sheet10.xml` | **Entrada**: factores operacional y excusable (§3) |
+| `PlantActivity` | `sheet10.xml` | **Entrada**: factor operacional (col C, §3); D solo espejo de BO (F-37) |
+| `Exclusion_Matrix` | (desde el libro de agosto) | **Entrada**: eventos de exclusión por fila y PCS (§3b, F-37) |
 | `Verificación` | `sheet11.xml` | Rota (`#VALUE!`); se ignora (F-24) |
 
 El pipeline localiza las hojas **por nombre** vía `workbook.xml` + rels, nunca por el número de la parte XML.
@@ -93,7 +94,7 @@ El pipeline localiza las hojas **por nombre** vía `workbook.xml` + rels, nunca 
 | A | (vacía) | — |
 | B | `Date/Time` | Serial; **solo para validar la alineación** |
 | C | `Activo 1\n Inactivo 0` | `FactorOperacional` (se aplica si `C21 <> "No"`) |
-| D | `Excused Event` | `FactorExcusable` (se aplica si `C31 = "Yes"`; en eventos, si `L14 = "Yes"`) |
+| D | `Excused Event` | **Ya no pondera** (F-37): se conserva como espejo de `Calc!BO`. La exclusión viene de `Exclusion_Matrix` (§3b) |
 | E:I | Señales PPC/POI/SOC (`… SETPOINT (kW)`, droop, `ACTIVE POWER (kW)`, `Total Banks State of Charge (%)`) | Informativas; `PorcentajeSOC` desde la columna I |
 
 ### 3.2 Unión con `RawData-PCS` (F-01, D-02)
@@ -116,6 +117,23 @@ En el rango de datos, C tiene 10.504 unos y 5.486 ceros; D tiene 15.437 unos y 5
 
 ---
 
+## 3b. `Exclusion_Matrix` (F-37, desde el libro de agosto 2026)
+
+| Columna | Encabezado (fila 1) | Contenido |
+|---|---|---|
+| A | `Date/time` | Serial; solo para validar la alineación con `RawData-PCS!A` |
+| k+1 (B…BJ) | `PCS01` … `PCS61` | Valor de exclusión del PCS k: `0`/vacío, `1` o `2` |
+| p+2 (BK) | `Excused Event` | Resumen por fila (1/2/0); informativo, el cálculo no lo usa |
+| p+3 (BL) | `Comments` | Causa del evento (`CPF`, `External`, …) |
+
+- **Unión por fila** con `RawData-PCS` (igual que PlantActivity). Observado en agosto: 15.990 filas, 0 desalineadas.
+- **Valores:** `0`/vacío = sin evento de exclusión; `1` = se consideran todos los módulos (0 baterías indisponibles); `2` = se consideran los módulos previos al evento (baterías previas del tramo contiguo). Cualquier otro valor o un encabezado distinto **rechaza** la corrida.
+- **Solo pondera** con `C31 = "Yes"` (KPI) / `L14 = "Yes"` (eventos) y cuando la celda de módulos está en falla (`M < 4`).
+- **Libro de agosto:** 4.982 celdas con 1 y 1.498 con 2, todas en agosto salvo PCS61 = 1 en la fila 2 (F-39); los 6 PCS con valor 2 tenían 3 módulos antes del evento.
+- **Sin la hoja** (libros hasta septiembre): todo 0 y anomalía informativa `exclusion_matrix_ausente`.
+
+---
+
 ## 4. Celdas de parámetros
 
 Todas son **valores**, salvo `C23`. El runner COM las escribe explícitamente antes de las macros (F-23); el pipeline las lee para `ConfiguracionCalculo`.
@@ -129,10 +147,10 @@ Todas son **valores**, salvo `C23`. El runner COM las escribe explícitamente an
 | `C11` | Total Racks | 2928 | `total_racks` |
 | `C21` | Only Operational Time? | `"No"` | Aplica factor operacional si `<> "No"` (exacto, sensible a mayúsculas; F-12) |
 | `C23` | Frecuencia de muestreo [min] | 15 | **Fórmula** `ROUND((E5-E4)*24*60, 2)`: se deriva de las dos primeras filas de resultado; vale 60 si el período empieza en el salto DST (F-13) |
-| `C31` | Excusable event? | `"No"` | Aplica factor excusable solo si `= "Yes"`. Oficial: `"Yes"` (D-03) |
+| `C31` | Excusable event? | `"No"` | Aplica `Exclusion_Matrix` solo si `= "Yes"` (F-37). Oficial: `"Yes"` (D-03) |
 | `ListOfFaults!L2` | Fecha inicio | 46266 | Inicio eventos (independiente de C5; F-05) |
 | `ListOfFaults!L4` | Fecha fin | 46286 | Fin eventos (independiente de C7) |
-| `ListOfFaults!L14` | Excusable event? | `"Yes"` | Excusable para eventos (independiente de C31). Oficial: `"Yes"`, igual que C31 (D-03) |
+| `ListOfFaults!L14` | Excusable event? | `"Yes"` | Aplica `Exclusion_Matrix` en eventos (independiente de C31; D-16). Oficial: `"Yes"`, igual que C31 (D-03) |
 | `Daily!D3` | Fecha inicio | 46266 | `= C5` |
 | `Daily!D5` | Fecha fin | 46286 | Informativo: la macro corta en la primera `Daily!C` vacía (C9 = D3, C10:C29 = anterior + 1, extendidas a mano; máx. 31 días) — F-09, F-33 |
 

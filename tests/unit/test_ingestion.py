@@ -60,7 +60,7 @@ class TestLeerLibro:
         libro = leer_libro(crear_libro(tmp_path / "l.xlsx", filas), config_prueba())
         assert [f.numero_fila for f in libro.filas] == [2, 3]
         assert libro.filas_descartadas == 2  # filas 5 y 6
-        assert _tipos(libro.anomalias) == ["celda_a_vacia", "filas_truncadas"]
+        assert _tipos(libro.anomalias) == ["celda_a_vacia", "filas_truncadas", "exclusion_matrix_ausente"]
 
     def test_modo_excel_a_vacia_con_datos_es_fila_siguiente(self, tmp_path):
         s = _serie(3)

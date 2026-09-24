@@ -85,7 +85,7 @@ class MuestraDisponibilidad:
     serial: float
     numero_pcs: int
     baterias_indisponibles: float
-    factor_excusable: float
+    valor_exclusion: float  # Exclusion_Matrix: 0, 1 o 2 (F-37)
     factor_operacional: float
     baterias_ponderadas: float  # espejo de Calculation-Availability!F:BN
     impacto_rack_ponderado: float  # aporte a C14

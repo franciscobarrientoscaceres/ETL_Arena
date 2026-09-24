@@ -1,8 +1,11 @@
-"""Factores de ``PlantActivity`` asociados **por fila** a ``RawData-PCS`` (R6, F-01, F-31).
+"""``PlantActivity`` asociada **por fila** a ``RawData-PCS`` (R6, F-01, F-31, F-37).
 
 El VBA lee ``Sheet4.Cells(dblRec, 3|4)`` con la fila de ``RawData-PCS``: no hay join por
 timestamp. Una celda vacía vale 0. El timestamp de ``PlantActivity!B`` solo se usa para
 reportar desalineaciones.
+
+Desde F-37 solo la columna C pondera ("Only Operational Time?", C21). La columna D ya no
+excusa (la exclusión viene de ``Exclusion_Matrix``); se conserva como espejo de ``Calc!BO``.
 """
 
 from __future__ import annotations
@@ -62,14 +65,14 @@ def asociar_actividad(m: MatrizPCS, actividad: dict[int, dict[int, object]]) -> 
                     detalle="PlantActivity!B vacío" if ts is None else f"PlantActivity!B={ts!r}",
                 )
             )
-        for col, letra, destino in ((COL_OPERACIONAL, "C", operacional), (COL_EXCUSABLE, "D", excusable)):
-            f = _factor(celdas.get(col), fila, letra)
-            if f is None:
-                anomalias.append(
-                    Anomalia("pa_vacio", "advertencia", numero_fila=fila, detalle=f"PlantActivity!{letra} vacío → 0")
-                )
-            else:
-                destino[i] = f
+        f = _factor(celdas.get(COL_OPERACIONAL), fila, "C")
+        if f is None:
+            anomalias.append(Anomalia("pa_vacio", "advertencia", numero_fila=fila, detalle="PlantActivity!C vacío → 0"))
+        else:
+            operacional[i] = f
+        d = celdas.get(COL_EXCUSABLE)
+        if isinstance(d, float):
+            excusable[i] = d  # solo espejo de Calc!BO; no pondera (F-37)
         v_soc = celdas.get(COL_SOC)
         if isinstance(v_soc, float):
             soc[i] = v_soc

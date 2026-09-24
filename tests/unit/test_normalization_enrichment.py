@@ -83,11 +83,11 @@ class TestEnriquecimiento:
         m, libro, _ = _matriz(tmp_path, [fila_raw(S[0], [4, 4]), fila_raw(S[1], [4, 4]), fila_raw(S[2], [4, 4])], act)
         datos, anomalias = asociar_actividad(m, libro.actividad)
         assert list(datos.factor_operacional) == [1.0, 0.0, 0.0]
-        assert list(datos.factor_excusable) == [0.0, 1.0, 0.0]
+        assert list(datos.evento_excusado_pa) == [0.0, 1.0, 0.0]  # solo espejo de BO (F-37)
         tipos = [(a.tipo, a.numero_fila) for a in anomalias]
         assert ("pa_sin_timestamp", 3) in tipos
         assert ("pa_desalineado", 4) in tipos  # R6.3: B de la fila 4 = S[3] ≠ S[2]
-        assert tipos.count(("pa_vacio", 4)) == 2
+        assert tipos.count(("pa_vacio", 4)) == 1  # solo C pondera (F-37)
 
     def test_texto_en_factor_rechazado(self, tmp_path):
         m, libro, _ = _matriz(tmp_path, [fila_raw(S[0], [4, 4])], {2: [None, S[0], "Sí", 1]})

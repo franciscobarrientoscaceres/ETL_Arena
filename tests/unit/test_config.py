@@ -39,7 +39,7 @@ class TestConstruirConfig:
     def test_defaults_de_paridad(self):  # R1.3
         cfg = construir_config(**SEP)
         assert (cfg.total_pcs, cfg.baterias_por_pcs, cfg.racks_por_pcs, cfg.minutos_muestreo) == (61, 4, 12, 15)
-        assert cfg.version_algoritmo == VERSION_ALGORITMO == "availability-v1-excel-parity"
+        assert cfg.version_algoritmo == VERSION_ALGORITMO == "availability-v1.1-exclusion-matrix"  # F-37
         assert cfg.modo_huecos == "excel" and not cfg.solo_tiempo_operacional
 
     def test_d03_excusable_por_defecto(self):  # D-03: C31 = L14 = "Yes"

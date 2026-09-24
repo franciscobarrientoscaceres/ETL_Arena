@@ -1,12 +1,16 @@
-"""``MotorDisponibilidad``: emulación de ``cmdCalcAvailability`` (R7, F-07, F-12, F-13).
+"""``MotorDisponibilidad``: emulación de ``cmdCalcAvailability`` (R7, F-07, F-12, F-13, F-37).
 
-VBA de referencia (Module1)::
+VBA de referencia (Module1 de septiembre + regla de ``Exclusion_Matrix`` de la macro de agosto)::
 
     If A(r) >= C5 And A(r) < (1 + C7) Then
-        E(res) = A(r) : BO(res) = PlantActivity!D(r)
+        E(res) = A(r) : BO(res) = PlantActivity!D(r)          ' solo espejo; ya no pondera (F-37)
         For pcs = 1 To C2
             If M(r) <> "" And M(r) < 4 Then
-                If C31 = "Yes" Then F(res) = (C3 - M(r)) * BO(res) Else F(res) = C3 - M(r)
+                If C31 = "Yes" Then                            ' aplicar eventos de exclusión
+                    If EM(r, pcs) = 2 Then F(res) = baterías previas al EE
+                    Else F(res) = (C3 - M(r)) * (1 - EM(r, pcs))
+                Else
+                    F(res) = C3 - M(r)
                 If C21 = "No" Then C14 = C14 + 12 * F(res) Else C14 = C14 + 12 * F(res) * PlantActivity!C(r)
         C12 = C12 + 1
 
@@ -21,12 +25,14 @@ import numpy as np
 from etl_arena.availability.resultado import ResultadoDisponibilidad
 from etl_arena.config import ConfiguracionCalculo
 from etl_arena.excel_semantics import datetime_a_serial, redondear_excel
-from etl_arena.model import DatosActividad, MatrizPCS
+from etl_arena.model import DatosActividad, DatosExclusion, MatrizPCS
 
 DIAS_ANIO_C19 = 365  # C19 = 1 - C14/(C11*(365*24*4)): año fijo de 365 días, literal de la hoja
 
 
-def calcular(m: MatrizPCS, act: DatosActividad, cfg: ConfiguracionCalculo) -> ResultadoDisponibilidad:
+def calcular(
+    m: MatrizPCS, act: DatosActividad, cfg: ConfiguracionCalculo, exc: DatosExclusion | None = None
+) -> ResultadoDisponibilidad:
     if m.p < cfg.total_pcs:
         raise ValueError(f"la matriz tiene {m.p} PCS y C2 = {cfg.total_pcs}")
     inicio = datetime_a_serial(cfg.inicio_periodo)
@@ -40,15 +46,19 @@ def calcular(m: MatrizPCS, act: DatosActividad, cfg: ConfiguracionCalculo) -> Re
     baterias = np.full((k, p), np.nan)
     ponderadas = np.full((k, p), np.nan)
     impacto = np.zeros((k, p))
-    fe = act.factor_excusable[en_rango].astype(float)
+    if exc is None:
+        exc = DatosExclusion.vacia(m.numero_fila, p)
+    bo = act.evento_excusado_pa[en_rango].astype(float)
     fo = act.factor_operacional[en_rango].astype(float)
-    fe_py, fo_py = fe.tolist(), fo.tolist()  # floats de Python: misma aritmética IEEE, sin np.float64
+    fo_py = fo.tolist()  # floats de Python: misma aritmética IEEE, sin np.float64
+    em, previas = exc.valor.tolist(), exc.baterias_previas.tolist()
+    exclusion = exc.valor[en_rango, :p].copy()
     modulos, nulos = m.modulos.tolist(), m.modulos_nulo.tolist()
 
     c14 = 0.0
     for fila_res, i in enumerate(en_rango.tolist()):
-        excusable = fe_py[fila_res]
         operacional = fo_py[fila_res]
+        em_fila, previas_fila = em[i], previas[i]
         fila_mod, fila_nula = modulos[i], nulos[i]
         for j in range(p):
             if fila_nula[j]:
@@ -57,7 +67,11 @@ def calcular(m: MatrizPCS, act: DatosActividad, cfg: ConfiguracionCalculo) -> Re
             if not x < c3:
                 continue
             bat = c3 - x
-            pond = bat * excusable if cfg.aplicar_evento_excusable else bat
+            if cfg.aplicar_evento_excusable:
+                e = em_fila[j]
+                pond = previas_fila[j] if e == 2.0 else bat * (1 - e)  # F-37
+            else:
+                pond = bat
             aporte = racks * pond * operacional if cfg.solo_tiempo_operacional else racks * pond
             c14 = c14 + aporte  # orden fila → PCS (R7.7)
             baterias[fila_res, j] = bat
@@ -83,6 +97,7 @@ def calcular(m: MatrizPCS, act: DatosActividad, cfg: ConfiguracionCalculo) -> Re
         baterias=baterias,
         ponderadas=ponderadas,
         impacto=impacto,
-        factor_excusable=fe,
+        bo_evento_excusado_pa=bo,
+        exclusion=exclusion,
         factor_operacional=fo,
     )

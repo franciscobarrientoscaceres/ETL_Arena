@@ -19,6 +19,8 @@ Este proyecto reemplaza progresivamente el cálculo de disponibilidad realizado 
 
 **Importante:** este documento define el plan de implementación. No se debe implementar aquí el código Python definitivo.
 
+> **Definición de negocio 2026-09-24 (F-37, ADR-11):** los eventos de exclusión vienen de la hoja `Exclusion_Matrix` (0/1/2 por fila y PCS) y ya no de `PlantActivity!D`; ver §6 Paso 7.
+>
 > **Auditoría 2026-09-24:** varias reglas de este documento fueron corregidas contra el VBA real y las fórmulas del libro. El detalle y la evidencia están en [`.kiro/specs/etl-arena-availability/audit.md`](./.kiro/specs/etl-arena-availability/audit.md) (hallazgos `F-xx`). Ante cualquier diferencia, mandan `requirements.md` / `design.md` revisión 2.
 
 ---
@@ -61,7 +63,7 @@ El acumulado anual y las tablas históricas deben tener esto en cuenta al inicia
 | Fecha inicio | `C5` | fecha seleccionada |
 | Fecha fin | `C7` | fecha seleccionada |
 | Solo tiempo operacional | `C21` | Yes/No |
-| Aplicar evento excusable | `C31` | Yes/No |
+| Aplicar evento excusable | `C31` | Yes/No — activa `Exclusion_Matrix` (F-37) |
 
 ---
 
@@ -73,7 +75,8 @@ El acumulado anual y las tablas históricas deben tener esto en cuenta al inicia
 |---|---|
 | `Calculation-Availability` | Parámetros y resultado principal |
 | `RawData-PCS` | Fuente cruda de estados/fallas por PCS |
-| `PlantActivity` | Factor de actividad y evento excusable |
+| `PlantActivity` | Factor de actividad (col C, "Only Operational Time?"); col D ya no pondera (F-37) |
+| `Exclusion_Matrix` | Eventos de exclusión 0/1/2 por fila y PCS (desde agosto 2026, F-37) |
 | `ListOfFaults` | Eventos de falla consolidados |
 | `Daily` | KPI acumulado diario |
 | `Annual_AVA` | KPI mensual/acumulado anual |
@@ -218,33 +221,25 @@ Con el libro actual:
 baterías_indisponibles = 4 - NUMBER_OF_MODULES
 ```
 
-### Paso 7 — evento excusable
+### Paso 7 — evento de exclusión (`Exclusion_Matrix`, F-37)
 
-Si:
+**Definición de negocio (2026-09-24):** la hoja `Exclusion_Matrix` tiene una columna por PCS (`PCS01`…`PCS61`) alineada **por fila** con `RawData-PCS`. Valor por celda:
 
-`Calculation-Availability!C31 = "Yes"`
+- `0` o vacío: no hay evento de exclusión (EE);
+- `1`: el PCS forma parte de un EE y se considera que mantuvo sus 4 módulos en operación;
+- `2`: el PCS forma parte de un EE y se consideran los módulos que tenía en operación **antes** del inicio del evento (p. ej. 3 módulos antes y 0 durante → se consideran 3).
 
-entonces:
-
-```text
-baterías_indisponibles_ponderadas =
-    (4 - NUMBER_OF_MODULES) * PlantActivity.D
-```
-
-Si:
-
-`C31 = "No"`
-
-entonces:
+Si `Calculation-Availability!C31 = "Yes"` y el PCS está en falla (`NUMBER_OF_MODULES < 4`):
 
 ```text
-baterías_indisponibles_ponderadas =
-    4 - NUMBER_OF_MODULES
+EM = 0 o vacío → baterías_ponderadas = 4 - NUMBER_OF_MODULES
+EM = 1         → baterías_ponderadas = 0
+EM = 2         → baterías_ponderadas = baterías indisponibles previas al inicio del tramo de 2
 ```
 
-El factor `PlantActivity.D` es el campo `Excused Event`.
+Si `C31 = "No"`: `baterías_ponderadas = 4 - NUMBER_OF_MODULES`.
 
-Por lo tanto, con `C31 = Yes`, un factor 0 elimina el impacto del bloque y un factor 1 lo mantiene.
+`PlantActivity.D` (`Excused Event`) **ya no pondera**: se sigue copiando a `Calculation-Availability!BO` como en la macro de septiembre, solo como espejo. PlantActivity queda para "Only Operational Time?" (Paso 8). Validado bit a bit contra el libro de agosto (ADR-11).
 
 ### Paso 8 — solo tiempo operacional
 
@@ -290,7 +285,7 @@ C12 += 1
 
 No se incrementa por PCS; se incrementa una vez por **fila** de `RawData-PCS` en rango (si hay timestamps repetidos, cuenta cada fila — F-07).
 
-**Semántica de flags (F-12):** el factor operacional se aplica si `C21 <> "No"`; el excusable solo si `C31 = "Yes"` (comparación exacta).
+**Semántica de flags (F-12):** el factor operacional se aplica si `C21 <> "No"`; la `Exclusion_Matrix` solo si `C31 = "Yes"` (comparación exacta).
 
 ### Paso 10 — frecuencia
 
@@ -472,11 +467,11 @@ Para cada bloque:
 4 - NUMBER_OF_MODULES
 ```
 
-Si `ListOfFaults!L14 = "Yes"`:
+Si `ListOfFaults!L14 = "Yes"` (desde F-37 / D-16, misma regla de `Exclusion_Matrix` que el KPI; la macro de agosto aún usaba `PlantActivity.D`):
 
 ```text
 sumablocks +=
-    (4 - NUMBER_OF_MODULES) * PlantActivity.D
+    EM = 2 ? baterías previas al EE : (4 - NUMBER_OF_MODULES) * (1 - EM)
 ```
 
 Si no:
@@ -649,7 +644,7 @@ para cada PCS.
 
 El resultado diario se almacena en `Daily!D`.
 
-**Importante (F-08, F-09):** los valores de `Calculation-Availability[PCS]` son baterías ponderadas por el factor excusable pero **sin** el factor operacional, así que con `C21 = "Yes"` la suma diaria no coincide con C14. `DayNumber` es el índice del día desde `C5` (`Daily!B`), y el rango de días llega hasta `Daily!D5` (valor propio, máx. 31 días).
+**Importante (F-08, F-09):** los valores de `Calculation-Availability[PCS]` son baterías ponderadas por la `Exclusion_Matrix` (F-37) pero **sin** el factor operacional, así que con `C21 = "Yes"` la suma diaria no coincide con C14. `DayNumber` es el índice del día desde `C5` (`Daily!B`), y el rango de días llega hasta `Daily!D5` (valor propio, máx. 31 días).
 
 Después:
 
@@ -859,13 +854,28 @@ La ETL debe convertir ese formato ancho a formato largo.
 IdCorrida
 MarcaTiempoMuestra
 EsOperacional
-EsEventoExcusable
+EventoExcusadoRaw          -- col D: solo espejo de Calc!BO, no pondera (F-37)
 SetpointPotenciaActivaKW
 overfrequency_droop_enabled
 underfrequency_droop_enabled
 PotenciaActivaPOIKW
 PorcentajeSOC
 NumeroFilaOrigen
+```
+
+## 13.3b `exclusion_matrix_sample` (F-37)
+
+Una fila por `(IdCorrida, NumeroFilaOrigen, NumeroPCS)` con valor de `Exclusion_Matrix` ≠ 0 en el período:
+
+```text
+IdCorrida
+NumeroFilaOrigen
+NumeroPCS
+MarcaTiempoMuestra
+ValorExclusion             -- 1 = se consideran los 4 módulos; 2 = módulos previos al EE
+BateriasPrevias            -- solo valor 2
+EventoExcusadoFila         -- columna "Excused Event"
+Comentario                 -- columna "Comments" (causa: CPF, External, …)
 ```
 
 ## 13.4 `availability_sample_result`
@@ -885,7 +895,7 @@ numero_pcs
 ModulosDisponibles
 ModulosDisponiblesNulo     -- propagado desde raw_pcs_sample
 baterias_indisponibles
-factor_excusable
+valor_exclusion            -- Exclusion_Matrix 0/1/2 (F-37)
 factor_operacional
 baterias_indisponibles_ponderadas
 impacto_rack_ponderado
@@ -1116,10 +1126,10 @@ ModulosDisponibles < 4
 Aplicar:
 
 ```text
-factor_excusable
+Exclusion_Matrix (0 / 1 / 2 por fila y PCS, F-37)
 ```
 
-si corresponde.
+si `C31 = "Yes"`.
 
 Aplicar:
 
@@ -1427,7 +1437,7 @@ version_algoritmo
 Ejemplo:
 
 ```text
-availability-v1-excel-parity
+availability-v1.1-exclusion-matrix
 ```
 
 Cuando posteriormente se modifique una regla de negocio, crear otra versión.

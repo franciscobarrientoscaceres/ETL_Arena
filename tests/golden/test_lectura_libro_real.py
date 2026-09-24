@@ -31,13 +31,13 @@ def test_filas_y_seriales(libro_real_sep):  # R4.1, R4.2
 
 def test_unica_anomalia_de_timestamp_es_dst(libro_real_sep):  # R16.3
     _, libro = libro_real_sep
-    a = [x for x in libro.anomalias if x.tipo not in ("celda_a_vacia", "filas_truncadas")]
+    a = [x for x in libro.anomalias if x.tipo not in ("celda_a_vacia", "filas_truncadas", "exclusion_matrix_ausente")]
     assert [(x.tipo, x.severidad) for x in a] == [("dst_salto", "info")]
     assert "2026-09-06 00:00 → 2026-09-06 01:00" in a[0].detalle
 
 
 def test_matriz(matriz_real_sep):  # R5, F-02
-    cfg, m, _, _ = matriz_real_sep
+    cfg, m, _, _, _ = matriz_real_sep
     assert m.modulos.shape == (15990, 61)
     assert int(m.modulos_nulo.sum()) == 566
     fracc = ~m.modulos_nulo & (m.modulos != np.floor(np.nan_to_num(m.modulos)))
@@ -46,12 +46,13 @@ def test_matriz(matriz_real_sep):  # R5, F-02
 
 
 def test_plant_activity(matriz_real_sep):  # R6, F-01, F-31 — GT-8
-    _, _, act, anomalias = matriz_real_sep
+    _, _, act, anomalias, exc = matriz_real_sep
     tipos = [a.tipo for a in anomalias]
     assert tipos.count("pa_sin_timestamp") == 659 and "pa_desalineado" not in tipos and "pa_vacio" not in tipos
     primera = min(a.numero_fila for a in anomalias if a.tipo == "pa_sin_timestamp")
     assert primera == 15333
-    assert int((act.factor_operacional == 1).sum()) == 10504 and int((act.factor_excusable == 0).sum()) == 553
+    assert not exc.valor.any()  # el libro de septiembre no trae Exclusion_Matrix (F-37)
+    assert int((act.factor_operacional == 1).sum()) == 10504 and int((act.evento_excusado_pa == 0).sum()) == 553
 
 
 def test_catalogos(ruta_libro_real):  # F-19, F-35

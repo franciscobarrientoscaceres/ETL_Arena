@@ -23,7 +23,8 @@ def test_libro_completo(tmp_path):
     assert [(e.numero_pcs, e.codigo_falla, e.numero_bloques) for e in r.eventos.cerrados] == [(1, "F55", 2)]
     assert r.eventos.resumen[0].horas_rack == r.eventos.horas_rack_totales
     assert [d.diario for d in r.diario] == [36.0]
-    assert r.anomalias == []
+    assert [a.tipo for a in r.anomalias] == ["exclusion_matrix_ausente"]  # libro sin la hoja (F-37)
+    assert not r.exclusion.valor.any()
 
 
 def test_c23_distinto_se_reporta(tmp_path):

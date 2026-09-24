@@ -1,10 +1,10 @@
-"""``MotorEventosFalla``: emulación de ``mcoCreateList`` (R8, F-03, F-04, F-05, F-06, F-11, F-18).
+"""``MotorEventosFalla``: emulación de ``mcoCreateList`` (R8, F-03, F-04, F-05, F-06, F-11, F-18, F-37).
 
 VBA de referencia (Module1), para cada bloque de PCS (``intColRec`` = 2, 6, …) y cada fila::
 
     If A(r) >= L2 And A(r) < (L4 + 1) Then
       If M(r) <> "" And M(r) < 4 Then
-        If L14 = "Yes" Then sumablocks = sumablocks + (4 - M(r)) * PlantActivity!D(r)
+        If L14 = "Yes" Then sumablocks = sumablocks + <ponderada por Exclusion_Matrix>  ' F-37 (antes: * PA!D)
         Else sumablocks = sumablocks + 4 - M(r)
         numBlock = numBlock + 1
         If (M(r-1) = 4) Or (M(r-1) = "") Or (A(r-1) < L2) Then          ' inicio
@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from etl_arena.config import ConfiguracionCalculo
 from etl_arena.excel_semantics import codigo_falla_excel, datetime_a_serial, es_vacio, fecha_vba_a_celda, igual_texto
 from etl_arena.fault_events.resumen import FilaResumenCodigo, resumen_por_codigo
-from etl_arena.model import Anomalia, DatosActividad, EventoFalla, MatrizPCS, RegistroLista
+from etl_arena.model import Anomalia, DatosExclusion, EventoFalla, MatrizPCS, RegistroLista
 
 MAX_INTEGER_VBA = 32767  # numBlock As Integer
 F13 = "F13 NO MODULES"
@@ -64,7 +64,7 @@ def _descripcion(actual: object, anterior: object, hay_anterior: bool) -> tuple[
 
 def detectar_eventos(
     m: MatrizPCS,
-    act: DatosActividad,
+    exc: DatosExclusion | None,
     cfg: ConfiguracionCalculo,
     c23: float | None,
     catalogo_codigos: list[tuple[str, str]] | None = None,
@@ -84,7 +84,9 @@ def detectar_eventos(
     serial = m.serial.tolist()
     modulos = m.modulos.tolist()
     nulos = m.modulos_nulo.tolist()
-    fe = act.factor_excusable.tolist()
+    if exc is None:
+        exc = DatosExclusion.vacia(m.numero_fila, m.p)
+    em, previas = exc.valor.tolist(), exc.baterias_previas.tolist()
     sig_mod = m.siguiente_modulos.tolist()
     sig_nulo = m.siguiente_nulo.tolist()
 
@@ -104,8 +106,10 @@ def detectar_eventos(
             if not x < umbral:
                 continue
 
-            if excusable_eventos:  # noqa: SIM108 — mismo If/Else que el VBA
-                suma_bloques = suma_bloques + (umbral - x) * fe[i]
+            if excusable_eventos:
+                # misma ponderación que el KPI (F-37): valor 2 → baterías previas; 0/1 → (C3 − M)·(1 − EM)
+                e = em[i][j]
+                suma_bloques = suma_bloques + (previas[i][j] if e == 2.0 else (umbral - x) * (1 - e))
             else:
                 suma_bloques = suma_bloques + umbral - x  # (sumablocks + 4) - x
             num_bloques += 1

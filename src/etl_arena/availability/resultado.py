@@ -24,7 +24,8 @@ class ResultadoDisponibilidad:
     baterias: np.ndarray  # (k,p) C3 - módulos; NaN si la celda no se escribe
     ponderadas: np.ndarray  # (k,p) Calc!F:BN; NaN = celda vacía
     impacto: np.ndarray  # (k,p) aporte a C14; 0 si no aporta
-    factor_excusable: np.ndarray  # (k,) Calc!BO (= PlantActivity!D)
+    bo_evento_excusado_pa: np.ndarray  # (k,) Calc!BO (= PlantActivity!D, espejo; no pondera — F-37)
+    exclusion: np.ndarray  # (k,p) valor de Exclusion_Matrix (0, 1, 2)
     factor_operacional: np.ndarray  # (k,) PlantActivity!C
 
     def ponderadas_o_cero(self) -> np.ndarray:
@@ -42,7 +43,7 @@ class ResultadoDisponibilidad:
                     serial=float(self.serial[k]),
                     numero_pcs=pcs,
                     baterias_indisponibles=float(b) if escrita else 0.0,
-                    factor_excusable=float(self.factor_excusable[k]),
+                    valor_exclusion=float(self.exclusion[k, j]),
                     factor_operacional=float(self.factor_operacional[k]),
                     baterias_ponderadas=float(self.ponderadas[k, j]) if escrita else 0.0,
                     impacto_rack_ponderado=float(self.impacto[k, j]),
