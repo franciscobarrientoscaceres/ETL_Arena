@@ -981,6 +981,67 @@ La diferencia entre `fault_event` y `detencion`:
 
 # 14. ETL propuesta
 
+## Fase S — SCADA acquisition (Fase del lunes)
+
+La fuente cruda de `RawData-PCS` es el **server SCADA**. Cada lunes se exporta un reporte desde allí y se lleva a esta PC. Esta fase es **previa a Extract** y no depende del motor de disponibilidad.
+
+### Flujo
+
+1. **~03:00 AM lunes** — ventana libre en SCADA. Exportar solo; **no procesar en el server**.
+2. **Obtener el archivo** por TeamViewer (file transfer) a `data/inbox/raw_pcs_<corte>.<ext>`.
+3. **`acquire-wait`** (etapa 1 de `scripts/run_lunes.py`): espera/valida el archivo en inbox (nombre, rango de fechas, sha256, no vacío).
+4. **`scada_adapter` / `prepare-workbook`** (etapa 2): transforma fechas origen `mm-dd-aaaa hh:mm:ss` → destino hoja `dd-mm-aaaa hh:mm:ss`, aplica mapping de columnas = `RawData-PCS`, escribe en copia de trabajo del `.xlsm` (backup del original).
+5. **`run-macros`** (etapa 3): macros en PC local vía COM Excel: `cmdCalcAvailability` → `mcoCreateList` → `mcoDailyAvailability` → `Graphupdate` con `C5`/`C7` del período; extrae `C12`/`C14`/`C16`/`C19` como referencia.
+6. **`run-etl`** (etapa 4): pipeline Python completo → SQL Server (`IdCorrida` nuevo por lunes).
+7. **`reconcile`** (etapa 5): Python vs referencia del paso 5.
+8. **`notify-bi`** (etapa 6): notificar a Misael / webhook → refresh Power BI (sin service principal aún).
+
+### Reglas
+
+| Regla | Detalle |
+|---|---|
+| Fechas del reporte | **Las setea quien exporta** (manual). Convención: `DESDE = 01-01-2026` (o primer dato) / `HASTA = último domingo` del período. El adapter **valida** el rango al recibir; falla si no cuadra. |
+| Transporte hoy | Solo TeamViewer. **Sin UNC / share / API** al SCADA. Pedir share o API GPM a GPM como mejora (riesgo J). |
+| Formato origen | Probable CSV; columnas = `RawData-PCS`. Fechas origen `mm-dd-aaaa hh:mm:ss` → destino `dd-mm-aaaa hh:mm:ss` (transformación que hoy hace Alex a mano). |
+| PlantActivity | **No** se actualiza desde SCADA. Fuente aparte; join-misses se reportan en calidad de corrida. |
+| Power BI | Owner: **Misael**. Modo **notificación** hasta que haya service principal/API; no integración de API en P0–P9. |
+| Server SCADA | Solo extracción. **Prohibido** correr macros o ETL allí. |
+| IdCorrida | Cada lunes genera un `IdCorrida` nuevo; append-only en SQL. |
+
+### Estructura de carpetas
+
+```text
+data/
+  inbox/         # drop zone: archivo crudo recién bajado
+  processed/     # originales inmutables + sha256 (Fase A/B)
+  work/          # copia de trabajo del .xlsm para macros/ETL
+```
+
+### Componentes (ver design.md / tasks 15)
+
+- `scripts/run_lunes.py` — orquestador único con etapas: `acquire-wait`, `prepare-workbook`, `run-macros`, `run-etl`, `reconcile`, `notify-bi`.
+- `src/acquisition/` — `acquire_wait`, `scada_adapter` (validación de rango, transformador de fechas, mapping de columnas).
+- `src/excel_macro/` — runner COM de las 4 macros (solo PC local; Windows + Excel instalado).
+
+### Fases por etapa (P0–P9) y etiquetas S/T/M/E/R/B
+
+| Fase | Nombre | Contenido |
+|---|---|---|
+| **P0** | Muestra lunes | Muestra real del CSV/headers/formato de fecha/delimiter desde SCADA (bloqueante). |
+| **P1** | Data contract SCADA | Formalizar contract tras P0: columnas, tipos, fecha, delimiter, encoding. |
+| **P2** | inbox + acquire-wait | `data/inbox`, validación de archivo, sha256, logging. |
+| **P3** | scada_adapter | Transformación fechas + mapping columnas + backup `.xlsm`. |
+| **P4** | run-macros (M) | Runner COM de `cmdCalcAvailability` → `mcoCreateList` → `mcoDailyAvailability` → `Graphupdate`; extracción C12/C14/C16/C19. |
+| **P5** | run-etl (E) | Pipeline Python → SQL con nuevo `IdCorrida`. |
+| **P6** | reconcile (R) | Python vs referencia Excel del P4. |
+| **P7** | notify-bi (B) | Notificación de refresh PBI (modo notificación, Misael). |
+| **P8** | fallback / RPA | Solo si TeamViewer falla: RPA TeamViewer como fallback, **no** camino crítico. |
+| **P9** | docs | Runbook + handoff. |
+
+Etapas del orquestador: **S** (acquire) → **T** (transform/prepare) → **M** (macros) → **E** (ETL) → **R** (reconcile) → **B** (BI notify).
+
+---
+
 ## Fase A — Extract
 
 Origen:
@@ -1299,6 +1360,8 @@ No implementar todavía, pero diseñar el proyecto alrededor de módulos concept
 ```text
 src/
   config/
+  acquisition/      -- Fase S: acquire-wait, scada_adapter
+  excel_macro/      -- Fase M: runner COM de macros VBA (PC local)
   ingestion/
   staging/
   normalization/
@@ -1309,6 +1372,10 @@ src/
   persistence/
   reconciliation/
   reporting/
+scripts/
+  run_lunes.py      -- orquestador semanal (etapas S→T→M→E→R→B)
+data/
+  inbox/ processed/ work/
 tests/
 sql/
 ```
@@ -1316,7 +1383,7 @@ sql/
 Separar explícitamente:
 
 ```text
-ingestion != business logic != persistence
+acquisition != ingestion != business logic != persistence
 ```
 
 El motor de disponibilidad debe poder recibir DataFrames/estructuras normalizadas y producir resultados sin depender de Excel.
@@ -1378,6 +1445,22 @@ Nunca sobrescribir resultados históricos con una nueva lógica.
 ---
 
 # 21. Plan de implementación por etapas
+
+## Etapa 0 — Adquisición SCADA semanal (Fase S)
+
+**Estado:** diseñado; pendiente P0 (muestra real lunes).
+
+Entregables:
+
+- `data/inbox` + `scripts/run_lunes.py` (etapas `acquire-wait` … `notify-bi`);
+- `src/acquisition` (`scada_adapter`: fechas mm-dd→dd-mm, validación de rango 01-01-2026→último domingo, mapping columnas);
+- `src/excel_macro` (runner COM de las 4 macros; solo PC local);
+- runbook [`docs/runbook-lunes.md`](./docs/runbook-lunes.md);
+- handoff de notificación a Power BI (Misael).
+
+**Bloqueante:** P0 — muestra real del export SCADA (nombre archivo, header, delimiter, formato de fecha, encoding).
+
+---
 
 ## Etapa 1 — Reverse engineering
 
@@ -1464,10 +1547,10 @@ Comparar resultados.
 Cuando la paridad sea aceptable:
 
 ```text
-origen -> ETL -> Python -> SQL Server -> reporting
+SCADA (solo extract) -> inbox -> adapter -> macros COM -> ETL Python -> SQL Server -> notificación/refresh PBI
 ```
 
-Excel pasa a ser herramienta de consulta/legacy, no motor oficial.
+El flujo operativo semanal queda descrito en §14 Fase S y `docs/runbook-lunes.md`. Excel de cálculo pasa a ser herramienta de consulta/legacy durante shadow mode; el `.xlsm` de trabajo sigue usándose para macros de referencia hasta retirarlo.
 
 ---
 
@@ -1545,6 +1628,24 @@ El Excel ignora silenciosamente los intervalos con `NUMBER_OF_MODULES` vacío. L
 La macro `mcoCreateList` puede asignar a un evento la descripción del intervalo anterior cuando el intervalo de inicio reporta `"NO FAULTS"`. Esto se ha confirmado en datos de septiembre 2026 y puede ocurrir en cualquier período.
 
 **Acción:** marcar con `descripcion_falla_fallback = True`; reportar la frecuencia de este caso en cada corrida.
+
+### Riesgo K — Sin API SCADA; transporte manual (TeamViewer)
+
+Hoy no hay API GPM ni share UNC al server. El archivo se copia a mano a `data/inbox`.
+
+**Acción:** `acquire-wait` con alerta si no hay archivo; pedir share o API a GPM; RPA TeamViewer solo como fallback (P8), no camino crítico.
+
+### Riesgo L — Formato de fechas del export SCADA
+
+Origen probable: `mm-dd-aaaa hh:mm:ss`; destino hoja: `dd-mm-aaaa hh:mm:ss`.
+
+**Acción:** transformador estricto en `scada_adapter` (Fase T) + validación de rango del reporte (01-01-2026 → último domingo).
+
+### Riesgo M — PlantActivity fuera de la cadena SCADA
+
+SCADA solo actualiza `RawData-PCS`.
+
+**Acción:** mantener fuente aparte; reportar join-misses en reporte de calidad.
 
 ---
 

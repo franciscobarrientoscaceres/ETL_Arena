@@ -11,7 +11,7 @@ Las tareas siguen el orden de las fases ETL: estructura base -> ingesta -> norma
 ## Tasks
 
 - [ ] 1. Estructura base y configuración del proyecto
-  - Crear la estructura de directorios: `src/config/`, `src/ingestion/`, `src/staging/`, `src/normalization/`, `src/enrichment/`, `src/availability/`, `src/fault_events/`, `src/aggregation/`, `src/persistence/`, `src/reconciliation/`, `src/reporting/`, `tests/unit/`, `tests/property/`, `tests/integration/`, `sql/`
+  - Crear la estructura de directorios: `src/config/`, `src/acquisition/`, `src/excel_macro/`, `src/ingestion/`, `src/staging/`, `src/normalization/`, `src/enrichment/`, `src/availability/`, `src/fault_events/`, `src/aggregation/`, `src/persistence/`, `src/reconciliation/`, `src/reporting/`, `scripts/`, `data/inbox/`, `data/processed/`, `data/work/`, `docs/`, `tests/unit/`, `tests/property/`, `tests/integration/`, `sql/`
   - Crear `pyproject.toml` con dependencias exactas pinneadas: `pandas>=2.2`, `openpyxl>=3.1`, `sqlalchemy>=2.0`, `pyodbc>=5.0`, `pytz>=2024.1`, `hypothesis>=6.100`, `pytest>=8.0`, `pytest-cov>=5.0`
   - Crear `src/__init__.py` y `src/config/__init__.py`
   - Crear `src/config/models.py` con el dataclass `ConfiguracionCalculo` (campos: `id_corrida`, `version_algoritmo`, `nombre_proyecto`, `fecha_inicio_proyecto`, `inicio_periodo`, `fin_periodo`, `total_pcs`, `baterias_por_pcs`, `racks_por_pcs`, `total_racks`, `minutos_muestreo`, `solo_tiempo_operacional`, `aplicar_evento_excusable`, `archivo_origen`, `zona_horaria`)
@@ -292,6 +292,20 @@ Las tareas siguen el orden de las fases ETL: estructura base -> ingesta -> norma
   - Documentar cualquier discrepancia encontrada en el golden index con campo "discrepancies"
   - Instruccion para agregar meses futuros: configurar el Excel para el mes deseado, ejecutar la macro VBA, luego `python tests/golden/extract_golden.py --excel <ruta> --month <N> --year 2026 --label <nombre>`, y agregar la entrada al `golden_index.json`
 
+- [ ] 15. Fase S — Adquisición SCADA y orquestador del lunes (P0–P9)
+  - [ ] 15.1 **P0 (bloqueante)** — Muestra real del export SCADA (lunes): nombre de archivo, header/columnas, delimiter, encoding, formato de fecha origen (esperado `mm-dd-aaaa hh:mm:ss`). Guardar en `docs/` o `tests/fixtures/` como data contract mínimo.
+  - [ ] 15.2 **P1** — Formalizar data contract SCADA (columnas = RawData-PCS, tipos, fecha, delimiter, encoding, convención DESDE/HASTA).
+  - [ ] 15.3 **P2** — Crear `data/inbox/`, `data/processed/`, `data/work/`; implementar `src/acquisition/acquire_wait.py`: espera de archivo, validación nombre/no-vacío/sha256/logging.
+  - [ ] 15.4 **P3** — Implementar `src/acquisition/scada_adapter.py`: validación de rango de fechas (01-01-2026 → último domingo o rango configurado), transformador `mm-dd-aaaa`→`dd-mm-aaaa`, mapping columnas → `RawData-PCS`, backup + escritura en `.xlsm` de trabajo (`prepare_workbook`).
+  - [ ] 15.5 **P4 (M)** — Implementar `src/excel_macro/runner.py` (COM/pywin32): `cmdCalcAvailability` → `mcoCreateList` → `mcoDailyAvailability` → `Graphupdate`; setear C5/C7; extraer y persistir referencia C12/C14/C16/C19. Solo PC local.
+  - [ ] 15.6 **P5 (E)** — Integrar `run-etl`: pipeline Python → SQL con nuevo `IdCorrida` semanal (reusa tareas 1–13).
+  - [ ] 15.7 **P6 (R)** — `reconcile`: Python vs referencia Excel del P4 (niveles C12/C14/C16/C19 + eventos si aplica).
+  - [ ] 15.8 **P7 (B)** — `notify-bi`: notificación a Misael / webhook para refresh Power BI (modo notificación, sin API service principal).
+  - [ ] 15.9 **P8 (opcional)** — Fallback RPA TeamViewer solo si TeamViewer falla; **no** camino crítico.
+  - [ ] 15.10 **P9** — Escribir/completar `docs/runbook-lunes.md`; handoff a operaciones; enlazar desde README/AGENTS/CLAUDE (ya enlazados).
+  - [ ] 15.11 Orquestador `scripts/run_lunes.py`: etapas `acquire-wait`, `prepare-workbook`, `run-macros`, `run-etl`, `reconcile`, `notify-bi`, `all`; CLI con `--inbox`, `--work`, `--period-start`, `--period-end`.
+  - _Requirements: 14.1, 14.2, 14.3, 14.4, 14.5, 14.6, 14.7, 14.8, 14.9, 14.10, 14.11_
+
 ---
 
 ## Notes
@@ -323,7 +337,21 @@ Las tareas siguen el orden de las fases ETL: estructura base -> ingesta -> norma
     { "id": 11, "tasks": ["11.2"] },
     { "id": 12, "tasks": ["11.3"] },
     { "id": 13, "tasks": ["13.1", "13.2"] },
-    { "id": 14, "tasks": ["13.3"] }
+    { "id": 14, "tasks": ["13.3"] },
+    { "id": 15, "tasks": ["14"] },
+    { "id": 16, "tasks": ["15.1", "15.2"] },
+    { "id": 17, "tasks": ["15.3", "15.4"] },
+    { "id": 18, "tasks": ["15.5", "15.6"] },
+    { "id": 19, "tasks": ["15.7", "15.8", "15.11"] },
+    { "id": 20, "tasks": ["15.9", "15.10"] }
   ]
 }
 ```
+
+## Notes (Fase S / lunes)
+
+- **P0 es bloqueante:** hasta no tener la muestra real del CSV/headers/formato de fecha, `scada_adapter` no se implementa “a ciegas”.
+- Fechas del reporte SCADA las setea quien exporta; el pipeline solo **valida** la convención.
+- Server SCADA: solo extracción. Macros COM y ETL solo en PC local.
+- Power BI: owner Misael; hasta service principal → solo `notify-bi` (no API refresh).
+- Runbook operativo: `docs/runbook-lunes.md`.

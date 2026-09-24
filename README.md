@@ -2,7 +2,7 @@
 
 Proyecto de reingeniería del cálculo de disponibilidad de unidades PCS (Power Conversion System) y racks de baterías, actualmente implementado en Excel/VBA, hacia un proceso reproducible y auditable en **Python + SQL Server**.
 
-> **Estado:** Etapa 1 completada (reverse engineering). En preparación: data contract y esquema SQL.
+> **Estado:** Etapa 1 completada (reverse engineering). En preparación: data contract, esquema SQL y **cadena semanal SCADA** (adquisición + macros + ETL + SQL + handoff PBI).
 
 ---
 
@@ -32,68 +32,80 @@ Un PCS se considera indisponible en un bloque cuando `NUMBER_OF_MODULES < 4`. Si
 
 ---
 
+## Flujo semanal (lunes) — SCADA → Excel → Python → SQL → Power BI
+
+La data cruda de `RawData-PCS` sale cada lunes del **server SCADA** (TeamViewer hoy). Solo extracción allí; macros y ETL en PC local.
+
+```text
+SCADA ~03:00 (extract only)
+  → data/inbox/raw_pcs_<corte>.<ext>
+  → acquire-wait + scada_adapter (fechas mm-dd→dd-mm, mapping, backup .xlsm)
+  → macros COM + extrae C12/C14/C16/C19
+  → run-etl → SQL (IdCorrida nuevo)
+  → reconcile → notify-bi (Misael / PBI)
+```
+
+Runbook: [`docs/runbook-lunes.md`](./docs/runbook-lunes.md). Diseño: `AGENTS.md` §14 Fase S.
+
+| Regla | Detalle |
+|---|---|
+| Fechas reporte | Las setea quien exporta; convención 01-01-2026 → último domingo; adapter valida |
+| Transporte | Solo TeamViewer (sin UNC/API) |
+| Formato | Origen `mm-dd-aaaa` → hoja `dd-mm-aaaa` |
+| PlantActivity | Fuente aparte (no desde SCADA) |
+| PBI | Owner Misael; notificación hasta service principal |
+
+---
+
 ## Arquitectura del flujo
 
-```
-┌──────────────────┐
-│  Datos origen    │  <- RawData-PCS + PlantActivity (Excel / exportación)
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│  ModuloStaging   │  <- copia inmutable, sin transformaciones
-└────────┬─────────┘
-         │
-         ▼
-┌────────────────────┐
-│ ModuloNormalizacion│  <- formato ancho (244 cols) -> formato largo (1 fila por PCS×ts)
-└────────┬───────────┘
-         │
-    ┌────┴────┐
-    ▼         ▼
-┌──────────────────┐ ┌──────────────────┐
-│  MotorDisp-      │ │  MotorEventos-   │
-│  onibilidad      │ │  Falla           │
-└────────┬─────────┘ └────────┬─────────┘
-         │                    │
-         └──────────┬─────────┘
-                    ▼
-         ┌──────────────────┐
-         │    SQL Server    │  <- KPI + intermedios + auditoría
-         └────────┬─────────┘
-                  │
-                  ▼
-         ┌──────────────────┐
-         │  Reporting / BI  │
-         └──────────────────┘
+```text
+SCADA (server) --extract--> data/inbox/
+  → Fase S/T: acquire-wait + scada_adapter
+  → Fase M: macros Excel COM (referencia KPI)
+  → ModuloStaging (copia inmutable)
+  → ModuloNormalizacion (ancho → largo)
+  → MotorDisponibilidad || MotorEventosFalla
+  → AgregacionDiaria/Anual
+  → SQL Server (KPI + intermedios + auditoría)
+  → Reporting / BI (refresh PBI / notificación)
 ```
 
 ---
 
 ## Estructura del proyecto
 
-```
+```text
 ETL_Arena/
 ├── data/
-│   └── AvailabilityCalculation_PCS&Batteries_20260907_septiembre 2026.xlsm
+│   ├── AvailabilityCalculation_... .xlsm
+│   ├── inbox/          # drop zone SCADA semanal
+│   ├── processed/      # originales inmutables + sha256
+│   └── work/           # copia de trabajo .xlsm
+├── docs/runbook-lunes.md
+├── scripts/run_lunes.py
 ├── src/
-│   ├── config/           # ConfiguracionCalculo y CONFIG_POR_DEFECTO
-│   ├── ingestion/        # ServicioIngesta: lectura del Excel / archivos origen
-│   ├── staging/          # RepositorioStaging: carga raw sin transformar
-│   ├── normalization/    # NormalizadorPCS: ancho -> largo por PCS
-│   ├── enrichment/       # ServicioEnriquecimiento: join con PlantActivity
-│   ├── availability/     # MotorDisponibilidad: equivalente a cmdCalcAvailability
-│   ├── fault_events/     # MotorEventosFalla: equivalente a mcoCreateList
-│   ├── aggregation/      # AgregacionDiaria + AgregacionAnual: KPI diario, mensual, anual
-│   ├── persistence/      # ServicioPersistencia: escritura en SQL Server
-│   ├── reconciliation/   # ServicioReconciliacion: comparación Excel vs Python
-│   └── reporting/        # capa de presentación (reporte_calidad.py)
+│   ├── config/
+│   ├── acquisition/    # Fase S: acquire-wait, scada_adapter
+│   ├── excel_macro/    # Fase M: runner COM macros
+│   ├── ingestion/      # ServicioIngesta
+│   ├── staging/
+│   ├── normalization/
+│   ├── enrichment/
+│   ├── availability/
+│   ├── fault_events/
+│   ├── aggregation/
+│   ├── persistence/
+│   ├── reconciliation/
+│   └── reporting/
 ├── tests/
-├── sql/                  # DDL de tablas SQL Server
-├── AGENTS.md             # plan de implementación detallado (fuente de verdad)
-├── CLAUDE.md             # contexto técnico para agentes de IA
+├── sql/
+├── AGENTS.md
+├── CLAUDE.md
 └── README.md
 ```
+
+**Estado:** `src/`, `sql/`, `scripts/` y `docs/runbook-lunes.md` son estructura objetivo / runbook; el motor aún no está implementado en disco (solo goldens + specs).
 
 ---
 
@@ -122,15 +134,17 @@ SQL es **append-only por `IdCorrida`**. No se borran resultados históricos.
 | Etapa | Descripción | Estado |
 |---|---|---|
 | 1 | Reverse engineering de macros VBA y fórmulas Excel | Completado |
-| 2 | Data contract: columnas, tipos, timestamps, tratamiento DST | Pendiente |
+| **S** | **Adquisición SCADA (inbox + adapter de fechas) y orquestador del lunes** | **Diseñado — ver AGENTS §14 Fase S / tasks 15** |
+| 2 | Data contract: columnas, tipos, timestamps, tratamiento DST | Pendiente (ampliado con data contract SCADA tras muestra P0) |
 | 3 | DDL SQL Server: staging, normalized, KPI, auditoría | Pendiente |
 | 4 | ETL: extract -> validate -> stage -> normalize -> enrich | Pendiente |
 | 5 | MotorDisponibilidad (equivalente `cmdCalcAvailability`) | Pendiente |
 | 6 | MotorEventosFalla (equivalente `mcoCreateList`) | Pendiente |
 | 7 | Agregaciones: KPI diario, mensual, anual | Pendiente |
-| 8 | ModuloReconciliacion automático Excel vs Python | Pendiente |
+| 8 | ModuloReconciliacion automático Excel vs Python | Pendiente (integridad de goldens: `tests/golden/test_golden_integrity.py` listo) |
+| 8b | Runner COM de macros (sustituye trabajo manual de Alex) | Pendiente (Fase M) |
 | 9 | Shadow mode: Excel oficial, Python en paralelo | Pendiente |
-| 10 | Producción: Python/SQL reemplaza al Excel | Pendiente |
+| 10 | Producción: origen → orquestador lunes → Python/SQL → refresh PBI | Pendiente |
 
 El detalle de cada etapa, las fórmulas exactas y las reglas de negocio están en [`AGENTS.md`](./AGENTS.md).
 
@@ -164,6 +178,9 @@ Tolerancia numérica inicial: `|Δ| ≤ 1e-9` para cálculos intermedios; `|Δ| 
 | F | `mcoCleanTable` destruye resultados anteriores | SQL append-only por `IdCorrida`; nunca replicar ese comportamiento |
 | G | `NUMBER_OF_MODULES` vacío ignorado silenciosamente por el Excel | Marcar con `ModulosDisponiblesNulo = True`; incluir en reporte de calidad |
 | H | Descripción de falla puede provenir del intervalo anterior | Marcar con `DescripcionFallaFallback = True`; reportar frecuencia |
+| I | Export SCADA con formato de fecha distinto al Excel | Fase T: transformador estricto `mm-dd-aaaa` → `dd-mm-aaaa` + validación de rango |
+| J | Sin API SCADA; transporte solo TeamViewer | `acquire-wait` + alerta si no hay archivo; pedir share/API a GPM como mejora |
+| K | PlantActivity no se actualiza con SCADA | Fuente fuera de esta cadena; reportar join-misses en calidad de corrida |
 
 ---
 
@@ -205,5 +222,7 @@ unzip -p "data/..." xl/worksheets/sheet10.xml | grep "termino"
 
 | Archivo | Contenido |
 |---|---|
-| [`AGENTS.md`](./AGENTS.md) | Plan completo de implementación, lógica exacta de las macros, fórmulas, diseño de datos SQL, ETL, estrategia de paridad |
+| [`AGENTS.md`](./AGENTS.md) | Plan completo de implementación, lógica exacta de las macros, fórmulas, diseño de datos SQL, ETL, estrategia de paridad, **Fase S SCADA** |
 | [`CLAUDE.md`](./CLAUDE.md) | Contexto técnico para agentes de IA: arquitectura del Excel, módulos VBA, reglas para agentes |
+| [`docs/runbook-lunes.md`](./docs/runbook-lunes.md) | Checklist operativa del lunes (SCADA → inbox → macros → ETL) |
+| `.kiro/specs/etl-arena-availability/` | SDD: requirements, design, tasks (incluye adquisición SCADA y orquestador) |

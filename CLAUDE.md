@@ -6,11 +6,13 @@ Este archivo entrega contexto a los agentes de IA (Claude Code, Kiro, etc.) para
 
 ## Estado actual del proyecto
 
-Este repositorio tiene un único origen de datos:
+Este repositorio tiene como libro fuente de cálculo:
 
 ```
 data/AvailabilityCalculation_PCS&Batteries_20260907_septiembre 2026.xlsm
 ```
+
+La data cruda semanal llega desde el **server SCADA** a `data/inbox/` (hoy vía TeamViewer); ver §4.2 Flujo semanal.
 
 **El objetivo ya no es mantener el Excel** — el objetivo es reemplazarlo progresivamente por un proceso reproducible en **Python + SQL Server**.
 
@@ -149,11 +151,35 @@ unzip -p  "data/AvailabilityCalculation_PCS&Batteries_20260907_septiembre 2026.x
 
 ---
 
+## 4.2 Flujo semanal (lunes) — SCADA → ETL → SQL → PBI
+
+La fuente cruda de `RawData-PCS` es el **server SCADA**. Cada lunes se exporta un reporte y se procesa en la PC local (no en el server).
+
+```text
+SCADA ~03:00 AM (solo extract)
+  → TeamViewer → data/inbox/raw_pcs_<corte>.<ext>
+  → acquire-wait + scada_adapter (fechas mm-dd→dd-mm, mapping RawData-PCS)
+  → copia de trabajo del .xlsm (backup)
+  → macros COM: cmdCalcAvailability → mcoCreateList → mcoDailyAvailability → Graphupdate
+  → extrae C12/C14/C16/C19 (referencia Excel)
+  → pipeline Python → SQL Server (IdCorrida nuevo)
+  → reconcile Python vs referencia
+  → notificar a Misael: refresh Power BI
+```
+
+Orquestador: `scripts/run_lunes.py` con etapas `acquire-wait`, `prepare-workbook`, `run-macros`, `run-etl`, `reconcile`, `notify-bi`. Fases P0–P9 y detalle en `AGENTS.md` §14 Fase S. Runbook: `docs/runbook-lunes.md`.
+
+**Reglas:** fechas del reporte las setea quien exporta (convención 01-01-2026 → último domingo, validada al recibir); transporte hoy solo TeamViewer (sin UNC/API); solo `RawData-PCS` desde SCADA (`PlantActivity` aparte); macros y ETL solo en PC local; Power BI modo notificación (owner Misael) hasta service principal.
+
+---
+
 ## Arquitectura Python (ver AGENTS.md §18)
 
 ```
 src/
   config/           <- ConfiguracionCalculo, CONFIG_POR_DEFECTO
+  acquisition/      <- acquire_wait, scada_adapter (Fase SCADA)
+  excel_macro/      <- runner COM de las 4 macros VBA (Fase M, solo PC local)
   ingestion/        <- ServicioIngesta, ReporteAnomalia
   staging/          <- RepositorioStaging
   normalization/    <- NormalizadorPCS
@@ -164,11 +190,17 @@ src/
   persistence/      <- ServicioPersistencia
   reconciliation/   <- ServicioReconciliacion, ReporteReconciliacion
   reporting/        <- reporte_calidad.py
+data/
+  inbox/            <- drop zone semanal del export SCADA
+  processed/        <- originales inmutables + sha256
+  work/             <- copia de trabajo del .xlsm
+scripts/run_lunes.py
+docs/runbook-lunes.md
 tests/
 sql/
 ```
 
-Script principal: `ejecutar_etl.py`
+Scripts principales: `scripts/run_lunes.py` (orquestador semanal) y `ejecutar_etl.py` (pipeline de corrida).
 
 ---
 
@@ -176,7 +208,7 @@ Script principal: `ejecutar_etl.py`
 
 | Tabla | Columnas clave |
 |---|---|
-| `etl_run` | `IdCorrida`, `IdProyecto`, `BloquesMuestreo` (C12), `BloquesRacksIndisponibles` (C14), `VersionAlgoritmo` |
+| `etl_run` | `IdCorrida`, `IdProyecto`, parámetros de corrida (período, flags, `TotalPCS`…), `Status`, `MensajeError`, `VersionAlgoritmo`. Los KPI C12/C14 viven en `availability_run_result`, no aquí |
 | `proyecto` | `IdProyecto`, `NumPCS`, `NumBateriasPorPCS`, `NumRacksPorBAC`, `TotalRacks`, `MinutosMuestreo`, `ZonaHoraria` |
 | `tipo_detencion` | `IdTipoDetencion`, `CodigoFalla`, `DescripcionFallaPE`, `CodigoDescripcion` |
 | `raw_pcs_sample` | `IdCorrida`, `MarcaTiempoMuestra`, `NumeroPCS`, `ModulosDisponibles`, `ModulosDisponiblesNulo`, `SerialFechaExcelOrigen` |
@@ -200,4 +232,6 @@ Script principal: `ejecutar_etl.py`
 6. **`ModulosDisponiblesNulo`**: intervalos con `NUMBER_OF_MODULES` vacío se tratan como disponibles (= 4) pero se marcan para auditoría.
 7. **`DescripcionFallaFallback`**: eventos donde la descripción fue tomada del intervalo anterior se marcan en `fault_event` y `detencion`.
 8. **`VersionAlgoritmo`**: toda corrida debe registrar `"availability-v1-excel-parity"` durante la fase de paridad.
-9. Toda la lógica de negocio detallada, fórmulas exactas y plan por etapas están en [`AGENTS.md`](./AGENTS.md).
+9. **No procesar en el server SCADA** — solo exportar/copy; macros y ETL solo en PC local.
+10. **`data/processed` inmutable** — el archivo de origen con sha256 no se edita; el `.xlsm` de trabajo se copia/backup antes de macros o adapter.
+11. Toda la lógica de negocio detallada, fórmulas exactas y plan por etapas están en [`AGENTS.md`](./AGENTS.md).

@@ -6,6 +6,8 @@ El sistema ETL Arena Availability replica en Python la lógica de las macros VBA
 
 El sistema lee los datos crudos de `RawData-PCS` y `PlantActivity`, los normaliza, aplica la lógica de disponibilidad y eventos de falla, persiste todos los resultados intermedios y finales en SQL Server identificados por un `IdCorrida`, y produce un reporte de reconciliación que compara los resultados Python contra los del Excel.
 
+**Fase S (semanal):** el export de `RawData-PCS` llega cada lunes desde el server SCADA a `data/inbox/` (TeamViewer hoy; sin API/UNC). `scripts/run_lunes.py` orquesta: `acquire-wait` → `prepare-workbook` (scada_adapter: fechas `mm-dd-aaaa`→`dd-mm-aaaa`, mapping, backup `.xlsm`) → `run-macros` (COM local) → `run-etl` → `reconcile` → `notify-bi` (Misael / PBI). Solo extracción en el server; macros y ETL en PC local. Detalle: `AGENTS.md` §14 Fase S.
+
 **Principio fundamental:** SQL Server almacena no solo el KPI final sino todos los valores intermedios necesarios para explicar exactamente cómo se obtuvo ese porcentaje.
 
 ---
@@ -13,7 +15,14 @@ El sistema lee los datos crudos de `RawData-PCS` y `PlantActivity`, los normaliz
 ## Architecture
 
 ```
-Datos origen (Excel: RawData-PCS 244 cols + PlantActivity)
+SCADA server --solo extract--> data/inbox/ (raw_pcs_*)
+        |
+        v
+src/acquisition/      -- acquire-wait + scada_adapter (valida rango, fechas mm-dd->dd-mm, mapping RawData-PCS, backup work .xlsm)
+        |
+        v
+src/excel_macro/      -- run-macros COM local: cmdCalcAvailability -> mcoCreateList
+                       -- -> mcoDailyAvailability -> Graphupdate; extrae C12/C14/C16/C19
         |
         v
 src/ingestion/       -- ServicioIngesta: lectura openpyxl/pandas, seriales de fecha, anomalías
@@ -48,6 +57,9 @@ src/persistence/     -- ServicioPersistencia -> SQL Server (append-only por IdCo
               |
               v
 src/reconciliation/  -- ServicioReconciliacion: comparación Excel vs Python en 5 niveles
+              |
+              v
+notify-bi            -- notificación refresh PBI (owner Misael; sin API propia hasta service principal)
 ```
 
 ---
@@ -123,6 +135,55 @@ Decisiones de diseño:
 - `pandas` para manipulación posterior.
 - Los seriales de fecha Excel se conservan como `float64` en `SerialFechaExcelOrigen`.
 - La conversión a timestamp local usa `pytz` con zona `America/Santiago`, preservando la semántica DST de Chile.
+
+---
+
+### src/acquisition/ (Fase S — SCADA)
+
+**ModuloAdquisicion / scada_adapter**
+
+```python
+class AdquisicionSCADA:
+    def acquire_wait(self, inbox: Path, timeout_s: int = 0) -> Path:
+        """Espera/archivo en data/inbox, valida no-vacío, nombre, sha256, rango de fechas."""
+
+    def validar_rango_reporte(self, fechas: pd.Series, desde, hasta) -> None:
+        """Fallar si no cuadra con convención 01-01-2026 -> último domingo (o rango configurado)."""
+
+    def transformar_fechas(self, serie) -> pd.Series:
+        """mm-dd-aaaa hh:mm:ss -> dd-mm-aaaa hh:mm:ss (equivalente a conversión manual)."""
+
+    def mapear_columnas(self, df) -> pd.DataFrame:
+        """Mapping columnas export SCADA -> headers de RawData-PCS."""
+
+    def prepare_workbook(self, inbox_file: Path, work_xlsm: Path) -> Path:
+        """Backup del original + escribe RawData-PCS en copia de trabajo."""
+```
+
+- Estructura de carpetas: `data/inbox/`, `data/processed/`, `data/work/`.
+- Transporte actual: TeamViewer (sin UNC/API). Riesgo J: si no hay archivo, `acquire-wait` alerta/falla.
+- `PlantActivity` **no** se actualiza desde SCADA (fuente aparte; join-misses en reporte de calidad).
+
+---
+
+### src/excel_macro/ (Fase M — runner COM)
+
+**ModuloMacros** — solo PC local con Excel instalado (`pywin32` / `win32com`):
+
+```python
+def run_macros(work_xlsm: Path, period_start, period_end) -> dict:
+    """cmdCalcAvailability -> mcoCreateList -> mcoDailyAvailability -> Graphupdate.
+    Setea C5/C7; retorna {C12, C14, C16, C19} como referencia de la corrida."""
+```
+
+---
+
+### scripts/run_lunes.py — OrquestadorLunes
+
+Etapas: `acquire-wait` | `prepare-workbook` | `run-macros` | `run-etl` | `reconcile` | `notify-bi` | `all`.
+
+- Cada `run-etl` genera `IdCorrida` nuevo (append-only por semana).
+- `notify-bi`: notificación (webhook/mensaje) a Misael; sin refresh API hasta service principal.
 
 ---
 

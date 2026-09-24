@@ -6,6 +6,8 @@ Este proyecto reemplaza progresivamente el cálculo de disponibilidad del activo
 
 El objetivo de la primera fase es obtener **paridad exacta** con el Excel: reproducir los mismos valores de `BloquesMuestreo` (C12), `BloquesRacksIndisponibles` (C14), `DisponibilidadPeriodo` (C16) y `DisponibilidadAnualAcumulada` (C19), la misma lista de eventos de `ListOfFaults`, y los mismos KPI diarios y acumulados anuales, usando los mismos datos de entrada.
 
+**Flujo de alimentación semanal (Fase S):** cada lunes se exporta el reporte de `RawData-PCS` desde el server SCADA a `data/inbox/` (TeamViewer hoy), se transforma con `scada_adapter` hacia el `.xlsm` de trabajo, se corren las macros locales de referencia y el pipeline Python escribe en SQL Server con un `IdCorrida` nuevo; luego se notifica a Power BI (owner Misael) para refresh. Ver Requirement 14 y `docs/runbook-lunes.md`.
+
 **Parámetros del activo (Arena BESS):**
 
 | Parámetro | Valor |
@@ -32,6 +34,10 @@ El objetivo de la primera fase es obtener **paridad exacta** con el Excel: repro
 - **KPI**: Key Performance Indicator. Indicador clave de rendimiento.
 - **MotorETL**: El sistema Python que reproduce la lógica VBA del Excel.
 - **ModuloIngesta**: Componente responsable de leer los archivos origen (Excel o exportaciones CSV).
+- **ModuloAdquisicion** (Fase S): Componente que espera y valida el export SCADA en `data/inbox` y lo transforma hacia la copia de trabajo del libro (`scada_adapter`).
+- **ModuloMacros** (Fase M): Runner COM local que ejecuta `cmdCalcAvailability`, `mcoCreateList`, `mcoDailyAvailability` y `Graphupdate` y extrae la referencia `C12`/`C14`/`C16`/`C19`.
+- **OrquestadorLunes**: Script `scripts/run_lunes.py` con etapas `acquire-wait`, `prepare-workbook`, `run-macros`, `run-etl`, `reconcile`, `notify-bi`.
+- **IdCorrida**: Identificador único UUID de una ejecución del MotorETL. Clave de auditoría en todas las tablas. Cada lunes se genera uno nuevo.
 - **ModuloStaging**: Componente que almacena los datos crudos sin transformar en SQL Server.
 - **ModuloNormalizacion**: Componente que convierte el formato ancho (244 columnas) a formato largo (1 fila por PCS×timestamp).
 - **ModuloEnriquecimiento**: Componente que une los datos PCS con los factores de PlantActivity.
@@ -78,6 +84,38 @@ El objetivo de la primera fase es obtener **paridad exacta** con el Excel: repro
 6. WHEN el ModuloIngesta encuentra una celda vacía en la columna A (timestamp) de `RawData-PCS`, THE ModuloIngesta SHALL registrar la posición del hueco como advertencia y continuar el procesamiento, en lugar de detenerlo silenciosamente como hace el VBA.
 7. THE ModuloStaging SHALL conservar para cada registro de `RawData-PCS` tanto el valor serial numérico de fecha Excel (`SerialFechaExcelOrigen`) como el timestamp interpretado en hora local de Chile (`MarcaTiempoLocalOrigen`).
 8. WHEN el ModuloIngesta detecta anomalías de calidad de datos, THE MotorETL SHALL incluir un resumen de esas anomalías en el registro `etl_run` de la corrida sin abortar el procesamiento.
+
+---
+
+### Requirement 14: Adquisición SCADA semanal (Fase S)
+
+**User Story:** Como operador del proyecto, quiero cada lunes bajar el reporte SCADA de `RawData-PCS` a `data/inbox` y validarlo/transformarlo de forma reproducible, para alimentar el pipeline sin intervención manual de fechas y sin procesar en el server SCADA.
+
+#### Acceptance Criteria
+
+1. WHEN un archivo de export SCADA es colocado en `data/inbox`, THE ModuloAdquisicion SHALL esperar hasta que aparezca (`acquire-wait`), validarlo (nombre, no vacío, sha256, legibilidad) y registrarlo en log antes de continuar.
+2. THE ModuloAdquisicion SHALL validar que el rango de fechas del reporte coincida con la convención acordada (`DESDE = 01-01-2026` o primer dato / `HASTA = último domingo` del período o el rango explícito configurado); IF no coincide THEN SHALL fallar la etapa sin escribir el `.xlsm` de trabajo.
+3. THE ModuloAdquisicion SHALL transformar fechas de origen `mm-dd-aaaa hh:mm:ss` al formato de la hoja destino `dd-mm-aaaa hh:mm:ss` (equivalente a la conversión manual actual) y SHALL aplicar el mapping de columnas = `RawData-PCS` de la hoja destino.
+4. THE ModuloAdquisicion SHALL escribir sobre una **copia de trabajo** del `.xlsm` y conservar un backup del original; SHALL NO editar el maestro `data/AvailabilityCalculation_*.xlsm` sin backup.
+5. THE ModuloMacros SHALL ejecutar en la PC local (COM Excel) la secuencia `cmdCalcAvailability` → `mcoCreateList` → `mcoDailyAvailability` → `Graphupdate` con `C5`/`C7` del período y SHALL extraer `C12`, `C14`, `C16` y `C19` como referencia de la corrida.
+6. EL OrquestadorLunes SHALL ofrecer las etapas `acquire-wait`, `prepare-workbook`, `run-macros`, `run-etl`, `reconcile` y `notify-bi`, ejecutables individualmente o en `--stage all`.
+7. WHEN `run-etl` inicia, THE OrquestadorLunes SHALL generar un `IdCorrida` nuevo para la semana y persistir la corrida en SQL Server append-only.
+8. WHEN `reconcile` compara Python vs la referencia del Excel, THE MotorETL SHALL reportar paridad/desviaciones en niveles C12/C14/C16/C19 (y eventos si existen) según las tolerancias del SDD de reconciliación.
+9. WHEN `notify-bi` se ejecuta, THE OrquestadorLunes SHALL emitir una notificación (webhook/mensaje) al owner de Power BI (Misael) indicando que SQL está listo para refresh; SHALL NO intentar refresh vía API hasta que exista service principal (requisito posterior).
+10. THE Sistema SHALL NO ejecutar macros ni el pipeline ETL en el server SCADA; solo extracción/export allí.
+11. IF el transporte es TeamViewer (hoy) y no hay archivo en el inbox, THE `acquire-wait` SHALL fallar con mensaje accionable (riesgo J: sin API/UNC aún).
+
+---
+
+### Requirement 15: Notificación a Power BI
+
+**User Story:** Como owner de reporting (Misael), quiero una notificación cuando el pipeline semanal termina de escribir en SQL Server, para refrescar el dashboard sin depender de un job automático de API (todavía no disponible).
+
+#### Acceptance Criteria
+
+1. WHEN la etapa `run-etl` finaliza con éxito, THE OrquestadorLunes SHALL emitir una notificación (webhook o mensaje) con `IdCorrida`, período y estado de reconciliación si `reconcile` corrió.
+2. THE Sistema SHALL NO intentar refresh vía Power BI API hasta que exista service principal / credenciales aprobadas (requisito posterior fuera de P0–P9).
+3. WHEN `reconcile` detecta desviaciones, THE notificación SHALL incluir el resumen de desviaciones para que el owner decida si refresca o espera.
 
 ---
 
@@ -268,9 +306,11 @@ El objetivo de la primera fase es obtener **paridad exacta** con el Excel: repro
 
 | Mes | Archivo | BloquesMuestreo (C12) | DisponibilidadPeriodo (C16) | DisponibilidadAnualAcumulada (C19) | Estado |
 |---|---|---|---|---|---|
-| Julio 2026  | `golden_2026_07_july.json`   | 2976 | 0.9503529130 | 0.9957833981 | verificado |
-| Agosto 2026 | `golden_2026_08_august.json` | 2976 | 0.9394752689 | 0.9948595434 | verificado |
-| Septiembre 2026 (parcial 1-21) | `golden_2026_09_september.json` | 1975 | 0.9819924099 | 0.9989850174 | verificado — Daily corregido 2026-09-24; total_rack_hours=26033.57; dias 22-30 availability>0 |
+| Julio 2026  | `golden_2026_07_july.json`   | 2976 | 0.9503529130 | 0.9957833981 | pending — re-extract tras macros (posible cap 295 eventos) |
+| Agosto 2026 | `golden_2026_08_august.json` | 2976 | 0.9394752689 | 0.9948595434 | pending — re-extract (daily hand-fix) |
+| Septiembre 2026 (parcial 1-21) | `golden_2026_09_september.json` | 1975 | 0.9819924099 | 0.9989850174 | pending — periodo parcial; Daily corregido 2026-09-24; C12=1975 vs Annual_AVA 1977 = fórmula calendario (ver `golden_index.json`) |
+
+> Fuente de verdad de estado: `tests/golden/data/golden_index.json` (campo `status` + `discrepancies`). Tras re-extract limpio con macros, marcar `verified`. `tests/golden/test_golden_integrity.py` valida invariantes de los 3 JSON.
 
 #### Tolerancias de comparacion
 
