@@ -1,0 +1,520 @@
+{
+  "_meta": {
+    "description": "Golden reference extraida directamente del Excel con openpyxl data_only=True",
+    "extraction_method": "openpyxl read_only=True, data_only=True",
+    "extraction_date": "2026-09-22",
+    "tolerance_internal": 1e-09,
+    "tolerance_kpi": 1e-06,
+    "tolerance_rack_hours": 0.001,
+    "note": "Corrida VBA con Only Operational Time=No, Excusable Event=No"
+  },
+  "period": {
+    "year": 2026,
+    "month": 8,
+    "month_name": "Agosto",
+    "period_start": "2026-08-01",
+    "period_end": "2026-08-31",
+    "parameters": {
+      "total_pcs": 61,
+      "batteries_per_pcs": 4,
+      "total_racks": 2928,
+      "sampling_minutes": 15,
+      "only_operational_time": "No",
+      "apply_excused_event": "No",
+      "algorithm_version": "availability-v1-excel-parity",
+      "source_file": "AvailabilityCalculation_PCS&Batteries_20260907_septiembre 2026.xlsm",
+      "extraction_date": "2026-09-22"
+    },
+    "kpi": {
+      "c12_sample_blocks": 2976,
+      "c14_unavailable_rack_blocks": 527396.0440000003,
+      "c16_availability_period": 0.9394752689090135,
+      "c19_accumulated_annual": 0.9948595433867929
+    }
+  },
+  "daily": [
+    {
+      "day_number": 1,
+      "date": "2026-08-01",
+      "daily_unavailable_rack_blocks": 10173.496,
+      "accumulated_unavailable_rack_blocks": 10173.496,
+      "availability": 0.963806722449909,
+      "variation": 0
+    },
+    {
+      "day_number": 2,
+      "date": "2026-08-02",
+      "daily_unavailable_rack_blocks": 9847.555999999999,
+      "accumulated_unavailable_rack_blocks": 20021.051999999996,
+      "availability": 0.9643865052937158,
+      "variation": 0.0005797828438068864
+    },
+    {
+      "day_number": 3,
+      "date": "2026-08-03",
+      "daily_unavailable_rack_blocks": 5718.88,
+      "accumulated_unavailable_rack_blocks": 25739.931999999997,
+      "availability": 0.9694758320051609,
+      "variation": 0.005089326711445019
+    },
+    {
+      "day_number": 4,
+      "date": "2026-08-04",
+      "daily_unavailable_rack_blocks": 12989.216,
+      "accumulated_unavailable_rack_blocks": 38729.148,
+      "availability": 0.9655542499146175,
+      "variation": -0.003921582090543385
+    },
+    {
+      "day_number": 5,
+      "date": "2026-08-05",
+      "daily_unavailable_rack_blocks": 12921.308000000005,
+      "accumulated_unavailable_rack_blocks": 51650.456000000006,
+      "availability": 0.9632496186247723,
+      "variation": -0.0023046312898451493
+    },
+    {
+      "day_number": 6,
+      "date": "2026-08-06",
+      "daily_unavailable_rack_blocks": 13115.764000000003,
+      "accumulated_unavailable_rack_blocks": 64766.22000000001,
+      "availability": 0.961597898167122,
+      "variation": -0.0016517204576502742
+    },
+    {
+      "day_number": 7,
+      "date": "2026-08-07",
+      "daily_unavailable_rack_blocks": 9645.335999999998,
+      "accumulated_unavailable_rack_blocks": 74411.55600000001,
+      "availability": 0.9621818708528493,
+      "variation": 0.0005839726857272964
+    },
+    {
+      "day_number": 8,
+      "date": "2026-08-08",
+      "daily_unavailable_rack_blocks": 12616.091999999999,
+      "accumulated_unavailable_rack_blocks": 87027.64800000002,
+      "availability": 0.9612987534153006,
+      "variation": -0.0008831174375487638
+    },
+    {
+      "day_number": 9,
+      "date": "2026-08-09",
+      "daily_unavailable_rack_blocks": 13802.527999999997,
+      "accumulated_unavailable_rack_blocks": 100830.176,
+      "availability": 0.9601428987047156,
+      "variation": -0.0011558547105849915
+    },
+    {
+      "day_number": 10,
+      "date": "2026-08-10",
+      "daily_unavailable_rack_blocks": 10183.984,
+      "accumulated_unavailable_rack_blocks": 111014.16,
+      "availability": 0.960505549863388,
+      "variation": 0.00036265115867240016
+    },
+    {
+      "day_number": 11,
+      "date": "2026-08-11",
+      "daily_unavailable_rack_blocks": 8236.324,
+      "accumulated_unavailable_rack_blocks": 119250.484,
+      "availability": 0.9614321739422917,
+      "variation": 0.0009266240789037594
+    },
+    {
+      "day_number": 12,
+      "date": "2026-08-12",
+      "daily_unavailable_rack_blocks": 10258.616000000004,
+      "accumulated_unavailable_rack_blocks": 129509.1,
+      "availability": 0.9616048177083333,
+      "variation": 0.00017264376604153586
+    },
+    {
+      "day_number": 13,
+      "date": "2026-08-13",
+      "daily_unavailable_rack_blocks": 9528.944,
+      "accumulated_unavailable_rack_blocks": 139038.044,
+      "availability": 0.9619505843228948,
+      "variation": 0.0003457666145615379
+    },
+    {
+      "day_number": 14,
+      "date": "2026-08-14",
+      "daily_unavailable_rack_blocks": 11438.548,
+      "accumulated_unavailable_rack_blocks": 150476.592,
+      "availability": 0.9617616974043716,
+      "variation": -0.00018888691852325667
+    },
+    {
+      "day_number": 15,
+      "date": "2026-08-15",
+      "daily_unavailable_rack_blocks": 14021.723999999997,
+      "accumulated_unavailable_rack_blocks": 164498.316,
+      "availability": 0.9609853341302368,
+      "variation": -0.0007763632741347726
+    },
+    {
+      "day_number": 16,
+      "date": "2026-08-16",
+      "daily_unavailable_rack_blocks": 8180.880000000001,
+      "accumulated_unavailable_rack_blocks": 172679.196,
+      "availability": 0.9616047296576161,
+      "variation": 0.0006193955273793295
+    },
+    {
+      "day_number": 17,
+      "date": "2026-08-17",
+      "daily_unavailable_rack_blocks": 6505.136,
+      "accumulated_unavailable_rack_blocks": 179184.332,
+      "availability": 0.9625019395223937,
+      "variation": 0.0008972098647775928
+    },
+    {
+      "day_number": 18,
+      "date": "2026-08-18",
+      "daily_unavailable_rack_blocks": 8277.2,
+      "accumulated_unavailable_rack_blocks": 187461.532,
+      "availability": 0.9629492203311577,
+      "variation": 0.00044728080876399456
+    },
+    {
+      "day_number": 19,
+      "date": "2026-08-19",
+      "daily_unavailable_rack_blocks": 9541.428,
+      "accumulated_unavailable_rack_blocks": 197002.96000000002,
+      "availability": 0.9631127019221551,
+      "variation": 0.00016348159099743853
+    },
+    {
+      "day_number": 20,
+      "date": "2026-08-20",
+      "daily_unavailable_rack_blocks": 13616.547999999999,
+      "accumulated_unavailable_rack_blocks": 210619.50800000003,
+      "availability": 0.9625349520434882,
+      "variation": -0.0005777498786669888
+    },
+    {
+      "day_number": 21,
+      "date": "2026-08-21",
+      "daily_unavailable_rack_blocks": 13270.248,
+      "accumulated_unavailable_rack_blocks": 223889.75600000002,
+      "availability": 0.9620708925589817,
+      "variation": -0.0004640594845064516
+    },
+    {
+      "day_number": 22,
+      "date": "2026-08-22",
+      "daily_unavailable_rack_blocks": 12750.564,
+      "accumulated_unavailable_rack_blocks": 236640.32000000004,
+      "availability": 0.9617330580394104,
+      "variation": -0.0003378345195712562
+    },
+    {
+      "day_number": 23,
+      "date": "2026-08-23",
+      "daily_unavailable_rack_blocks": 45630.78,
+      "accumulated_unavailable_rack_blocks": 282271.10000000003,
+      "availability": 0.9563387390363902,
+      "variation": -0.0053943190030202315
+    },
+    {
+      "day_number": 24,
+      "date": "2026-08-24",
+      "daily_unavailable_rack_blocks": 64585.012,
+      "accumulated_unavailable_rack_blocks": 346856.112,
+      "availability": 0.948584293886612,
+      "variation": -0.0077544451497781886
+    },
+    {
+      "day_number": 25,
+      "date": "2026-08-25",
+      "daily_unavailable_rack_blocks": 11500.292000000001,
+      "accumulated_unavailable_rack_blocks": 358356.40400000004,
+      "availability": 0.9490043823998179,
+      "variation": 0.00042008851320585183
+    },
+    {
+      "day_number": 26,
+      "date": "2026-08-26",
+      "daily_unavailable_rack_blocks": 8651.948000000002,
+      "accumulated_unavailable_rack_blocks": 367008.352,
+      "availability": 0.9497818980313857,
+      "variation": 0.0007775156315678045
+    },
+    {
+      "day_number": 27,
+      "date": "2026-08-27",
+      "daily_unavailable_rack_blocks": 8472.547999999999,
+      "accumulated_unavailable_rack_blocks": 375480.9,
+      "availability": 0.95052545821949,
+      "variation": 0.0007435601881042864
+    },
+    {
+      "day_number": 28,
+      "date": "2026-08-28",
+      "daily_unavailable_rack_blocks": 12110.548000000003,
+      "accumulated_unavailable_rack_blocks": 387591.44800000003,
+      "availability": 0.9507536724645459,
+      "variation": 0.00022821424505592436
+    },
+    {
+      "day_number": 29,
+      "date": "2026-08-29",
+      "daily_unavailable_rack_blocks": 8651.348000000002,
+      "accumulated_unavailable_rack_blocks": 396242.79600000003,
+      "availability": 0.9513905087031279,
+      "variation": 0.000636836238582017
+    },
+    {
+      "day_number": 30,
+      "date": "2026-08-30",
+      "daily_unavailable_rack_blocks": 15660.04,
+      "accumulated_unavailable_rack_blocks": 411902.836,
+      "availability": 0.9511537506640863,
+      "variation": -0.00023675803904166237
+    },
+    {
+      "day_number": 31,
+      "date": "2026-08-31",
+      "daily_unavailable_rack_blocks": 20708.376,
+      "accumulated_unavailable_rack_blocks": 432611.212,
+      "availability": 0.9503529130126623,
+      "variation": -0.0008008376514239135
+    }
+  ],
+  "annual_ava_snapshot": {
+    "7": {
+      "month_name": "Julio",
+      "days_in_month": 31,
+      "sampling_blocks": 2976,
+      "unavailable_rack_blocks": 350972.29999999946,
+      "monthly_availability": 0.959721912366326,
+      "accumulated_sampling_blocks": 2976,
+      "accumulated_unavailable_blocks": 350972.29999999946
+    },
+    "8": {
+      "month_name": "Agosto",
+      "days_in_month": 31,
+      "sampling_blocks": 2976,
+      "unavailable_rack_blocks": 305182.9679999994,
+      "monthly_availability": 0.964976762184911,
+      "accumulated_sampling_blocks": 5952,
+      "accumulated_unavailable_blocks": 656155.2679999989
+    },
+    "9": {
+      "month_name": "Septiembre",
+      "days_in_month": 20.59375,
+      "sampling_blocks": 1977,
+      "unavailable_rack_blocks": 527396.0440000003,
+      "monthly_availability": 0.9088914518326878,
+      "accumulated_sampling_blocks": 7929,
+      "accumulated_unavailable_blocks": 1183551.3119999992
+    }
+  },
+  "fault_events_summary": {
+    "total_events": 595,
+    "total_unavailable_rack_hours": 63791.292371336334,
+    "events_first_20": [
+      {
+        "pcs_number": 1,
+        "start_timestamp": "2026-08-01 15:30:00",
+        "end_timestamp": "2026-08-01 18:00:00",
+        "duration_hours": 2.4999999999417923,
+        "fault_description": "F55",
+        "fault_code": "F55 EXTERNAL FAULT/OVGR",
+        "average_batteries_involved": 3.833333333333333,
+        "unavailable_rack_hours": 114.99999999732243
+      },
+      {
+        "pcs_number": 1,
+        "start_timestamp": "2026-08-01 18:30:00",
+        "end_timestamp": "2026-08-01 18:45:00",
+        "duration_hours": 0.24999999994179234,
+        "fault_description": "F13",
+        "fault_code": "F13 NO MODULES",
+        "average_batteries_involved": 0.6666666666666701,
+        "unavailable_rack_hours": 1.999999999534349
+      },
+      {
+        "pcs_number": 1,
+        "start_timestamp": "2026-08-01 20:00:00",
+        "end_timestamp": "2026-08-01 21:00:00",
+        "duration_hours": 0.9999999999417923,
+        "fault_description": "F55",
+        "fault_code": "F55 EXTERNAL FAULT/OVGR",
+        "average_batteries_involved": 2.4166666666666665,
+        "unavailable_rack_hours": 28.999999998311978
+      },
+      {
+        "pcs_number": 1,
+        "start_timestamp": "2026-08-02 13:30:00",
+        "end_timestamp": "2026-08-02 19:30:00",
+        "duration_hours": 6,
+        "fault_description": "F13",
+        "fault_code": "F13 NO MODULES",
+        "average_batteries_involved": 3.7361111111111107,
+        "unavailable_rack_hours": 269
+      },
+      {
+        "pcs_number": 1,
+        "start_timestamp": "2026-08-03 00:15:00",
+        "end_timestamp": "2026-08-03 00:45:00",
+        "duration_hours": 0.5000000000582077,
+        "fault_description": "F55",
+        "fault_code": "F55 EXTERNAL FAULT/OVGR",
+        "average_batteries_involved": 1.5,
+        "unavailable_rack_hours": 9.000000001047738
+      },
+      {
+        "pcs_number": 1,
+        "start_timestamp": "2026-08-03 12:45:00",
+        "end_timestamp": "2026-08-03 13:00:00",
+        "duration_hours": 0.24999999994179234,
+        "fault_description": "F13",
+        "fault_code": "F13 NO MODULES",
+        "average_batteries_involved": 1.33333333333333,
+        "unavailable_rack_hours": 3.999999999068667
+      },
+      {
+        "pcs_number": 1,
+        "start_timestamp": "2026-08-03 13:30:00",
+        "end_timestamp": "2026-08-03 20:15:00",
+        "duration_hours": 6.75,
+        "fault_description": "F55",
+        "fault_code": "F55 EXTERNAL FAULT/OVGR",
+        "average_batteries_involved": 3.4803580246913577,
+        "unavailable_rack_hours": 281.909
+      },
+      {
+        "pcs_number": 1,
+        "start_timestamp": "2026-08-04 07:30:00",
+        "end_timestamp": "2026-08-04 09:00:00",
+        "duration_hours": 1.5,
+        "fault_description": "F13",
+        "fault_code": "F13 NO MODULES",
+        "average_batteries_involved": 2.8618333333333332,
+        "unavailable_rack_hours": 51.513
+      },
+      {
+        "pcs_number": 1,
+        "start_timestamp": "2026-08-04 14:15:00",
+        "end_timestamp": "2026-08-04 18:45:00",
+        "duration_hours": 4.5,
+        "fault_description": "F55",
+        "fault_code": "F55 EXTERNAL FAULT/OVGR",
+        "average_batteries_involved": 3.7371851851851847,
+        "unavailable_rack_hours": 201.80799999999996
+      },
+      {
+        "pcs_number": 1,
+        "start_timestamp": "2026-08-04 23:30:00",
+        "end_timestamp": "2026-08-05 00:00:00",
+        "duration_hours": 0.5000000000582077,
+        "fault_description": "F55",
+        "fault_code": "F55 EXTERNAL FAULT/OVGR",
+        "average_batteries_involved": 2.075,
+        "unavailable_rack_hours": 12.450000001449371
+      },
+      {
+        "pcs_number": 1,
+        "start_timestamp": "2026-08-05 01:15:00",
+        "end_timestamp": "2026-08-05 10:45:00",
+        "duration_hours": 9.499999999883585,
+        "fault_description": "F13",
+        "fault_code": "F13 NO MODULES",
+        "average_batteries_involved": 0.9894649122807019,
+        "unavailable_rack_hours": 112.79899999861775
+      },
+      {
+        "pcs_number": 1,
+        "start_timestamp": "2026-08-05 12:15:00",
+        "end_timestamp": "2026-08-05 13:00:00",
+        "duration_hours": 0.75,
+        "fault_description": "F13",
+        "fault_code": "F13 NO MODULES",
+        "average_batteries_involved": 3.1155555555555563,
+        "unavailable_rack_hours": 28.040000000000006
+      },
+      {
+        "pcs_number": 1,
+        "start_timestamp": "2026-08-05 15:00:00",
+        "end_timestamp": "2026-08-05 18:45:00",
+        "duration_hours": 3.75,
+        "fault_description": "F13",
+        "fault_code": "F13 NO MODULES",
+        "average_batteries_involved": 3.4483111111111113,
+        "unavailable_rack_hours": 155.174
+      },
+      {
+        "pcs_number": 1,
+        "start_timestamp": "2026-08-05 23:45:00",
+        "end_timestamp": "2026-08-06 00:00:00",
+        "duration_hours": 0.24999999994179234,
+        "fault_description": "F13",
+        "fault_code": "F13 NO MODULES",
+        "average_batteries_involved": 1.9393333333333298,
+        "unavailable_rack_hours": 5.817999998645381
+      },
+      {
+        "pcs_number": 1,
+        "start_timestamp": "2026-08-06 09:00:00",
+        "end_timestamp": "2026-08-06 09:15:00",
+        "duration_hours": 0.24999999994179234,
+        "fault_description": "F13",
+        "fault_code": "F13 NO MODULES",
+        "average_batteries_involved": 1.64333333333333,
+        "unavailable_rack_hours": 4.929999998852135
+      },
+      {
+        "pcs_number": 1,
+        "start_timestamp": "2026-08-06 14:45:00",
+        "end_timestamp": "2026-08-06 17:00:00",
+        "duration_hours": 2.25,
+        "fault_description": "F55",
+        "fault_code": "F55 EXTERNAL FAULT/OVGR",
+        "average_batteries_involved": 2.382333333333333,
+        "unavailable_rack_hours": 64.323
+      },
+      {
+        "pcs_number": 1,
+        "start_timestamp": "2026-08-06 18:00:00",
+        "end_timestamp": "2026-08-06 18:30:00",
+        "duration_hours": 0.5000000000582077,
+        "fault_description": "F55",
+        "fault_code": "F55 EXTERNAL FAULT/OVGR",
+        "average_batteries_involved": 0.62516666666667,
+        "unavailable_rack_hours": 3.7510000004366937
+      },
+      {
+        "pcs_number": 1,
+        "start_timestamp": "2026-08-06 23:15:00",
+        "end_timestamp": "2026-08-06 23:45:00",
+        "duration_hours": 0.5000000000582077,
+        "fault_description": "F13",
+        "fault_code": "F13 NO MODULES",
+        "average_batteries_involved": 1.331666666666665,
+        "unavailable_rack_hours": 7.990000000930149
+      },
+      {
+        "pcs_number": 1,
+        "start_timestamp": "2026-08-07 13:45:00",
+        "end_timestamp": "2026-08-07 15:15:00",
+        "duration_hours": 1.5,
+        "fault_description": "F55",
+        "fault_code": "F55 EXTERNAL FAULT/OVGR",
+        "average_batteries_involved": 3.0980555555555545,
+        "unavailable_rack_hours": 55.76499999999998
+      },
+      {
+        "pcs_number": 1,
+        "start_timestamp": "2026-08-07 16:30:00",
+        "end_timestamp": "2026-08-07 17:00:00",
+        "duration_hours": 0.5000000000582077,
+        "fault_description": "F55",
+        "fault_code": "F55 EXTERNAL FAULT/OVGR",
+        "average_batteries_involved": 1.9086666666666652,
+        "unavailable_rack_hours": 11.452000001333179
+      }
+    ]
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "_meta": {
+    "description": "Indice de golden references para comparacion Excel vs Python",
+    "schema_version": "1.0",
+    "tolerance_internal": 1e-09,
+    "tolerance_kpi": 1e-06,
+    "tolerance_rack_hours": 0.001,
+    "tolerance_daily": 1e-06,
+    "how_to_add": "Ejecutar tests/golden/extract_golden.py con el Excel configurado para el mes deseado"
+  },
+  "months": [
+    {
+      "id": "2026_07",
+      "label": "Julio 2026",
+      "file": "golden_2026_07_july.json",
+      "period_start": "2026-07-01",
+      "period_end": "2026-07-31",
+      "parameters": {
+        "only_operational_time": "No",
+        "apply_excused_event": "No"
+      },
+      "kpi_summary": {
+        "c12": 2976,
+        "c16_availability_period": 0.9503529130126623,
+        "c19_accumulated_annual": 0.9957833980914864
+      },
+      "status": "verified"
+    },
+    {
+      "id": "2026_08",
+      "label": "Agosto 2026",
+      "file": "golden_2026_08_august.json",
+      "period_start": "2026-08-01",
+      "period_end": "2026-08-31",
+      "parameters": {
+        "only_operational_time": "No",
+        "apply_excused_event": "No"
+      },
+      "kpi_summary": {
+        "c12": 2976,
+        "c16_availability_period": 0.9394752689090135,
+        "c19_accumulated_annual": 0.9948595433867929
+      },
+      "status": "verified"
+    },
+    {
+      "id": "2026_09",
+      "label": "Septiembre 2026",
+      "file": "golden_2026_09_september.json",
+      "period_start": "2026-09-01",
+      "period_end": "2026-09-21",
+      "note": "Periodo parcial: la macro se corrio hasta el 21-sep (C7=2026-09-21, C12=1975 bloques)",
+      "parameters": {
+        "only_operational_time": "No",
+        "apply_excused_event": "No"
+      },
+      "kpi_summary": {
+        "c12": 1975,
+        "c16_availability_period": 0.9819924099052362,
+        "c19_accumulated_annual": 0.9989850173961998
+      },
+      "status": "verified"
+    }
+  ]
+}
