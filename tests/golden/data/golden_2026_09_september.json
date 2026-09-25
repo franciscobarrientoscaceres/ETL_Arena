@@ -3,7 +3,7 @@
     "schema_version": "1.2",
     "description": "Golden reference extraída de los valores cacheados del libro (XML crudo)",
     "extraction_method": "extract_golden.py RawWorkbook (xl/worksheets/*.xml, sin conversión de fechas)",
-    "extraction_date": "2026-09-24",
+    "source_saved_at": "2026-09-24T12:24:03Z",
     "source_file": "AvailabilityCalculation_PCS&Batteries_20260907_septiembre 2026.xlsm",
     "calc_table_file": "golden_2026_09_september_calc.json.gz",
     "invariants_passed": true,
@@ -27,8 +27,7 @@
       "only_operational_time": "No",
       "apply_excused_event": "No",
       "algorithm_version": "availability-v1-excel-parity",
-      "source_file": "AvailabilityCalculation_PCS&Batteries_20260907_septiembre 2026.xlsm",
-      "extraction_date": "2026-09-24"
+      "source_file": "AvailabilityCalculation_PCS&Batteries_20260907_septiembre 2026.xlsm"
     },
     "kpi": {
       "c12_sample_blocks": 1975,

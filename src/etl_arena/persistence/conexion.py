@@ -43,6 +43,7 @@ CODIGOS_TRANSITORIOS = (
 )
 REINTENTOS = 6
 TIMEOUT_LOGIN_AZURE_S = 60
+RECICLAJE_POOL_AZURE_S = 1800
 ESPERA_S = 10.0
 log = logging.getLogger(__name__)
 
@@ -119,6 +120,8 @@ def crear_engine(url: str | URL | None = None, **kwargs) -> Engine:
     url = _a_url(url)
     if es_azure(url):  # una base serverless pausada tarda ~1 min en reanudarse
         kwargs.setdefault("connect_args", {}).setdefault("timeout", TIMEOUT_LOGIN_AZURE_S)
+        # Azure corta conexiones inactivas (~30 min) y el token Entra expira (~60-90 min)
+        kwargs.setdefault("pool_recycle", RECICLAJE_POOL_AZURE_S)
     engine = sa.create_engine(url, fast_executemany=True, pool_pre_ping=True, **kwargs)
     return _instalar_conexion(engine, _usa_entra() and es_azure(url))  # Entra solo contra Azure
 

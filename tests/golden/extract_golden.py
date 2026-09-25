@@ -155,19 +155,20 @@ def _int(v):
     return int(v) if isinstance(v, float) else v
 
 
-def texto_excel(v) -> str:
-    if v is None:
-        return ""
-    if isinstance(v, float):
-        return str(int(v)) if v.is_integer() else repr(v)
-    return str(v)
+# Reglas de texto Excel: fuente única en etl_arena.excel_semantics (ADR-04; formato General de
+# 15 dígitos significativos). Se re-exportan porque test_golden_integrity las importa desde aquí.
+from etl_arena.excel_semantics import codigo_falla_excel, texto_excel  # noqa: E402,F401
 
 
-def codigo_falla_excel(g) -> str:
-    """IFERROR(MID(G,1,FIND(" ",G,1)-1), CONCATENATE("F",G))."""
-    s = texto_excel(g)
-    p = s.find(" ")
-    return "F" + s if p == -1 else s[:p]
+def _fecha_guardado(excel_path: str) -> str | None:
+    """``dcterms:modified`` de docProps/core.xml: fecha del libro, no del momento de extraer
+    (el mismo libro produce siempre el mismo JSON)."""
+    with zipfile.ZipFile(excel_path) as z:
+        if "docProps/core.xml" not in z.namelist():
+            return None
+        xml = z.read("docProps/core.xml").decode("utf-8")
+    m = re.search(r"<dcterms:modified[^>]*>([^<]+)</dcterms:modified>", xml)
+    return m.group(1) if m else None
 
 
 # --------------------------------------------------------------------- extracción
@@ -175,7 +176,11 @@ def codigo_falla_excel(g) -> str:
 
 def extract(excel_path: str, year: int, month: int, label: str) -> tuple[dict, dict]:
     wb = RawWorkbook(excel_path)
-    calc = wb.read(SHEET_CALC, max_col=67)
+    total_pcs = _int(wb.read(SHEET_CALC, min_row=2, max_row=2, min_col=3, max_col=3).get((2, 3)))
+    if not isinstance(total_pcs, int) or total_pcs <= 0:
+        raise GoldenInvariantError(f"Calculation-Availability!C2 inválido: {total_pcs!r}")
+    col_bo = 5 + total_pcs + 1  # E = serial, F.. = PCS 1..C2, luego BO (factor excusable)
+    calc = wb.read(SHEET_CALC, max_col=col_bo)
     lof = wb.read(SHEET_FAULTS, max_col=17)
     daily_c = wb.read(SHEET_DAILY, max_row=40, max_col=8)
     annual_c = wb.read(SHEET_ANNUAL, min_row=7, max_row=18, max_col=11)
@@ -187,7 +192,6 @@ def extract(excel_path: str, year: int, month: int, label: str) -> tuple[dict, d
     if c(calc, "C12") is None:
         raise GoldenInvariantError("C12 vacío — ejecutar cmdCalcAvailability antes de extraer")
 
-    total_pcs = _int(c(calc, "C2"))
     effective = {
         "C5_period_start": _serial_to_date(c(calc, "C5")),
         "C7_period_end": _serial_to_date(c(calc, "C7")),
@@ -199,6 +203,9 @@ def extract(excel_path: str, year: int, month: int, label: str) -> tuple[dict, d
         "L14_events_apply_excused_event": c(lof, "L14"),
         "D5_daily_end": _serial_to_date(c(daily_c, "D5")),
     }
+    c5 = effective["C5_period_start"]
+    if c5 is None or (int(c5[:4]), int(c5[5:7])) != (year, month):
+        raise GoldenInvariantError(f"--year/--month = {year}-{month:02d} no coincide con C5 = {c5}")
     period = {
         "year": year,
         "month": month,
@@ -214,7 +221,6 @@ def extract(excel_path: str, year: int, month: int, label: str) -> tuple[dict, d
             "apply_excused_event": c(calc, "C31"),
             "algorithm_version": "availability-v1-excel-parity",
             "source_file": pathlib.Path(excel_path).name,
-            "extraction_date": datetime.now().strftime("%Y-%m-%d"),
         },
         "kpi": {
             "c12_sample_blocks": _int(c(calc, "C12")),
@@ -295,7 +301,7 @@ def extract(excel_path: str, year: int, month: int, label: str) -> tuple[dict, d
     row = 4
     while isinstance(c(calc, f"E{row}"), float):
         vals = [_num(calc.get((row, 5 + j))) for j in range(1, total_pcs + 1)]
-        calc_rows.append([calc[(row, 5)], vals, _num(calc.get((row, 67)))])
+        calc_rows.append([calc[(row, 5)], vals, _num(calc.get((row, col_bo)))])
         row += 1
 
     base = f"golden_{year}_{month:02d}_{label}"
@@ -304,7 +310,7 @@ def extract(excel_path: str, year: int, month: int, label: str) -> tuple[dict, d
             "schema_version": SCHEMA_VERSION,
             "description": "Golden reference extraída de los valores cacheados del libro (XML crudo)",
             "extraction_method": "extract_golden.py RawWorkbook (xl/worksheets/*.xml, sin conversión de fechas)",
-            "extraction_date": datetime.now().strftime("%Y-%m-%d"),
+            "source_saved_at": _fecha_guardado(excel_path),
             "source_file": pathlib.Path(excel_path).name,
             "calc_table_file": f"{base}_calc.json.gz",
         },

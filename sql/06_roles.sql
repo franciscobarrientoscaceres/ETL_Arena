@@ -17,6 +17,10 @@ GRANT SELECT, INSERT ON SCHEMA::dbo TO etl_writer;
 GRANT UPDATE ON dbo.etl_run (Estado, FinalizadoEn, ResumenCalidad, MensajeError, IdReferenciaExcel, MinutosMuestreoDerivado) TO etl_writer;
 GRANT UPDATE ON dbo.exclusion_matrix_carga (IdCorridaCierre) TO etl_writer;
 DENY DELETE ON SCHEMA::dbo TO etl_writer;
+-- Maestros (los mantiene el administrador con los seeds) y revisión humana (rol revisor): fuera del alcance de la carga.
+DENY INSERT, UPDATE ON dbo.proyecto TO etl_writer;
+DENY INSERT, UPDATE ON dbo.tipo_detencion TO etl_writer;
+DENY INSERT, UPDATE ON dbo.detencion_revision TO etl_writer;
 GO
 
 -- revisor: registra la revisión de detenciones (historial append-only) y lee las vistas.

@@ -74,11 +74,25 @@ class RepositorioCorridas:
             conn.close()
 
     def guardar_corrida(self, paquete: PaqueteCorrida) -> ResultadoGuardado:
-        """Una transacción para todas las tablas (R11.3)."""
+        """Una transacción para todas las tablas (R11.3). La corrida debe existir y seguir en
+        ``running``: nunca se agregan datos a una corrida ya cerrada (append-only, ADR-08)."""
+        return self._guardar_tablas(paquete, verificar_running=True)
+
+    def _guardar_tablas(self, paquete: PaqueteCorrida, verificar_running: bool = False) -> ResultadoGuardado:
         inicio = time.perf_counter()
         conn = self._conexion()
         try:
             cur = conn.cursor()
+            if verificar_running:
+                cur.execute(
+                    "SELECT Estado FROM dbo.etl_run WITH (UPDLOCK, HOLDLOCK) WHERE IdCorrida = ?", paquete.id_corrida
+                )
+                fila = cur.fetchone()
+                if fila is None or fila[0] != "running":
+                    raise RuntimeError(
+                        f"etl_run {paquete.id_corrida} no existe o no está en 'running' "
+                        f"({fila[0] if fila else 'inexistente'}): no se agregan datos"
+                    )
             for tabla in paquete.tablas:
                 self._insertar(cur, tabla)
             conn.commit()
@@ -191,7 +205,7 @@ class RepositorioCorridas:
                 [(idr, d.dia_n, _dt(d.dia), _f(d.d), _f(d.e), _f(d.f), _f(d.g)) for d in ref.diario],
             ),
         ]
-        self.guardar_corrida(PaqueteCorrida(idr, tablas))
+        self._guardar_tablas(PaqueteCorrida(idr, tablas))
         return idr
 
     def guardar_reconciliacion(
@@ -227,7 +241,7 @@ class RepositorioCorridas:
                 for f in filas
             ],
         )
-        self.guardar_corrida(PaqueteCorrida(id_corrida, [tabla]))
+        self._guardar_tablas(PaqueteCorrida(id_corrida, [tabla]))
         return len(tabla.filas)
 
     # ------------------------------------------------------------------ cargas mensuales y revisión

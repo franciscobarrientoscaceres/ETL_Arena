@@ -205,6 +205,12 @@ def test_rollback_total_y_estado_failed(engine, repo, libro_sintetico):
     assert _consulta(engine, "SELECT Estado FROM dbo.etl_run WHERE IdCorrida = ?", cfg.id_corrida)[0][0] == "failed"
 
 
+def test_no_se_agregan_datos_a_corrida_cerrada(repo, libro_sintetico):  # Checkpoint B-2
+    cfg, _, paquete = _corrida(repo, libro_sintetico)  # ya finalizada en success
+    with pytest.raises(RuntimeError):
+        repo.guardar_corrida(paquete)
+
+
 def test_finalizar_solo_desde_running(repo, libro_sintetico):
     cfg, _, _ = _corrida(repo, libro_sintetico)
     with pytest.raises(RuntimeError):
@@ -285,9 +291,15 @@ def test_etl_writer_append_only(engine, repo, libro_sintetico):
             f"UPDATE dbo.etl_run SET Estado = 'failed' WHERE IdCorrida = '{cfg.id_corrida}'",
             "DELETE FROM dbo.fault_event WHERE 1 = 0",
             "UPDATE dbo.availability_run_result SET BloquesMuestreo = 0 WHERE 1 = 0",
+            # Checkpoint B-1: maestros y revisión humana fuera del alcance de la carga
+            "INSERT INTO dbo.proyecto (IdProyecto, Nombre, Estado) VALUES (99, N'x', N'por_implementar')",
+            "INSERT INTO dbo.tipo_detencion (IdTipoDetencion, CodigoFalla, DescripcionFallaPE, CodigoDescripcion) "
+            "VALUES (9999, N'F9999', N'x', N'x')",
+            "INSERT INTO dbo.detencion_revision (IdProyecto, NumeroPCS, FechaInicio, EstadoRevision, RevisadoPor) "
+            "VALUES (1, 1, GETDATE(), N'revisado', N'carga')",
         ],
     )
-    assert res[0] is None and res[1] is not None and res[2] is not None
+    assert res[0] is None and all(e is not None for e in res[1:]), res
 
 
 # ------------------------------------------------------------------ referencia, reconciliación, cargas, auditoría

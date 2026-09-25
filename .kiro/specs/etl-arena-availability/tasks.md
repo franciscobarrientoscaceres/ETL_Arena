@@ -95,7 +95,7 @@ Agentes disponibles en `.opencode/agent/` (OpenCode, `mode: subagent`). Son perf
 - [ ] 0.8 Muestra de la entrega mensual de `Exclusion_Matrix` (D-17) — **Humano (Alex / Francisco)**
   - Guardar en `tests/fixtures/exclusion_matrix/` la `Exclusion_Matrix` mensual tal como se entrega (D-17) y, si aplica, PlantActivity + nota: formato, quién la mantiene, período que cubre.
 
-- [ ] **Checkpoint 0 — code-reviewer**: revisar 0.3 y 0.4 (extractor, esquema del golden, `.gitignore`). Preguntar al usuario si hay ajustes.
+- [x] **Checkpoint 0 — code-reviewer**: revisar 0.3 y 0.4 (extractor, esquema del golden, `.gitignore`). Preguntar al usuario si hay ajustes. *(cerrado 2026-09-24: extractor valida `--year/--month` contra C5, columna BO derivada de C2, `texto_excel`/`codigo_falla_excel` desde `excel_semantics` (15 dígitos), fecha reproducible `source_saved_at` (docProps/core.xml); golden sep regenerado idéntico)*
 
 ### Fase 1 — Núcleo de paridad (Python puro)
 
@@ -155,7 +155,7 @@ Agentes disponibles en `.opencode/agent/` (OpenCode, `mode: subagent`). Son perf
   - *Hecho 2026-09-24: paridad **bit a bit** en todo lo anterior y en la tabla E4:BO (1975×61); `golden_index` sep → `verified`. Hallazgos nuevos F-33…F-36 en `audit.md`.*
   - _R14, R13.7_
 
-- [ ] **Checkpoint A — code-reviewer**: checklist de paridad completo sobre Fase 1; cobertura ≥ 90 % en motores y `excel_semantics`. Preguntar al usuario si hay ajustes.
+- [x] **Checkpoint A — code-reviewer**: checklist de paridad completo sobre Fase 1; cobertura ≥ 90 % en motores y `excel_semantics`. Preguntar al usuario si hay ajustes. *(cerrado 2026-09-24 con visto bueno de F. Barrientos: checklist OK, cobertura 94–100 %)*
 
 ### Fase 2 — SQL Server
 
@@ -183,7 +183,7 @@ Agentes disponibles en `.opencode/agent/` (OpenCode, `mode: subagent`). Son perf
   - Cargar una corrida real completa (~1M filas raw + ~120k muestras de período). Objetivo: `guardar_corrida` < 3 min en el equipo local; si no, `BULK INSERT` desde CSV temporal. Documentar tamaños con columnstore.
   - _F-28, ADR-09_
 
-- [ ] **Checkpoint B — code-reviewer**: DDL vs design, append-only, seguridad, sin credenciales en repo.
+- [x] **Checkpoint B — code-reviewer**: DDL vs design, append-only, seguridad, sin credenciales en repo. *(cerrado 2026-09-24, incluye Azure SQL/Entra: sin credenciales ni `.env` versionados; B-1 `etl_writer` sin INSERT/UPDATE en `proyecto`, `tipo_detencion` y `detencion_revision`; B-2 `guardar_corrida` exige `etl_run` en `running` (UPDLOCK); B-3 `pool_recycle` 30 min en Azure. Aplicado también en `trina_etl`)*
 
 ### Fase 3 — Pipeline, calidad y reconciliación
 
