@@ -328,6 +328,7 @@ def construir_paquete(
             "FechaInicio",
             "FechaTermino",
             "DuracionSegundos",
+            "DuracionHoras",
             "IdTipoDetencion",
             "CodigoFalla",
             "DescripcionFalla",
@@ -383,6 +384,7 @@ def construir_paquete(
                 _dt(e.marca_tiempo_inicio),
                 _dt(e.marca_tiempo_fin),
                 round(e.duracion_horas * 3600),
+                e.duracion_horas,  # mismo valor que fault_event.DuracionHoras (ListOfFaults!E)
                 id_tipo,
                 e.codigo_falla[:300],
                 e.descripcion_falla[:255],

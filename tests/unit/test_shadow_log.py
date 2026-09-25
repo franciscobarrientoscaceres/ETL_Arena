@@ -22,6 +22,7 @@ def _corte(work: Path, corte: str, *, tipo="semanal", rec="pass", estado="succes
     d.mkdir(parents=True)
     etl = {
         "id_corrida": f"id-{corte}",
+        "num_corrida": 5,
         "estado": estado,
         "tipo": tipo,
         "periodo": ["2026-09-01", "2026-09-21"],
@@ -61,6 +62,7 @@ def test_agrega_una_fila_con_delta_contra_el_kpi_de_alex(tmp_path, log, capsys):
         "0.981990",
     )
     assert f["Δ"] == "2.41e-06" and f["Nota"] == "ok / sin novedades"
+    assert f["N° corrida"] == "5" and f["IdCorrida"] == "`id-2026-09-28`"
 
 
 def test_corte_sin_run_etl_ok_falla(tmp_path, log, capsys):

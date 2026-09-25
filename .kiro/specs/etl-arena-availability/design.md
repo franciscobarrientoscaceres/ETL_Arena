@@ -562,6 +562,7 @@ CREATE TABLE tipo_detencion (          -- seed generado desde PCS-Fault (167 fil
 ```sql
 CREATE TABLE etl_run (
     IdCorrida                      UNIQUEIDENTIFIER NOT NULL PRIMARY KEY,
+    NumCorrida                     INT IDENTITY(1,1) NOT NULL UNIQUE,   -- correlativo para personas (2026-09-25)
     IdProyecto                     INT            NOT NULL REFERENCES proyecto(IdProyecto),
     TipoCorrida                    NVARCHAR(20)   NOT NULL CHECK (TipoCorrida IN ('semanal','cierre_mensual','reproceso','golden')),
     EsOficial                      BIT            NOT NULL DEFAULT 0,
@@ -794,6 +795,7 @@ CREATE TABLE detencion (               -- append-only por corrida
     FechaInicio                   DATETIME       NOT NULL,
     FechaTermino                  DATETIME       NOT NULL,
     DuracionSegundos              INT            NOT NULL,   -- ROUND(DuracionHoras*3600)
+    DuracionHoras                 FLOAT          NOT NULL,   -- = fault_event.DuracionHoras (2026-09-25)
     IdTipoDetencion               INT            NULL REFERENCES tipo_detencion(IdTipoDetencion),
     CodigoFalla                   NVARCHAR(300)  NOT NULL,
     DescripcionFalla              NVARCHAR(255)  NOT NULL,

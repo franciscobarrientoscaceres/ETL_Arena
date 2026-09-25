@@ -229,6 +229,7 @@ def etapa_etl(args, estado: Estado, dir_corte: Path) -> dict:
             mes_cerrado=(lambda a, m: repo.mes_cerrado(cfg.id_proyecto, a, m)) if repo else None,
         )
     return {
+        "num_corrida": res.num_corrida,
         "id_corrida": res.id_corrida,
         "entorno": args.entorno,
         "estado": res.estado,
@@ -280,6 +281,7 @@ def etapa_notify(args, estado: Estado, dir_corte: Path) -> dict:
         etl.get("reconciliacion"),
         {"anomalias": etl.get("anomalias") or {}},
         ColaCierres(args.work).pendientes(),
+        num_corrida=etl.get("num_corrida"),
     )
     if args.entorno == "prueba":  # nunca avisar a Misael de una carga de prueba
         mensaje["titulo"] = f"[PRUEBA] {mensaje['titulo']}"

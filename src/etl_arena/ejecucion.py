@@ -31,6 +31,7 @@ class ResultadoEjecucion:
     id_corrida: str
     estado: str  # success | parity_failed | failed
     estado_exclusiones: str = "sin_exclusiones"  # D-17
+    num_corrida: int | None = None  # etl_run.NumCorrida (1, 2, 3…); None sin base de datos
     resultado: ResultadoCalculo | None = None
     reconciliacion: ReporteReconciliacion | None = None
     resumen_calidad: dict = field(default_factory=dict)
@@ -83,11 +84,12 @@ def ejecutar_corrida(
     meta = MetadatosCorrida(
         hash_archivo, estado_exclusiones=estado_exclusiones, filas_nuevas_export=filas_nuevas_export
     )
-    salida = ResultadoEjecucion(cfg.id_corrida, "running", estado_exclusiones)
+    salida = ResultadoEjecucion(cfg.id_corrida, "running", estado_exclusiones=estado_exclusiones)
     if repo is not None:
-        repo.iniciar(cfg, meta)
+        salida.num_corrida = repo.iniciar(cfg, meta)
     log.info(
-        "corrida iniciada: %s %s..%s (%s)",
+        "corrida %s iniciada: %s %s..%s (%s)",
+        f"N° {salida.num_corrida}" if salida.num_corrida else "(sin BD)",
         cfg.tipo_corrida,
         cfg.inicio_periodo,
         cfg.fin_periodo,

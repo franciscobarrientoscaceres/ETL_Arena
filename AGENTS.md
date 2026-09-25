@@ -799,7 +799,8 @@ CodigoDescripcion      -- código + descripción (ej: 'F55 Fallo externo')
 Campos sugeridos:
 
 ```text
-IdCorrida
+IdCorrida                  -- llave (UUID generado en Python antes de tocar la base)
+NumCorrida                 -- correlativo 1, 2, 3… para personas (IDENTITY, sin caché)
 archivo_origen
 SistemaOrigen
 IniciadoEn
@@ -969,7 +970,8 @@ IdCorrida                      -- FK -> etl_run
 numero_pcs
 FechaInicio
 FechaTermino
-DuracionSegundos           -- DATEDIFF(seconds, FechaInicio, FechaTermino)
+DuracionSegundos           -- ROUND(DuracionHoras * 3600)
+DuracionHoras              -- = fault_event.DuracionHoras (ListOfFaults!E), la misma duración en horas
 IdTipoDetencion           -- FK -> tipo_detencion (NULL si código no existe en catálogo)
 codigo_falla
 descripcion_falla
@@ -989,7 +991,7 @@ La diferencia entre `fault_event` y `detencion`:
 | Tabla técnica de auditoría | Tabla operacional de negocio |
 | Append-only por IdCorrida | Permite UPDATE en Observacion y EstadoRevision |
 | Sin FK a proyecto | Con FK a proyecto |
-| Sin DuracionSegundos | Con DuracionSegundos calculado |
+| Duración solo en horas (`DuracionHoras`) | Duración en segundos y en horas (`DuracionSegundos`, `DuracionHoras`) |
 | Sin campos de workflow | Con EstadoRevision y Observacion |
 
 ---

@@ -9,10 +9,10 @@ GO
 -- (cierre mensual con la Exclusion_Matrix de Alex) sobre "Sin Exclusiones" (semanales); a igualdad,
 -- el período más largo y luego la más reciente. Las corridas golden nunca son vigentes.
 CREATE OR ALTER VIEW dbo.v_corrida_oficial_vigente AS
-SELECT IdCorrida, IdProyecto, Anio, Mes, TipoCorrida, EstadoExclusiones, EtiquetaExclusiones,
+SELECT IdCorrida, NumCorrida, IdProyecto, Anio, Mes, TipoCorrida, EstadoExclusiones, EtiquetaExclusiones,
        InicioPeriodo, FinPeriodo, IniciadoEn, FinalizadoEn, VersionAlgoritmo, ArchivoOrigen, HashArchivoOrigen
 FROM (
-    SELECT r.IdCorrida, r.IdProyecto,
+    SELECT r.IdCorrida, r.NumCorrida, r.IdProyecto,
            YEAR(r.FinPeriodo) AS Anio, MONTH(r.FinPeriodo) AS Mes,
            r.TipoCorrida, r.EstadoExclusiones,
            CASE r.EstadoExclusiones WHEN N'con_exclusiones' THEN N'Con Exclusiones' ELSE N'Sin Exclusiones' END AS EtiquetaExclusiones,
@@ -28,7 +28,7 @@ WHERE rn = 1;
 GO
 
 CREATE OR ALTER VIEW dbo.v_kpi_vigente AS
-SELECT v.IdProyecto, v.Anio, v.Mes, v.IdCorrida, v.TipoCorrida, v.EtiquetaExclusiones,
+SELECT v.IdProyecto, v.Anio, v.Mes, v.IdCorrida, v.NumCorrida, v.TipoCorrida, v.EtiquetaExclusiones,
        v.InicioPeriodo, v.FinPeriodo,
        a.BloquesMuestreo, a.TotalRacks, a.BloquesRacksIndisponibles,
        a.DisponibilidadPeriodo, a.DisponibilidadAnualAcumulada, a.MinutosMuestreoDerivado, a.HorasRackEventos
@@ -37,7 +37,7 @@ JOIN dbo.availability_run_result AS a ON a.IdCorrida = v.IdCorrida;
 GO
 
 CREATE OR ALTER VIEW dbo.v_daily_vigente AS
-SELECT v.IdProyecto, v.Anio, v.Mes, v.IdCorrida, v.EtiquetaExclusiones,
+SELECT v.IdProyecto, v.Anio, v.Mes, v.IdCorrida, v.NumCorrida, v.EtiquetaExclusiones,
        d.DiaN, d.Dia, d.BloquesRacksIndisponiblesDiarios, d.BloquesRacksIndisponiblesAcumulados,
        d.Disponibilidad, d.Variacion
 FROM dbo.v_corrida_oficial_vigente AS v
@@ -45,7 +45,7 @@ JOIN dbo.daily_availability AS d ON d.IdCorrida = v.IdCorrida;
 GO
 
 CREATE OR ALTER VIEW dbo.v_fault_event_vigente AS
-SELECT v.IdProyecto, v.Anio, v.Mes, v.IdCorrida, v.EtiquetaExclusiones, e.*
+SELECT v.IdProyecto, v.Anio, v.Mes, v.IdCorrida, v.NumCorrida, v.EtiquetaExclusiones, e.*
 FROM dbo.v_corrida_oficial_vigente AS v
 CROSS APPLY (SELECT f.OrdenExcel, f.NumeroPCS, f.MarcaTiempoInicio, f.MarcaTiempoFin, f.DuracionHoras,
                     f.CodigoFalla, f.DescripcionFalla, f.DescripcionFallaFallback, f.PromedioBateriasInvolucradas,
@@ -54,7 +54,7 @@ CROSS APPLY (SELECT f.OrdenExcel, f.NumeroPCS, f.MarcaTiempoInicio, f.MarcaTiemp
 GO
 
 CREATE OR ALTER VIEW dbo.v_fault_code_vigente AS
-SELECT v.IdProyecto, v.Anio, v.Mes, v.IdCorrida, v.EtiquetaExclusiones,
+SELECT v.IdProyecto, v.Anio, v.Mes, v.IdCorrida, v.NumCorrida, v.EtiquetaExclusiones,
        s.Ranking, s.CodigoFalla, s.DescripcionFallaPE, s.HorasRackIndisponibles, s.Porcentaje
 FROM dbo.v_corrida_oficial_vigente AS v
 JOIN dbo.fault_code_summary AS s ON s.IdCorrida = v.IdCorrida;
@@ -66,9 +66,9 @@ CREATE OR ALTER VIEW dbo.v_monthly_kpi_vigente AS
 SELECT k.IdProyecto, k.Anio, k.Mes, k.DiasMes, k.BloquesMuestreo, k.BloquesRacksIndisponibles,
        CASE WHEN p.TotalRacks > 0 AND k.BloquesMuestreo > 0
             THEN 1 - k.BloquesRacksIndisponibles / (p.TotalRacks * k.BloquesMuestreo) END AS DisponibilidadMensual,
-       k.DisponibilidadContractual, k.Origen, k.IdCorrida, k.RegistradoEn
+       k.DisponibilidadContractual, k.Origen, k.IdCorrida, k.NumCorrida, k.RegistradoEn
 FROM (
-    SELECT m.*, ROW_NUMBER() OVER (
+    SELECT m.*, r.NumCorrida, ROW_NUMBER() OVER (
                PARTITION BY m.IdProyecto, m.Anio, m.Mes
                ORDER BY CASE r.EstadoExclusiones WHEN N'con_exclusiones' THEN 0 ELSE 1 END,
                         m.RegistradoEn DESC, m.IdKpiMensual DESC) AS rn
@@ -83,9 +83,9 @@ GO
 CREATE OR ALTER VIEW dbo.v_annual_vigente AS
 SELECT x.IdProyecto, a.Anio, a.Mes, a.DiasMes, a.BloquesMuestreo, a.BloquesRacksIndisponibles, a.DisponibilidadMensual,
        a.BloquesMuestreoAcumulados, a.BloquesIndisponiblesAcumulados, a.DisponibilidadAcumulada,
-       a.DisponibilidadContractual, x.IdCorrida
+       a.DisponibilidadContractual, x.IdCorrida, x.NumCorrida
 FROM (
-    SELECT v.IdProyecto, v.Anio, v.IdCorrida,
+    SELECT v.IdProyecto, v.Anio, v.IdCorrida, v.NumCorrida,
            ROW_NUMBER() OVER (PARTITION BY v.IdProyecto, v.Anio ORDER BY v.Mes DESC) AS rn
     FROM dbo.v_corrida_oficial_vigente AS v
     WHERE EXISTS (SELECT 1 FROM dbo.annual_availability AS aa WHERE aa.IdCorrida = v.IdCorrida)
@@ -96,8 +96,8 @@ GO
 
 -- Detenciones de las corridas vigentes con su última revisión (la revisión sobrevive a los reprocesos, F-27).
 CREATE OR ALTER VIEW dbo.v_detencion_vigente AS
-SELECT d.IdDetencion, d.IdProyecto, v.Anio, v.Mes, d.IdCorrida, v.EtiquetaExclusiones, d.OrdenExcel, d.NumeroPCS,
-       d.FechaInicio, d.FechaTermino, d.DuracionSegundos, d.IdTipoDetencion, t.Significado, t.Operativo,
+SELECT d.IdDetencion, d.IdProyecto, v.Anio, v.Mes, d.IdCorrida, v.NumCorrida, v.EtiquetaExclusiones, d.OrdenExcel, d.NumeroPCS,
+       d.FechaInicio, d.FechaTermino, d.DuracionSegundos, d.DuracionHoras, d.IdTipoDetencion, t.Significado, t.Operativo,
        d.CodigoFalla, d.DescripcionFalla, d.DescripcionFallaFallback, d.PromedioBateriasInvolucradas,
        d.HorasRackIndisponibles, d.CerradoPorModulosNulo, d.EsExcusable, d.EventoArrastradoExcel,
        COALESCE(rv.EstadoRevision, N'pendiente') AS EstadoRevision, rv.Observacion, rv.RevisadoPor, rv.RevisadoEn
@@ -113,7 +113,7 @@ OUTER APPLY (
 GO
 
 CREATE OR ALTER VIEW dbo.v_calidad_corrida AS
-SELECT r.IdCorrida, r.IdProyecto, r.TipoCorrida, r.EsOficial, r.EstadoExclusiones, r.Estado,
+SELECT r.IdCorrida, r.NumCorrida, r.IdProyecto, r.TipoCorrida, r.EsOficial, r.EstadoExclusiones, r.Estado,
        r.InicioPeriodo, r.FinPeriodo, r.IniciadoEn, q.Tipo, q.Severidad, q.Cantidad
 FROM dbo.etl_run AS r
 LEFT JOIN (
@@ -125,7 +125,7 @@ GO
 
 -- Intervalos con NUMBER_OF_MODULES vacío en toda la historia vigente (R15.4): no se suprimen.
 CREATE OR ALTER VIEW dbo.v_modulos_nulos_historico AS
-SELECT v.IdProyecto, v.Anio, v.Mes, s.IdCorrida, s.NumeroFilaOrigen, s.NumeroPCS,
+SELECT v.IdProyecto, v.Anio, v.Mes, s.IdCorrida, v.NumCorrida, s.NumeroFilaOrigen, s.NumeroPCS,
        s.SerialFechaExcelOrigen, s.MarcaTiempoLocalOrigen, s.FallaRaw, s.EstadoRaw
 FROM dbo.v_corrida_oficial_vigente AS v
 JOIN dbo.raw_pcs_sample AS s ON s.IdCorrida = v.IdCorrida
@@ -134,7 +134,7 @@ GO
 
 -- Cambios de datos (reproceso o cargas mensuales, D-13/D-17) con el KPI de la corrida que los aplicó.
 CREATE OR ALTER VIEW dbo.v_correccion_dato AS
-SELECT c.IdCorreccion, c.IdCorrida, r.TipoCorrida, r.IniciadoEn AS FechaEjecucion, c.TipoCorreccion, c.Hoja,
+SELECT c.IdCorreccion, c.IdCorrida, r.NumCorrida, r.TipoCorrida, r.IniciadoEn AS FechaEjecucion, c.TipoCorreccion, c.Hoja,
        c.NumeroFilaOrigen, c.MarcaTiempoLocalOrigen, c.NumeroPCS, c.Campo, c.ValorAnterior, c.ValorNuevo,
        c.ArchivoOrigen, c.Sha256Archivo, a.BloquesRacksIndisponibles AS C14Corrida, a.DisponibilidadPeriodo AS C16Corrida
 FROM dbo.correccion_dato AS c

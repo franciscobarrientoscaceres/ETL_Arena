@@ -54,6 +54,7 @@ def fila_desde_estado(dir_corte: Path, corte: str, kpi_excel: float | None, nota
         _num(c16, ".6f"),
         _num(kpi_excel, ".6f"),
         _num(delta, ".2e"),
+        str(a.get("num_corrida") or ""),
         f"`{a['id_corrida']}`",
         nota.replace("|", "/"),
     ]

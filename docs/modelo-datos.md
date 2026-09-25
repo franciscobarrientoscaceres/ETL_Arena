@@ -157,7 +157,8 @@ erDiagram
         int MinutosMuestreo "15"
     }
     CORRIDA {
-        uuid IdCorrida PK
+        uuid IdCorrida PK "llave interna"
+        int NumCorrida UK "1, 2, 3... para personas"
         string TipoCorrida "semanal o cierre_mensual"
         bool EsOficial
         string EstadoExclusiones "sin o con"
@@ -279,6 +280,8 @@ erDiagram
         int NumeroPCS
         datetime FechaInicio
         datetime FechaTermino
+        int DuracionSegundos
+        float DuracionHoras "misma duración en horas"
         bool EsExcusable
     }
     REVISION {
@@ -361,6 +364,18 @@ erDiagram
 Todo lo demás se "cuelga" de la corrida con su `IdCorrida`. Así se puede responder siempre: *¿de dónde salió este
 número?*
 
+Cada corrida tiene **dos identificadores**:
+
+| Campo | Ejemplo | Para qué |
+|---|---|---|
+| `NumCorrida` | `12` | Para **personas**: "revisa la corrida 12". Correlativo 1, 2, 3… que asigna la base al guardar |
+| `IdCorrida` | `4d763e71-a9d5-…` | Para el **sistema**: la llave que une todas las tablas |
+
+¿Por qué no basta con el número? `IdCorrida` se crea en Python **antes** de tocar la base (lo usan los logs, la
+carpeta del corte y los ensayos sin base de datos), y nunca se repite aunque haya varios computadores y dos bases
+(PROD y TEST/QA). Un número, en cambio, solo existe después de guardar y se repite entre bases: la corrida 12 de
+TEST/QA no es la corrida 12 de PROD.
+
 ### 📥 3. Lo que entra
 
 | Concepto | Tabla | Qué guarda |
@@ -382,7 +397,7 @@ número?*
 | Día | `daily_availability` | La curva diaria (`Daily`): disponibilidad acumulada hasta cada día y su variación. |
 | KPI mensual | `monthly_official_kpi` | El número oficial de cada mes. Julio y agosto 2026 vienen del Excel (`excel_manual`). |
 | Acumulado anual | `annual_availability` | La tabla `Annual_AVA`: cada mes y la **disponibilidad acumulada del año** contra el 98 % contractual. |
-| Detención | `detencion` | Los eventos listos para operación, con su tipo del catálogo. |
+| Detención | `detencion` | Los eventos listos para operación, con su tipo del catálogo y la duración en **segundos** (`DuracionSegundos`) y en **horas** (`DuracionHoras`). |
 | Revisión | `detencion_revision` | Lo que una persona anota al revisar una detención (estado, observación, quién y cuándo). Se conserva aunque el mes se recalcule. |
 
 ### ✅ 5. Los controles

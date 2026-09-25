@@ -27,11 +27,14 @@ def construir_mensaje(
     reconciliacion: dict | None,
     calidad: dict | None,
     cierres_pendientes: list[str] | None = None,
+    num_corrida: int | None = None,
 ) -> dict:
     etiqueta = "Con Exclusiones" if estado_exclusiones == "con_exclusiones" else "Sin Exclusiones"
+    numero = f"Corrida N° {num_corrida} — " if num_corrida else ""
     anomalias = (calidad or {}).get("anomalias", {})
     return {
-        "titulo": f"ETL Arena — {estado.upper()} — {periodo[0]} a {periodo[1]} ({etiqueta})",
+        "titulo": f"ETL Arena — {numero}{estado.upper()} — {periodo[0]} a {periodo[1]} ({etiqueta})",
+        "num_corrida": num_corrida,
         "id_corrida": id_corrida,
         "periodo": {"inicio": periodo[0], "fin": periodo[1]},
         "estado": estado,
@@ -53,7 +56,7 @@ def a_markdown(m: dict) -> str:
     lineas = [
         f"# {m['titulo']}",
         "",
-        f"- **IdCorrida:** `{m['id_corrida']}`",
+        f"- **Corrida:** N° {m.get('num_corrida') or '— (sin base de datos)'} · IdCorrida `{m['id_corrida']}`",
         f"- **Estado:** {m['estado']} · **Reconciliación:** {m['reconciliacion']} · **{m['exclusiones']}**",
         f"- **KPI:** C12 = {k.get('C12')}, C14 = {k.get('C14')}, disponibilidad del período (C16) = {k.get('C16')}",
         f"- **Anomalías:** {m['anomalias']['total']} {m['anomalias']['por_severidad']}",

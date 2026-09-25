@@ -25,7 +25,7 @@ flowchart LR
 
 1. **En el server SCADA solo se exporta.** Nunca se corre nada allí.
 2. **Los originales no se tocan.** El programa siempre trabaja sobre **copias** (carpeta `data/work/`).
-3. **Nada se borra de la base de datos.** Cada cálculo queda guardado con su propio código (`IdCorrida`).
+3. **Nada se borra de la base de datos.** Cada cálculo queda guardado como una corrida con su número (`NumCorrida`: 1, 2, 3…) y su código interno (`IdCorrida`).
 4. **Las exclusiones salen solo de la `Exclusion_Matrix`** que entrega Alex a fin de mes. `PlantActivity` no se
    usa para exclusiones mientras Alex no lo confirme.
 5. **Mientras el programa usa Excel, no uses Excel** (se abre una ventana sola por unos 2 minutos y se cierra sola).
@@ -105,6 +105,7 @@ Para saber más, abre `data\work\<corte>\run_state.json` con el Bloc de notas. E
 
 | Dato | Qué debe decir | Qué significa |
 |---|---|---|
+| `"num_corrida"` | un número, por ejemplo `12` | El número de esta corrida en la base (úsalo al hablar de ella) |
 | `"estado"` | `success` | El cálculo terminó bien |
 | `"reconciliacion" → "estado"` | `pass` | Python y Excel dan **exactamente** lo mismo |
 | `"kpi" → "C16"` | un número como `0.98` | La disponibilidad del período (0,98 = 98 %) |

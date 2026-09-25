@@ -6,9 +6,15 @@ SET QUOTED_IDENTIFIER ON;
 GO
 
 -- ============================================================ corrida
+-- Correlativos sin saltos: por defecto SQL Server/Azure reserva IDENTITY en bloques de 1000 y los pierde
+-- al reiniciarse (una base serverless se pausa y reanuda a diario). NumCorrida debe ser 1, 2, 3…
+ALTER DATABASE SCOPED CONFIGURATION SET IDENTITY_CACHE = OFF;
+GO
+
 IF OBJECT_ID(N'dbo.etl_run', N'U') IS NULL
 CREATE TABLE dbo.etl_run (
     IdCorrida                      UNIQUEIDENTIFIER NOT NULL CONSTRAINT PK_etl_run PRIMARY KEY,
+    NumCorrida                     INT IDENTITY(1,1) NOT NULL CONSTRAINT UQ_etl_run_NumCorrida UNIQUE,  -- 1, 2, 3… para personas
     IdProyecto                     INT            NOT NULL CONSTRAINT FK_etl_run_proyecto REFERENCES dbo.proyecto(IdProyecto),
     TipoCorrida                    NVARCHAR(20)   NOT NULL CONSTRAINT CK_etl_run_tipo CHECK (TipoCorrida IN (N'semanal', N'cierre_mensual', N'reproceso', N'golden')),
     EsOficial                      BIT            NOT NULL CONSTRAINT DF_etl_run_oficial DEFAULT 0,
@@ -39,6 +45,14 @@ CREATE TABLE dbo.etl_run (
     ResumenCalidad                 NVARCHAR(MAX)  NULL CONSTRAINT CK_etl_run_resumen CHECK (ResumenCalidad IS NULL OR ISJSON(ResumenCalidad) = 1),
     VersionAlgoritmo               NVARCHAR(100)  NOT NULL
 );
+GO
+
+-- Migración 2026-09-25: número correlativo de corrida para personas (IdCorrida sigue siendo la llave).
+IF COL_LENGTH(N'dbo.etl_run', N'NumCorrida') IS NULL
+    ALTER TABLE dbo.etl_run ADD NumCorrida INT IDENTITY(1,1) NOT NULL;
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UQ_etl_run_NumCorrida' AND object_id = OBJECT_ID(N'dbo.etl_run'))
+    ALTER TABLE dbo.etl_run ADD CONSTRAINT UQ_etl_run_NumCorrida UNIQUE (NumCorrida);
 GO
 
 IF OBJECT_ID(N'dbo.raw_pcs_column_map', N'U') IS NULL
@@ -271,6 +285,7 @@ CREATE TABLE dbo.detencion (               -- append-only por corrida
     FechaInicio                   DATETIME       NOT NULL,
     FechaTermino                  DATETIME       NOT NULL,
     DuracionSegundos              INT            NOT NULL,   -- ROUND(DuracionHoras*3600)
+    DuracionHoras                 FLOAT          NOT NULL,   -- = fault_event.DuracionHoras (ListOfFaults!E)
     IdTipoDetencion               INT            NULL CONSTRAINT FK_detencion_tipo REFERENCES dbo.tipo_detencion(IdTipoDetencion),
     CodigoFalla                   NVARCHAR(300)  NOT NULL,
     DescripcionFalla              NVARCHAR(255)  NOT NULL,
@@ -281,6 +296,12 @@ CREATE TABLE dbo.detencion (               -- append-only por corrida
     EsExcusable                   BIT            NOT NULL,   -- algún bloque con Exclusion_Matrix ≠ 0 (F-37)
     EventoArrastradoExcel         BIT            NOT NULL
 );
+GO
+
+-- Migración 2026-09-25: bases creadas antes de DuracionHoras. ALTER la agrega al final de la tabla
+-- (NULL para filas previas); las vistas la muestran junto a DuracionSegundos.
+IF COL_LENGTH(N'dbo.detencion', N'DuracionHoras') IS NULL
+    ALTER TABLE dbo.detencion ADD DuracionHoras FLOAT NULL;
 GO
 
 IF OBJECT_ID(N'dbo.detencion_revision', N'U') IS NULL

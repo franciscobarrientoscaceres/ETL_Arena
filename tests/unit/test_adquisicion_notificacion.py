@@ -104,3 +104,15 @@ def test_webhook(tmp_path):
 
 def test_webhook_caido_cae_a_markdown(tmp_path, capsys):
     assert enviar(MENSAJE, tmp_path, webhook="http://127.0.0.1:9/").endswith("notificacion.md")
+
+
+def test_mensaje_con_numero_de_corrida():
+    m = construir_mensaje(
+        "abc", ("2026-09-01", "2026-09-21"), "success", "sin_exclusiones", {}, None, None, num_corrida=12
+    )
+    from etl_arena.reporting.notificacion import a_markdown
+
+    assert "Corrida N° 12" in m["titulo"] and m["num_corrida"] == 12
+    assert "N° 12 · IdCorrida `abc`" in a_markdown(m)
+    sin_bd = construir_mensaje("abc", ("a", "b"), "success", "sin_exclusiones", {}, None, None)
+    assert "N°" not in sin_bd["titulo"] and "sin base de datos" in a_markdown(sin_bd)

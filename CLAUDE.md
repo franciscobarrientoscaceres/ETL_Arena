@@ -225,7 +225,7 @@ Scripts principales: `scripts/run_lunes.py` (orquestador semanal) y `scripts/eje
 
 | Tabla | Columnas clave |
 |---|---|
-| `etl_run` | `IdCorrida`, `IdProyecto`, parámetros de corrida (período, flags, `TotalPCS`…), `Status`, `MensajeError`, `VersionAlgoritmo`. Los KPI C12/C14 viven en `availability_run_result`, no aquí |
+| `etl_run` | `IdCorrida` (llave UUID), `NumCorrida` (correlativo 1, 2, 3… para personas; `IDENTITY_CACHE = OFF`), `IdProyecto`, parámetros de corrida (período, flags, `TotalPCS`…), `Status`, `MensajeError`, `VersionAlgoritmo`. Los KPI C12/C14 viven en `availability_run_result`, no aquí |
 | `proyecto` | `IdProyecto`, `NumPCS`, `NumBateriasPorPCS`, `NumRacksPorBAC`, `TotalRacks`, `MinutosMuestreo`, `ZonaHoraria` |
 | `tipo_detencion` | `IdTipoDetencion`, `CodigoFalla`, `DescripcionFallaPE`, `CodigoDescripcion`, `Significado`, `Operativo` (167 códigos de `PCS-Fault`) |
 | `raw_pcs_sample` | `IdCorrida`, `MarcaTiempoMuestra`, `NumeroPCS`, `ModulosDisponibles`, `ModulosDisponiblesNulo`, `SerialFechaExcelOrigen` |
@@ -234,7 +234,7 @@ Scripts principales: `scripts/run_lunes.py` (orquestador semanal) y `scripts/eje
 | `availability_sample_result` | `IdCorrida`, `MarcaTiempoMuestra`, `NumeroPCS`, `BateriasIndisponibles`, `ValorExclusion`, `FactorOperacional`, `ImpactoRackPonderado` |
 | `availability_run_result` | `IdCorrida`, `BloquesMuestreo`, `BloquesRacksIndisponibles`, `DisponibilidadPeriodo`, `DisponibilidadAnualAcumulada` |
 | `fault_event` | `IdCorrida`, `NumeroPCS`, `MarcaTiempoInicio`, `MarcaTiempoFin`, `DuracionHoras`, `CodigoFalla`, `DescripcionFallaFallback`, `HorasRackIndisponibles` |
-| `detencion` | `IdDetencion`, `IdProyecto`, `IdCorrida`, `FechaInicio`, `FechaTermino`, `DuracionSegundos`, `IdTipoDetencion`, `EstadoRevision`, `Observacion` |
+| `detencion` | `IdDetencion`, `IdProyecto`, `IdCorrida`, `FechaInicio`, `FechaTermino`, `DuracionSegundos`, `DuracionHoras`, `IdTipoDetencion`, `EstadoRevision`, `Observacion` |
 | `daily_availability` | `IdCorrida`, `Dia`, `BloquesRacksIndisponiblesDiarios`, `BloquesRacksIndisponiblesAcumulados`, `Disponibilidad`, `Variacion` |
 | `annual_availability` | `IdCorrida`, `Anio`, `Mes`, `BloquesMuestreo`, `DisponibilidadMensual`, `DisponibilidadAcumulada` |
 

@@ -60,8 +60,14 @@ def test_paquete(tmp_path):
     assert [f[12] for f in raw.filas[-4:]] == [True, True, True, True]  # filas 5 y 6 del export
     asr = paq.tabla("availability_sample_result")
     assert len(asr.filas) == 4 * 2 and sum(f[11] for f in asr.filas) == r.disponibilidad.bloques_racks_indisponibles
-    det = paq.tabla("detencion").filas
-    assert [(d[7], d[8]) for d in det] == [(55, "F55")] and paq.anomalias_persistencia == []
+    tdet = paq.tabla("detencion")
+    det = [dict(zip(tdet.columnas, f, strict=True)) for f in tdet.filas]
+    assert [(d["IdTipoDetencion"], d["CodigoFalla"]) for d in det] == [(55, "F55")] and paq.anomalias_persistencia == []
+    eventos = paq.tabla("fault_event")
+    horas_evento = [dict(zip(eventos.columnas, f, strict=True))["DuracionHoras"] for f in eventos.filas]
+    assert [d["DuracionHoras"] for d in det] == horas_evento  # mismo valor que ListOfFaults!E
+    assert all(d["DuracionSegundos"] == round(d["DuracionHoras"] * 3600) for d in det)
+    assert list(tdet.columnas).index("DuracionHoras") == list(tdet.columnas).index("DuracionSegundos") + 1
     assert paq.tabla("availability_run_result").filas[0][8] == 96.0  # 1 día * 24*60/15
     dqi = {f[1] for f in paq.tabla("data_quality_issue").filas}
     assert "exclusion_matrix_ausente" in dqi
@@ -69,7 +75,8 @@ def test_paquete(tmp_path):
 
 def test_codigo_sin_catalogo_se_reporta(tmp_path):
     paq = construir_paquete(_resultado(tmp_path), MetadatosCorrida("f" * 64), {})
-    assert paq.tabla("detencion").filas[0][7] is None
+    tdet = paq.tabla("detencion")
+    assert dict(zip(tdet.columnas, tdet.filas[0], strict=True))["IdTipoDetencion"] is None
     assert [a.tipo for a in paq.anomalias_persistencia] == ["codigo_sin_catalogo"]
 
 

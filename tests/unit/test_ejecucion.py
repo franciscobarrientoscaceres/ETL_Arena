@@ -34,6 +34,7 @@ class RepoFalso:
 
     def iniciar(self, cfg, meta):
         self.llamadas.append(("iniciar", meta.estado_exclusiones))
+        return 7  # NumCorrida que asigna la base
 
     def cargar_catalogo(self):
         return {"F55": 55}
@@ -76,6 +77,7 @@ def test_ciclo_de_vida_con_repositorio(libro):
     cfg = config_prueba(es_oficial=True, tipo_corrida="semanal")
     res = ejecutar_corrida(libro, cfg, repo, hash_archivo="0" * 64)
     assert [c[0] for c in repo.llamadas] == ["iniciar", "guardar", "reconciliacion", "finalizar"]
+    assert res.num_corrida == 7
     assert repo.llamadas[0] == ("iniciar", "sin_exclusiones") and repo.llamadas[-1] == ("finalizar", "success", False)
     # KPI mensual oficial (desde el día 1) y anual: julio de SQL + septiembre de esta corrida (reemplaza el vigente)
     assert res.kpi_mensual.mes == 9 and res.kpi_mensual.bloques_muestreo == 1 + 4

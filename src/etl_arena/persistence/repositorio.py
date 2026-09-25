@@ -81,14 +81,21 @@ class RepositorioCorridas:
             conn.close()
 
     # ------------------------------------------------------------------ ciclo de vida de la corrida
-    def iniciar(self, cfg: ConfiguracionCalculo, meta: MetadatosCorrida) -> None:
+    def iniciar(self, cfg: ConfiguracionCalculo, meta: MetadatosCorrida) -> int:
+        """Registra la corrida en ``running`` y devuelve su ``NumCorrida`` (correlativo para personas)."""
         columnas, valores = fila_etl_run(cfg, meta)
-        tabla = Tabla("etl_run", columnas, [valores])
+        sql = (
+            Tabla("etl_run", columnas, [valores])
+            .sql_insert()
+            .replace(" VALUES ", " OUTPUT INSERTED.NumCorrida VALUES ", 1)
+        )
         conn = self._conexion()
         try:
             cur = conn.cursor()
-            cur.execute(tabla.sql_insert(), valores)
+            cur.execute(sql, valores)
+            num = int(cur.fetchone()[0])
             conn.commit()
+            return num
         finally:
             conn.close()
 

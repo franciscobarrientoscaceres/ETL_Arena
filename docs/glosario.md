@@ -49,7 +49,7 @@ Si una palabra de la documentación no se entiende, está aquí. Van en orden al
 | Palabra | Qué significa |
 |---|---|
 | **Corte** | El nombre de una corrida en disco, normalmente la fecha (p. ej. `2026-09-28`). Cada corte tiene su carpeta en `data/work/`. |
-| **Corrida (`IdCorrida`)** | Cada vez que se calcula algo y se guarda en la base de datos es una corrida, con un código único (`IdCorrida`). Nunca se borra ni se pisa una corrida anterior. |
+| **Corrida (`NumCorrida`, `IdCorrida`)** | Cada vez que se calcula algo y se guarda en la base de datos es una corrida. Tiene un **número** para las personas (`NumCorrida`: 1, 2, 3…, "la corrida 12") y un **código interno** único para el sistema (`IdCorrida`, como `4d763e71-…`). Nunca se borra ni se pisa una corrida anterior. |
 | **Semanal / cierre mensual** | La **semanal** se corre cada lunes: desde el día 1 del mes hasta el último dato. El **cierre mensual** calcula el mes completo cuando ya terminó. |
 | **Oficial / vigente** | Una corrida **oficial** puede publicarse. La **vigente** es la que Power BI muestra para cada mes: la oficial más reciente que terminó bien, prefiriendo "Con Exclusiones". |
 | **Libro base / maestro / copia de trabajo** | El **maestro** es el libro original de `data/`. El **libro base** es el libro de la última corrida oficial (la próxima parte desde ahí). La **copia de trabajo** es la copia que usa cada corte; los originales nunca se tocan. |

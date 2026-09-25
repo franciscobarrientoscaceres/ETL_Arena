@@ -51,10 +51,11 @@ Qué significa cada columna:
 | C16 Python | La disponibilidad que calculó el nuevo sistema |
 | KPI Alex | La disponibilidad que reportó Alex con su Excel (se ingresa a mano) |
 | Δ | La diferencia: `C16 Python − KPI Alex` (idealmente 0) |
-| IdCorrida | El código de la corrida en la base de datos |
+| N° corrida | El número correlativo de la corrida (1, 2, 3…), el que conviene usar al conversar |
+| IdCorrida | El código interno de la corrida en la base de datos |
 | Nota | Observaciones o explicación de diferencias |
 
 ## Registro
 
-| Registrado | Corte | Tipo | Período | Etiqueta | Estado | Reconciliación | C12 | C14 Python | C14 Excel | C16 Python | KPI Alex | Δ | IdCorrida | Nota |
-|---|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---|---|
+| Registrado | Corte | Tipo | Período | Etiqueta | Estado | Reconciliación | C12 | C14 Python | C14 Excel | C16 Python | KPI Alex | Δ | N° corrida | IdCorrida | Nota |
+|---|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---|---|

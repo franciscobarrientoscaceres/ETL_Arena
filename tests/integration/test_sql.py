@@ -111,7 +111,7 @@ def _corrida(repo, libro, *, oficial=True, exclusiones="sin_exclusiones", tipo="
     cfg = config_prueba(es_oficial=oficial, tipo_corrida=tipo, archivo_origen=libro.name, id_proyecto=proyecto)
     r = calcular_libro(libro, cfg, codigos_resumen=[("F55", "EXTERNAL")])
     meta = MetadatosCorrida("0" * 64, estado_exclusiones=exclusiones)
-    repo.iniciar(cfg, meta)
+    _corrida.ultimo_num = repo.iniciar(cfg, meta)
     paquete = construir_paquete(r, meta, repo.cargar_catalogo())
     if guardar:
         repo.guardar_corrida(paquete)
@@ -180,13 +180,29 @@ def test_corrida_completa(engine, repo, libro_sintetico):
         engine, "SELECT CodigoFalla, IdTipoDetencion FROM dbo.detencion WHERE IdCorrida = ? ORDER BY OrdenExcel", idc
     )
     assert [tuple(f) for f in sin_catalogo] == [("F55", 55), ("F999", None)]
+    duraciones = _consulta(
+        engine,
+        "SELECT d.DuracionSegundos, d.DuracionHoras, f.DuracionHoras FROM dbo.detencion d JOIN dbo.fault_event f "
+        "ON f.IdCorrida = d.IdCorrida AND f.OrdenExcel = d.OrdenExcel WHERE d.IdCorrida = ?",
+        idc,
+    )
+    assert duraciones and all(s == round(h * 3600) and h == hf for s, h, hf in duraciones)
     tipos = {t for (t,) in _consulta(engine, "SELECT Tipo FROM dbo.data_quality_issue WHERE IdCorrida = ?", idc)}
     assert "codigo_sin_catalogo" in tipos and "exclusion_matrix_ausente" in tipos
 
 
 def test_append_only_dos_corridas_coexisten(engine, repo, libro_sintetico):
     a, _, _ = _corrida(repo, libro_sintetico)
+    num_a = _corrida.ultimo_num
     b, _, _ = _corrida(repo, libro_sintetico)
+    assert _corrida.ultimo_num == num_a + 1  # NumCorrida: correlativo sin saltos (IDENTITY_CACHE = OFF)
+    guardados = _consulta(
+        engine,
+        "SELECT NumCorrida FROM dbo.etl_run WHERE IdCorrida IN (?, ?) ORDER BY NumCorrida",
+        a.id_corrida,
+        b.id_corrida,
+    )
+    assert [f[0] for f in guardados] == [num_a, num_a + 1]
     n = _consulta(
         engine,
         "SELECT COUNT(DISTINCT IdCorrida) FROM dbo.fault_event WHERE IdCorrida IN (?, ?)",
@@ -199,7 +215,8 @@ def test_append_only_dos_corridas_coexisten(engine, repo, libro_sintetico):
 def test_rollback_total_y_estado_failed(engine, repo, libro_sintetico):
     cfg, _, paquete = _corrida(repo, libro_sintetico, guardar=False)
     det = paquete.tabla("detencion")
-    det.filas[-1] = det.filas[-1][:7] + (999_999,) + det.filas[-1][8:]  # FK inexistente en la penúltima tabla
+    k = det.columnas.index("IdTipoDetencion")
+    det.filas[-1] = det.filas[-1][:k] + (999_999,) + det.filas[-1][k + 1 :]  # FK inexistente en la penúltima tabla
     with pytest.raises(pyodbc.IntegrityError):
         repo.guardar_corrida(paquete)
     repo.finalizar(cfg.id_corrida, "failed", mensaje_error="FK inyectada")

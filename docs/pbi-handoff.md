@@ -118,7 +118,7 @@ del mes.
 - `v_fault_event_vigente`: `NumeroPCS`, `MarcaTiempoInicio`, `MarcaTiempoFin`, `DuracionHoras`,
   `CodigoFalla`, `DescripcionFalla`, `PromedioBateriasInvolucradas`, `HorasRackIndisponibles` y banderas
   de auditoría (`DescripcionFallaFallback`, `EventoArrastradoExcel`, `TieneExclusion`).
-- `v_detencion_vigente`: lo mismo más el catálogo (`Significado`, `Operativo`) y la revisión
+- `v_detencion_vigente`: lo mismo más la duración en segundos y en horas (`DuracionSegundos`, `DuracionHoras`), el catálogo (`Significado`, `Operativo`) y la revisión
   (`EstadoRevision` = `pendiente` si nadie la revisó, `Observacion`, `RevisadoPor`, `RevisadoEn`). La
   revisión se conserva aunque la corrida del mes se reemplace.
 - `v_fault_code_vigente`: `Ranking`, `CodigoFalla`, `DescripcionFallaPE`, `HorasRackIndisponibles`,
@@ -160,7 +160,9 @@ entra una corrida vigente nueva.
 
 ## 7. Recomendaciones para el modelo
 
-- Relacionar por (`IdProyecto`, `Anio`, `Mes`). No usar `IdCorrida` como filtro ni como clave de
+- Para mostrar qué corrida alimenta cada mes, usar `NumCorrida` (1, 2, 3…; todas las vistas lo traen). Es único
+  dentro de cada base: la corrida 12 de TEST/QA no es la 12 de PROD.
+- Relacionar por (`IdProyecto`, `Anio`, `Mes`). No usar `IdCorrida` ni `NumCorrida` como filtro ni como clave de
   negocio: cambia cuando un mes se reemplaza, por ejemplo al pasar a "Con Exclusiones".
 - Mostrar siempre `EtiquetaExclusiones` junto al KPI del mes.
 - Tipos: disponibilidades `FLOAT` entre 0 y 1 (formatear como %); fechas `DATETIME`.

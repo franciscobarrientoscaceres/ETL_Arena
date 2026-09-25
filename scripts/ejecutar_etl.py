@@ -145,6 +145,7 @@ def main(argv: list[str] | None = None) -> int:
 
     d = resultado.resultado.disponibilidad
     resumen = {
+        "num_corrida": resultado.num_corrida,
         "id_corrida": resultado.id_corrida,
         "estado": resultado.estado,
         "periodo": [str(cfg.inicio_periodo), str(cfg.fin_periodo)],
