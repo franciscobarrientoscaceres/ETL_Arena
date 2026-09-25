@@ -220,6 +220,19 @@ Detectados al emular el VBA línea por línea y comparar contra el golden de sep
 ### F-39 🟡 Marca aislada fuera de agosto
 - `Exclusion_Matrix` fila 2 (2026-04-08 00:15): PCS61 = 1 y `Excused Event` = 1; el resto de la matriz fuera de agosto está vacía. Probable residuo; confirmar (D-18).
 
+### F-40 🟡 Excel 2016 (MSI, build 4266) no tiene `Sort.SortFields.Add2` (error 438)
+- `mcoOrder` (última línea de `mcoCreateList`) y `Graphupdate` usan `SortFields.Add2`, que no existe antes de Excel 2019/365: la macro se detiene con el diálogo "error '438'" y bloquea `Application.Run`.
+- Efecto: la lista de eventos B:I y L10 ya están completas; solo queda sin ordenar el resumen `ListOfFaults!N:Q` (la reconciliación lo compara como mapa) y sin actualizar la hoja `Graph` (presentación).
+- `workbook.com` cierra el diálogo con "Finalizar" y lanza `ErrorVBA` con el texto; `workbook.macros` tolera el 438 solo en esas dos macros y solo con `Application.Build < 10000`, con advertencia en el log. Cualquier otro error VBA detiene la cadena. El VBA no se toca.
+
+### F-41 🟡 La plantilla `Daily` se recorta a mano cada mes
+- `Daily!B` (n° de día), `C`, `E`, `F` (disponibilidad acumulada) y `G` (variación) son fórmulas de la plantilla; `mcoDailyAvailability` solo escribe `D`. El libro de septiembre trae F/G solo en las filas 9–29 y 39 (las 30–38 borradas), así que un período de 31 días deja F/G vacías en los días 22–30.
+- `workbook.macros.escribir_parametros` escribe B/C/E/F/G para los n días del período con las fórmulas de la plantilla (`F = IFERROR(1-E/(Total_Racks*24*60*B/Frecuencia_de_muestreo__min),"")`, `G9 = 0`, `G = IFERROR(F-F(ant),"")`) y limpia C/E/F/G hasta la fila 39 (una F sobrante con E vacía mostraría 1).
+
+### F-42 🟢 El KPI oficial de julio se reproduce con la regla histórica
+- Macros de septiembre vía COM con C31 = L14 = "Yes" (pondera con `PlantActivity!D`) para julio completo: C14 = 350.972,3 = `Annual_AVA!F13`. Con "No": 432.611,212 (golden v2).
+- Agosto con la misma regla: 256.223,356, que no calza con `Annual_AVA` (305.182,968) ni con la matriz (264.731,768): D-11 sigue abierta.
+
 ### Decisiones asociadas
 - **D-16** (resuelta 2026-09-24, confirmada por negocio): los eventos (`mcoCreateList`, L14 = "Yes") usan la misma regla de la matriz que el KPI, para que `C14 = 4·L10` siga valiendo sin arrastre. La macro de agosto no lo hace (usa `PlantActivity!D`).
 - **D-17** (resuelta 2026-09-24): Alex entrega la `Exclusion_Matrix` una vez al mes, al final. Corridas semanales = oficiales "Sin Exclusiones"; cierre mensual = oficial "Con Exclusiones" (vigente).

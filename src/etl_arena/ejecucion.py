@@ -30,6 +30,7 @@ log = logging.getLogger("etl_arena.corrida")
 class ResultadoEjecucion:
     id_corrida: str
     estado: str  # success | parity_failed | failed
+    estado_exclusiones: str = "sin_exclusiones"  # D-17
     resultado: ResultadoCalculo | None = None
     reconciliacion: ReporteReconciliacion | None = None
     resumen_calidad: dict = field(default_factory=dict)
@@ -82,7 +83,7 @@ def ejecutar_corrida(
     meta = MetadatosCorrida(
         hash_archivo, estado_exclusiones=estado_exclusiones, filas_nuevas_export=filas_nuevas_export
     )
-    salida = ResultadoEjecucion(cfg.id_corrida, "running")
+    salida = ResultadoEjecucion(cfg.id_corrida, "running", estado_exclusiones)
     if repo is not None:
         repo.iniciar(cfg, meta)
     log.info(

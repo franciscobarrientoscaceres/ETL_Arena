@@ -36,22 +36,41 @@
         "c16_availability_period": 0.9503529130126623,
         "c19_accumulated_annual": 0.9957833980914864
       },
-      "status": "pending",
-      "pending_reason": "total_events=295 coincide con el cap historico del extractor (max_row=300). KPI/daily superan invariantes; re-extraer con extract_golden.py actual tras correr macros para julio y poner verified.",
+      "status": "verified",
       "discrepancies": [
         {
           "id": "events_cap_295",
           "detail": "fault_events_summary.total_events=295 = tope del extractor antiguo; puede estar truncado",
-          "resolution": "re-extract con script actual (scan hasta fin de ListOfFaults)",
-          "status": "open"
+          "resolution": "re-extraído vía COM: 473 eventos (el golden v1 estaba truncado en 295)",
+          "status": "resolved"
         },
         {
           "id": "annual_ava_diverges_c14",
           "detail": "annual['7'].unavailable=350972.30 != C14=432611.21",
           "resolution": "historico no reproducible; fuera del gate de paridad (GT-5)",
           "status": "resolved_wontfix"
+        },
+        {
+          "id": "c14_vs_4l10_arrastre",
+          "detail": "C14 != 4·L10 (Δ=74177.35164321674) con parámetros equivalentes — arrastre F-06",
+          "resolution": "no es invariante del VBA con arrastre F-06 (Python replica los mismos eventos arrastrados); la paridad se verifica contra Python con Δ = 0",
+          "status": "resolved"
+        },
+        {
+          "id": "summary_order_add2",
+          "detail": "Excel 2016 sin SortFields.Add2: mcoOrder no ordenó N:Q; el orden del resumen es el previo de la hoja. Se compara como mapa código → P.",
+          "resolution": "el runner compara N:Q como mapa y omite el orden (summary_order_verified=false)",
+          "status": "resolved"
         }
-      ]
+      ],
+      "note": "v2 re-extraída 2026-09-24 vía COM (tarea 4.4): copia del libro de septiembre con las macros de septiembre, C21=C31=L14='No', L2/L4/Daily = mes completo; Excel 16.0 build 4266. Los goldens con C31=L14='Yes' esperan el maestro v1.1 (4.0): las macros de septiembre en 'Yes' ponderan con PlantActivity!D, regla reemplazada por Exclusion_Matrix (F-37).",
+      "schema_version": "1.2",
+      "calc_table_file": "golden_2026_07_july_calc.json.gz",
+      "verified": {
+        "date": "2026-09-24",
+        "by": "tests/golden/test_golden_runner.py",
+        "result": "paridad bit a bit en C12, C14, C16, C19, tabla E4:BO (2976x61), 31 días de Daily, 473 eventos campo a campo, L10 y resumen N:Q como mapa"
+      }
     },
     {
       "id": "2026_08",
@@ -59,7 +78,7 @@
       "file": "golden_2026_08_august.json",
       "period_start": "2026-08-01",
       "period_end": "2026-08-31",
-      "note": "daily regenerado 2026-09-24 (el daily original de la hoja era copia de julio). sum(daily)=C14 OK. Pendiente re-corrida de mcoDailyAvailability en Excel para sustituir el hand-fix por extraccion limpia del script.",
+      "note": "v2 re-extraída 2026-09-24 vía COM (tarea 4.4): copia del libro de septiembre con las macros de septiembre, C21=C31=L14='No', L2/L4/Daily = mes completo; Excel 16.0 build 4266. Los goldens con C31=L14='Yes' esperan el maestro v1.1 (4.0): las macros de septiembre en 'Yes' ponderan con PlantActivity!D, regla reemplazada por Exclusion_Matrix (F-37).",
       "parameters": {
         "only_operational_time": "No",
         "apply_excused_event": "No"
@@ -69,22 +88,40 @@
         "c16_availability_period": 0.9394752689090135,
         "c19_accumulated_annual": 0.9948595433867929
       },
-      "status": "pending",
-      "pending_reason": "daily fue hand-fix (regenerado desde RawData-PCS, no desde mcoDailyAvailability). KPI y invariantes OK; re-correr macro diaria y re-extraer para verified.",
+      "status": "verified",
       "discrepancies": [
         {
           "id": "daily_hand_fix",
           "detail": "serie daily corregida manualmente 2026-09-24; no salio del extractor sobre hoja Daily macro-run",
-          "resolution": "re-corrida cmdCalc+mcoDailyAvailability + re-extract",
-          "status": "open"
+          "resolution": "mcoDailyAvailability re-corrida vía COM; Daily extraído del libro (31 días), sin hand-fix",
+          "status": "resolved"
         },
         {
           "id": "annual_ava_diverges_c14",
           "detail": "annual['8'].unavailable=305182.97 != C14=527396.04",
           "resolution": "historico no reproducible; fuera del gate de paridad (GT-5)",
           "status": "resolved_wontfix"
+        },
+        {
+          "id": "c14_vs_4l10_arrastre",
+          "detail": "C14 != 4·L10 (Δ=1058.1865148722427) con parámetros equivalentes — arrastre F-06",
+          "resolution": "no es invariante del VBA con arrastre F-06 (Python replica los mismos eventos arrastrados); la paridad se verifica contra Python con Δ = 0",
+          "status": "resolved"
+        },
+        {
+          "id": "summary_order_add2",
+          "detail": "Excel 2016 sin SortFields.Add2: mcoOrder no ordenó N:Q; el orden del resumen es el previo de la hoja. Se compara como mapa código → P.",
+          "resolution": "el runner compara N:Q como mapa y omite el orden (summary_order_verified=false)",
+          "status": "resolved"
         }
-      ]
+      ],
+      "schema_version": "1.2",
+      "calc_table_file": "golden_2026_08_august_calc.json.gz",
+      "verified": {
+        "date": "2026-09-24",
+        "by": "tests/golden/test_golden_runner.py",
+        "result": "paridad bit a bit en C12, C14, C16, C19, tabla E4:BO (2976x61), 31 días de Daily, 595 eventos campo a campo, L10 y resumen N:Q como mapa"
+      }
     },
     {
       "id": "2026_09",

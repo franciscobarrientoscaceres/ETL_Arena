@@ -213,22 +213,22 @@ Agentes disponibles en `.opencode/agent/` (OpenCode, `mode: subagent`). Son perf
   - Hecho cuando: (1) con `Exclusion_Matrix` vacía el libro da los mismos C12/C14/C16/C19, tabla E4:BO, Daily y `ListOfFaults` que el golden de septiembre; (2) con la matriz y el RawData de agosto, C14 y la tabla E4:BO coinciden con el libro `…_20260923_agosto_2026.xlsm` y con Python; (3) `ListOfFaults` con L14 = "Yes" coincide con `fault_events` de Python y `C14 = 4·L10` salvo arrastre.
   - _R3.10, D-16, D-19, F-37_
 
-- [ ] 4.1 `workbook.com.SesionExcel` — **backend-architect**
+- [x] 4.1 `workbook.com.SesionExcel` — **backend-architect** *(hecha 2026-09-24: `AutomationSecurity = Low` solo en la instancia propia en vez de exigir *Trusted Location*; vigilante de diálogos de error VBA que registra el texto, pulsa "Finalizar" y lanza `ErrorVBA`; proxies de libro liberados antes de `Quit`)*
   - `DispatchEx`, visible, `DisplayAlerts=False`, watchdog por PID, cierre solo de la instancia propia; verificación de *Trusted Location*.
   - _R3.7, F-23_
 
-- [ ] 4.2 `workbook.macros` + `workbook.referencia` — **backend-architect** *(la extracción por XML `workbook/referencia.py` ya existe desde la 3.3; falta la parte COM)*
+- [x] 4.2 `workbook.macros` + `workbook.referencia` — **backend-architect** *(hecha 2026-09-24: además de C y E escribe `Daily!B/F/G` con las fórmulas de la plantilla y limpia las sobrantes (F-41); en Excel 2016 tolera el error 438 de `SortFields.Add2` en `mcoCreateList`/`Graphupdate` con advertencia (F-40))*
   - Escribir C5/C7/C21/C31/L2/L4/L14/`Daily!D5` y las fórmulas `Daily!C9:C(8+n)` (limpiando el resto; F-33), ejecutar las 4 macros en orden, guardar; extraer referencia completa por XML → `referencia_excel.json` + `excel_reference_*`.
   - _R3.5, R3.6, F-05, F-23_
 
-- [ ] 4.3 Tests COM (marker `excel`) — **backend-architect**
+- [x] 4.3 Tests COM (marker `excel`) — **backend-architect** *(hecha 2026-09-24: `tests/com/test_macros_com.py`, opt-in con `ETL_ARENA_EXCEL=1`; la referencia COM iguala al libro original (tabla, BO, Daily, 334 eventos, N:Q como mapa) y Python reconcilia 5/5 niveles con Δ = 0; ~2 min)*
   - Sobre una copia en `tmp` del libro: correr macros para sep 1–21 y verificar que la referencia extraída coincide con el golden v2.
 
-- [ ] 4.4 Re-extraer goldens jul/ago (y jun) vía COM — **data-engineer** + **Humano**
+- [x] 4.4 Re-extraer goldens jul/ago (y jun) vía COM — **data-engineer** + **Humano** *(hecha 2026-09-24 con C21 = C31 = L14 = "No": las macros de septiembre en "Yes" ponderan con `PlantActivity!D`, regla reemplazada por la matriz (F-37), así que los goldens "Yes" pasan a los criterios de 4.0. Julio 473 eventos (v1 truncado en 295), agosto 595; ambos `verified` con paridad bit a bit en el runner. Julio con "Yes" (regla histórica) da C14 = 350.972,3 = `Annual_AVA!F13` (F-42). Junio no se generó.)*
   - Con D-03 resuelta (`C31 = L14 = "Yes"`, `C21 = "No"`), generar `golden_2026_07/08` v2 (y junio si se quiere GT-3 como gate); correr el golden runner; marcar `verified` o registrar discrepancias. Esperado: julio `C14 = 350.972,300` (= `Annual_AVA!F13`); agosto no calza con `Annual_AVA` (D-11); evidencia del arrastre F-06 en los cierres de mes. Agregar un golden de septiembre con `C31 = "Yes"` (hoy idéntico: no hay filas excusadas en sep 1–21).
   - _R14, F-06, F-25_
 
-- [ ] 4.5 `acquisition.acquire_wait` — **backend-architect**
+- [x] 4.5 `acquisition.acquire_wait` — **backend-architect** *(hecha 2026-09-24)*
   - Espera con timeout, validación de nombre/no vacío, sha256, movimiento a `data/processed/<corte>/`. Tests con archivos temporales.
   - _R2.1–R2.3_
 
@@ -240,11 +240,11 @@ Agentes disponibles en `.opencode/agent/` (OpenCode, `mode: subagent`). Son perf
   - Copia del libro base + backup, **append** COM a RawData-PCS con seriales reales (sin tocar filas existentes), validación de alineación con PlantActivity. Test COM: truncar una copia del libro en una fecha, agregar las filas restantes como si fueran un export y verificar que las macros dan el mismo C12/C14 que el libro original.
   - _R3.1–R3.4, F-21, F-22_
 
-- [ ] 4.8 `reporting.notificacion` — **backend-architect**
+- [x] 4.8 `reporting.notificacion` — **backend-architect** *(hecha 2026-09-24)*
   - Webhook configurable o `notificacion.md`; contenido R18.1; sin datos sensibles.
   - _R18_
 
-- [ ] 4.9 `scripts/run_lunes.py` — **backend-architect**
+- [ ] 4.9 `scripts/run_lunes.py` — **backend-architect** *(avance 2026-09-24: etapas acquire-wait → notify-bi, `run_state.json` reanudable, período por defecto = mes en curso hasta el último dato, `--oficial`, `--sin-bd`; `prepare-workbook` usa `--libro-preparado` hasta 4.6/4.7. Falta: encolar `cierre_mensual` al completar un mes y promover el libro de trabajo a libro base)*
   - Etapas, `run_state.json` reanudable, período por defecto D-07 (mes en curso hasta el último dato + `cierre_mensual` encolado al completar un mes), promoción del libro de trabajo oficial a libro base, `--oficial`, logs por etapa.
   - _R19_
 

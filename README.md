@@ -116,6 +116,7 @@ ETL_Arena/
 python -m venv .venv                       # Python >= 3.13 (probado con 3.14)
 .venv\Scripts\python -m pip install -e ".[dev]"
 .venv\Scripts\python -m pytest            # tests (markers: golden, sql, excel)
+$env:ETL_ARENA_EXCEL = "1"; .venv\Scripts\python -m pytest tests\com   # macros reales vía COM (~2 min; no usar Excel mientras)
 .venv\Scripts\python -m ruff check src tests
 ```
 
@@ -161,7 +162,7 @@ SQL es **append-only por `IdCorrida`**. No se borran resultados históricos.
 | 6 | MotorEventosFalla (equivalente `mcoCreateList`) | Pendiente |
 | 7 | Agregaciones: KPI diario, mensual, anual | Pendiente |
 | 8 | ModuloReconciliacion automático Excel vs Python | Pendiente (integridad de goldens: `tests/golden/test_golden_integrity.py` listo) |
-| 8b | Runner COM de macros (sustituye trabajo manual de Alex) | Pendiente (Fase M) |
+| 8b | Runner COM de macros (sustituye trabajo manual de Alex) | En curso: `workbook.com`/`macros` y `run_lunes.py --stage run-macros` validados contra septiembre, julio y agosto |
 | 9 | Shadow mode: Excel oficial, Python en paralelo | Pendiente |
 | 10 | Producción: origen → orquestador lunes → Python/SQL → refresh PBI | Pendiente |
 

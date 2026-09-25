@@ -9,6 +9,7 @@ schema 1.2 (sep: todos los eventos, parámetros efectivos, tabla de resultados).
 
 Correr:  pytest tests/golden/test_golden_integrity.py -v
 """
+
 from __future__ import annotations
 
 import gzip
@@ -77,9 +78,7 @@ def test_index_kpi_matches_fixture(index_entry: dict):
     g = _load(DATA_DIR / index_entry["file"])
     k = g["period"]["kpi"]
     assert index_entry["kpi_summary"]["c12"] == k["c12_sample_blocks"]
-    assert index_entry["kpi_summary"]["c16_availability_period"] == pytest.approx(
-        k["c16_availability_period"], abs=0
-    )
+    assert index_entry["kpi_summary"]["c16_availability_period"] == pytest.approx(k["c16_availability_period"], abs=0)
     assert index_entry["period_start"] == g["period"]["period_start"]
     assert index_entry["period_end"] == g["period"]["period_end"]
 
@@ -219,9 +218,17 @@ def test_v12_validate_golden_has_no_errors(golden_v12: dict):
 
 def test_v12_effective_parameters_present(golden_v12: dict):
     eff = golden_v12["effective_parameters"]
-    for k in ("C5_period_start", "C7_period_end", "C21_only_operational_time", "C31_apply_excused_event",
-              "C23_sampling_minutes", "L2_events_start", "L4_events_end", "L14_events_apply_excused_event",
-              "D5_daily_end"):
+    for k in (
+        "C5_period_start",
+        "C7_period_end",
+        "C21_only_operational_time",
+        "C31_apply_excused_event",
+        "C23_sampling_minutes",
+        "L2_events_start",
+        "L4_events_end",
+        "L14_events_apply_excused_event",
+        "D5_daily_end",
+    ):
         assert k in eff, k
 
 

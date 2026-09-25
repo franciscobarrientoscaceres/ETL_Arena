@@ -2,7 +2,8 @@
 
 Para cada golden cuyo libro fuente está disponible, ejecuta los motores con los
 **parámetros efectivos** del golden y compara los niveles 2–5 con la tabla de tolerancias.
-Hoy solo el libro de septiembre está en ``data/``.
+Julio y agosto salen de correr por COM las macros de septiembre sobre una copia del mismo libro
+(tarea 4.4): comparten la matriz de RawData-PCS.
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ from etl_arena.reconciliation import TOLERANCIAS as T
 pytestmark = pytest.mark.golden
 DATA = Path(__file__).parent / "data"
 GOLDEN_SEP = "golden_2026_09_september.json"
+GOLDENS = (GOLDEN_SEP, "golden_2026_07_july.json", "golden_2026_08_august.json")
 
 
 def _fecha(s: str) -> date:
@@ -48,9 +50,9 @@ def cfg_desde_golden(g: dict):
     )
 
 
-@pytest.fixture(scope="module")
-def corrida_sep(matriz_real_sep, ruta_libro_real):
-    g = json.loads((DATA / GOLDEN_SEP).read_text(encoding="utf-8"))
+@pytest.fixture(scope="module", params=GOLDENS, ids=lambda f: f.split("_")[3].removesuffix(".json"))
+def corrida_sep(request, matriz_real_sep, ruta_libro_real):
+    g = json.loads((DATA / request.param).read_text(encoding="utf-8"))
     if g["_meta"]["source_file"] != ruta_libro_real.name:
         pytest.skip("el libro disponible no es la fuente del golden")
     with gzip.open(DATA / g["_meta"]["calc_table_file"]) as fh:
@@ -139,6 +141,8 @@ def test_nivel5_resumen_por_codigo(corrida_sep):
     obtenido = {f.codigo: f.horas_rack for f in eventos.resumen}
     assert set(obtenido) == set(esperado)
     assert all(_cerca(obtenido[c], p, T.l10) for c, p in esperado.items())
+    if not g["_meta"].get("summary_order_verified", True):
+        return  # Excel 2016 sin SortFields.Add2: el libro no ordenó N:Q (jul/ago vía COM)
     ordenados = [x["fault_code"] for x in g["fault_code_summary"] if x["unavailable_rack_hours"]]
     assert [f.codigo for f in eventos.resumen if f.horas_rack] == ordenados
 

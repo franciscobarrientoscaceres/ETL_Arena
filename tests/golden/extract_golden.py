@@ -24,6 +24,7 @@ El script FALLA (exit 1) si el libro no es internamente coherente; ver validate_
 Los invariantes que dependen de flags (C21, C31/L14) solo se exigen cuando aplican
 (audit.md F-05, F-08).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -98,8 +99,9 @@ class RawWorkbook:
                     out[el.get("name")] = target if target.startswith("xl/") else "xl/" + target
         return out
 
-    def read(self, sheet: str, min_row: int = 1, max_row: int | None = None,
-             min_col: int = 1, max_col: int | None = None) -> dict[tuple[int, int], object]:
+    def read(
+        self, sheet: str, min_row: int = 1, max_row: int | None = None, min_col: int = 1, max_col: int | None = None
+    ) -> dict[tuple[int, int], object]:
         """Devuelve {(fila, col): valor} para las celdas con valor dentro del rango."""
         cells: dict[tuple[int, int], object] = {}
         ref_re = re.compile(r"([A-Z]+)(\d+)")
@@ -109,8 +111,7 @@ class RawWorkbook:
                     continue
                 col_l, row_s = ref_re.fullmatch(el.get("r")).groups()
                 row, col = int(row_s), _col_index(col_l)
-                if (row < min_row or (max_row and row > max_row)
-                        or col < min_col or (max_col and col > max_col)):
+                if row < min_row or (max_row and row > max_row) or col < min_col or (max_col and col > max_col):
                     el.clear()
                     continue
                 t = el.get("t")
@@ -236,14 +237,16 @@ def extract(excel_path: str, year: int, month: int, label: str) -> tuple[dict, d
         d = c(daily_c, f"C{row}")
         if not isinstance(d, float):
             continue
-        daily.append({
-            "day_number": _int(c(daily_c, f"B{row}")),
-            "date": _serial_to_date(d),
-            "daily_unavailable_rack_blocks": _num(c(daily_c, f"D{row}")),
-            "accumulated_unavailable_rack_blocks": _num(c(daily_c, f"E{row}")),
-            "availability": _num(c(daily_c, f"F{row}")),
-            "variation": _num(c(daily_c, f"G{row}")),
-        })
+        daily.append(
+            {
+                "day_number": _int(c(daily_c, f"B{row}")),
+                "date": _serial_to_date(d),
+                "daily_unavailable_rack_blocks": _num(c(daily_c, f"D{row}")),
+                "accumulated_unavailable_rack_blocks": _num(c(daily_c, f"E{row}")),
+                "availability": _num(c(daily_c, f"F{row}")),
+                "variation": _num(c(daily_c, f"G{row}")),
+            }
+        )
 
     annual = {}
     for row in range(7, 19):
@@ -268,33 +271,37 @@ def extract(excel_path: str, year: int, month: int, label: str) -> tuple[dict, d
     events = []
     for row in event_rows:
         cs, ds = c(lof, f"C{row}"), c(lof, f"D{row}")
-        events.append({
-            "order_excel": row - 5,
-            "pcs_number": _int(c(lof, f"B{row}")),
-            "start_serial": cs,
-            "end_serial": ds,
-            "start_timestamp": _serial_to_str(cs),
-            "end_timestamp": _serial_to_str(ds),
-            "duration_hours": _num(c(lof, f"E{row}")),
-            "fault_code": c(lof, f"F{row}"),
-            "fault_description": c(lof, f"G{row}"),
-            "average_batteries_involved": _num(c(lof, f"H{row}")),
-            "unavailable_rack_hours": _num(c(lof, f"I{row}")),
-            "incomplete": ds is None,
-        })
+        events.append(
+            {
+                "order_excel": row - 5,
+                "pcs_number": _int(c(lof, f"B{row}")),
+                "start_serial": cs,
+                "end_serial": ds,
+                "start_timestamp": _serial_to_str(cs),
+                "end_timestamp": _serial_to_str(ds),
+                "duration_hours": _num(c(lof, f"E{row}")),
+                "fault_code": c(lof, f"F{row}"),
+                "fault_description": c(lof, f"G{row}"),
+                "average_batteries_involved": _num(c(lof, f"H{row}")),
+                "unavailable_rack_hours": _num(c(lof, f"I{row}")),
+                "incomplete": ds is None,
+            }
+        )
 
     code_summary = []
     for row in range(6, 173):
         code = c(lof, f"N{row}")
         if code is None:
             continue
-        code_summary.append({
-            "rank": row - 5,
-            "fault_code": code,
-            "description_pe": c(lof, f"O{row}"),
-            "unavailable_rack_hours": _num(c(lof, f"P{row}")),
-            "percentage": _num(c(lof, f"Q{row}")),
-        })
+        code_summary.append(
+            {
+                "rank": row - 5,
+                "fault_code": code,
+                "description_pe": c(lof, f"O{row}"),
+                "unavailable_rack_hours": _num(c(lof, f"P{row}")),
+                "percentage": _num(c(lof, f"Q{row}")),
+            }
+        )
 
     # Calculation-Availability E4:BO — una fila por fila de RawData procesada
     calc_rows = []
@@ -418,12 +425,17 @@ def validate_golden(data: dict, calc_table: dict | None = None) -> tuple[list[st
 
     # Invariante cruzado C14 = 4·L10 (R13.8) — solo si ambos motores usan lo mismo
     if eff and l10 is not None:
-        same = (eff["C5_period_start"] == eff["L2_events_start"] and eff["C7_period_end"] == eff["L4_events_end"]
-                and (eff["C31_apply_excused_event"] == "Yes") == (eff["L14_events_apply_excused_event"] == "Yes")
-                and c21_no)
+        same = (
+            eff["C5_period_start"] == eff["L2_events_start"]
+            and eff["C7_period_end"] == eff["L4_events_end"]
+            and (eff["C31_apply_excused_event"] == "Yes") == (eff["L14_events_apply_excused_event"] == "Yes")
+            and c21_no
+        )
         delta = c14 - 4 * l10
         if same and abs(delta) > TOL_SUM:
-            errors.append(f"C14 != 4·L10 (Δ={delta!r}) con parámetros equivalentes — posible arrastre F-06")
+            # No es invariante del VBA: con arrastre F-06 los eventos no cubren lo mismo que C14
+            # (jul: Δ=74177 con 8 arrastres). La paridad la da la reconciliación con Python.
+            warnings.append(f"C14 != 4·L10 (Δ={delta!r}) con parámetros equivalentes — arrastre F-06")
         elif not same:
             warnings.append(f"C14 = 4·L10 no aplica (parámetros KPI ≠ eventos); Δ observado = {delta!r}")
 
@@ -453,8 +465,9 @@ def main():
     ap.add_argument("--year", required=True, type=int)
     ap.add_argument("--label", required=True, help="Nombre del mes en minúsculas, ej: september")
     ap.add_argument("--out-dir", default=str(pathlib.Path(__file__).parent / "data"))
-    ap.add_argument("--force", action="store_true",
-                    help="Escribe el JSON aunque fallen los invariantes (no recomendado)")
+    ap.add_argument(
+        "--force", action="store_true", help="Escribe el JSON aunque fallen los invariantes (no recomendado)"
+    )
     args = ap.parse_args()
 
     try:
@@ -487,10 +500,14 @@ def main():
 
     kpi = data["period"]["kpi"]
     print(f"Guardado: {out_file} (+ {base}_calc.json.gz)")
-    print(f"  C12={kpi['c12_sample_blocks']}  C14={kpi['c14_unavailable_rack_blocks']!r}"
-          f"  C16={kpi['c16_availability_period']!r}")
-    print(f"  Eventos={data['fault_events_summary']['total_events']}  L10={kpi['l10_total_unavailable_rack_hours']!r}"
-          f"  Daily={len(data['daily'])} días  Tabla={len(calc_table['rows'])} filas")
+    print(
+        f"  C12={kpi['c12_sample_blocks']}  C14={kpi['c14_unavailable_rack_blocks']!r}"
+        f"  C16={kpi['c16_availability_period']!r}"
+    )
+    print(
+        f"  Eventos={data['fault_events_summary']['total_events']}  L10={kpi['l10_total_unavailable_rack_hours']!r}"
+        f"  Daily={len(data['daily'])} días  Tabla={len(calc_table['rows'])} filas"
+    )
     print(f"  Invariantes: {'OK' if not errors else 'FALLIDOS (--force)'}")
 
 

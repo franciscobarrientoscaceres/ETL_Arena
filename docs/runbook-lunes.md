@@ -16,6 +16,7 @@ Checklist operativa semanal. Detalle de diseño: `AGENTS.md` §14 Fase S.
 - [ ] Conexión a Azure SQL (`trina-etl.database.windows.net`): la IP de la red desde donde corres está en el firewall del servidor (portal → `trina-etl` → Redes); si cambias de red, agrégala. La primera conexión del día puede tardar ~1 min (la base serverless se reanuda) y, si el token expiró, abre el navegador para iniciar sesión con @trinasolar.com.
 - [ ] Ventana libre en SCADA / se coordinó con operaciones.
 - [ ] PC local: Excel instalado (macros COM), Python del proyecto, TeamViewer.
+- [ ] Durante `run-macros` **no usar Excel**: la etapa abre su propia instancia visible (~2 min por mes) y la cierra al terminar.
 - [ ] Existe `data/inbox/` (crear si no).
 - [ ] Conoces el reporte a exportar y la convención de fechas:
   - `DESDE` = dato siguiente al último cargado en el libro base (ver `RawData-PCS`, última fila; hoy 2026-09-21 14:15 → desde 14:30)
@@ -85,7 +86,9 @@ python scripts/run_lunes.py --reproceso data/inbox/<tramo_corregido>.<ext> --wor
 
 - [ ] Revisar `cambios.csv` / `v_correccion_dato`: cada celda cambiada con valor anterior y nuevo, y KPI antes/después.
 
-> `run_lunes.py` puede no existir aún (tareas del SDD). Hasta entonces: exportar a mano, transformar fechas, correr macros y `ejecutar_etl.py` siguiendo AGENTS §14.
+> Estado 2026-09-24: `run_lunes.py` existe con las etapas `acquire-wait`, `prepare-workbook`, `run-macros`, `run-etl`, `reconcile` y `notify-bi` (`--stage all` salta las ya `ok`; estado en `data/work/<corte>/run_state.json`). Mientras no exista el contrato SCADA (0.6/0.7), `prepare-workbook` recibe `--libro-preparado <libro con las filas nuevas ya pegadas>`; `load-exclusion-matrix` y `--reproceso` aún no existen (4.12/4.13).
+>
+> En Excel 2016 las macros `mcoCreateList` y `Graphupdate` muestran el error 438 (`SortFields.Add2`, F-40): `run-macros` lo cierra solo y sigue con advertencia (queda sin ordenar `ListOfFaults!N:Q` y sin actualizar `Graph`). Cualquier otro error de VBA detiene la etapa con el texto del diálogo en `run_state.json`.
 >
 > Paso ETL manual (ya disponible, Fase 3), después de correr las macros en el libro de trabajo:
 > ```powershell
@@ -124,7 +127,7 @@ python scripts/run_lunes.py --reproceso data/inbox/<tramo_corregido>.<ext> --wor
 | TeamViewer caído | Reintentar; no hay alternativa de red hoy. RPA TeamViewer solo como P8 (no camino crítico). Pedir share UNC o API GPM a GPM. |
 | Formato de fecha inesperado | Abortar adapter; documentar muestra para P1; no “arreglar a ciegas”. |
 | PlantActivity desactualizada | Continuar ETL; reportar join-misses; actualizar fuente aparte. |
-| Macros fallan (COM) | Guardar logs, reintentar una vez; si persiste, correr ETL de todos modos y marcar corrida con advertencia de referencia Excel ausente. |
+| Macros fallan (COM) | Leer el error en `run_state.json` (texto del diálogo VBA o timeout). Reintentar una vez con `--stage run-macros --forzar`; si persiste, correr `run-etl` igual: sin `run-macros` ok la corrida queda `sin_referencia` (no falla). |
 
 ---
 
