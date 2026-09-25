@@ -70,9 +70,9 @@ EXEC sys.sp_executesql @sql;
 
 def reiniciar_esquema(engine: Engine, directorio: Path = DIR_SQL) -> dict[str, int]:
     """Solo pruebas: elimina vistas y tablas y vuelve a aplicar el esquema. Se niega a operar sobre
-    una base cuyo nombre no contenga "test" (p. ej. la base fija de pruebas en Azure)."""
+    una base cuyo nombre no contenga "test" o "prueba"."""
     base = (engine.url.database or "").lower()
-    if "test" not in base:
+    if "test" not in base and "prueba" not in base:
         raise RuntimeError(f"reiniciar_esquema solo opera sobre bases de prueba, no sobre {engine.url.database!r}")
     conn = engine.raw_connection()
     try:
