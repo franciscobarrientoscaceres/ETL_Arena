@@ -28,7 +28,7 @@ flowchart LR
 3. **Nada se borra de la base de datos.** Cada cálculo queda guardado como una corrida con su número (`NumCorrida`: 1, 2, 3…) y su código interno (`IdCorrida`).
 4. **Las exclusiones salen solo de la `Exclusion_Matrix`** que entrega Alex a fin de mes. `PlantActivity` no se
    usa para exclusiones mientras Alex no lo confirme.
-5. **Mientras el programa usa Excel, no uses Excel** (se abre una ventana sola por unos 2 minutos y se cierra sola).
+5. **Mientras el programa usa Excel, no uses Excel** (se abre una ventana sola por menos de 1 minuto y se cierra sola).
 
 ---
 
@@ -252,6 +252,7 @@ Opciones útiles para casos especiales:
 | `--omitir-acquire` | El export ya se tomó antes, o no hay export (por ejemplo, en pruebas) |
 | `--omitir-macros` | Calcular sin abrir Excel (queda sin comparación, `sin_referencia`) |
 | `--sin-bd` | Calcular sin guardar nada en la base (ensayos) |
+| `--macros-sin-optimizar` | Correr las macros como antes (más lento). Solo si se sospecha que el modo rápido da algo distinto |
 | `--forzar` | Repetir las etapas desde `run-macros` aunque ya hayan salido bien |
 | `--periodo-inicio 2026-09-01 --periodo-fin 2026-09-21` | Calcular otro período distinto al normal |
 

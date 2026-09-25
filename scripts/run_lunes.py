@@ -179,7 +179,9 @@ def etapa_macros(args, estado: Estado, dir_corte: Path) -> dict:
             "motivo": "el período tiene Exclusion_Matrix y las macros del libro no la aplican (falta el maestro "
             "v1.1, tarea 4.0): la corrida queda sin_referencia",
         }
-    tiempos = ejecutar_macros(libro, cfg, timeout_s=args.timeout_macros, excel_aplica_matriz=aplica)
+    tiempos = ejecutar_macros(
+        libro, cfg, timeout_s=args.timeout_macros, excel_aplica_matriz=aplica, rapido=not args.macros_sin_optimizar
+    )
     ref = extraer_referencia(libro, args.corte)
     (dir_corte / "referencia_excel.json").write_text(
         json.dumps(dataclasses.asdict(ref), ensure_ascii=False, default=str), encoding="utf-8"
@@ -359,8 +361,11 @@ def etapa_correcciones(args, estado: Estado, dir_corte: Path) -> dict:
         )
         for c in cambios
     ]
-    n = RepositorioCorridas(crear_engine()).guardar_correcciones(etl["id_corrida"], filas)
-    return {"guardadas": n, "id_corrida": etl["id_corrida"]}
+    repo = RepositorioCorridas(crear_engine())
+    n = repo.guardar_correcciones(etl["id_corrida"], filas)
+    id_carga = estado.artefacto("register-exclusion-matrix", "id_carga")
+    vinculada = bool(id_carga) and repo.vincular_carga_con_cierre(id_carga, etl["id_corrida"])
+    return {"guardadas": n, "id_corrida": etl["id_corrida"], "carga_vinculada": vinculada}
 
 
 FUNCIONES = {
@@ -404,6 +409,11 @@ def construir_parser() -> argparse.ArgumentParser:
         "--omitir-macros",
         action="store_true",
         help="con --stage all / cierre-mensual, no correr Excel: la corrida queda sin referencia (R3.7)",
+    )
+    ap.add_argument(
+        "--macros-sin-optimizar",
+        action="store_true",
+        help="correr las macros con recálculo automático (modo antiguo, ~2 veces más lento; solo para diagnóstico)",
     )
     ap.add_argument("--periodo-inicio", type=date.fromisoformat)
     ap.add_argument("--periodo-fin", type=date.fromisoformat)

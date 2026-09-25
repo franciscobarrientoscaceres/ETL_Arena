@@ -326,6 +326,26 @@ class RepositorioCorridas:
             conn.close()
         return len(tabla.filas)
 
+    def vincular_carga_con_cierre(self, id_carga: int, id_corrida: str) -> bool:
+        """Anota en ``exclusion_matrix_carga`` qué cierre mensual usó la entrega (``IdCorridaCierre``).
+
+        Única actualización permitida sobre la tabla (06_roles): solo si aún estaba vacía; devuelve si la anotó."""
+        conn = self._conexion()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "UPDATE dbo.exclusion_matrix_carga SET IdCorridaCierre = ? "
+                "WHERE IdCarga = ? AND IdCorridaCierre IS NULL",
+                id_corrida,
+                id_carga,
+            )
+            cur.execute("SELECT @@ROWCOUNT")
+            n = cur.fetchone()[0]
+            conn.commit()
+            return n == 1
+        finally:
+            conn.close()
+
     def exclusiones_cargadas(self, id_proyecto: int, anio: int, mes: int) -> bool:
         """``EstadoExclusiones`` de una corrida del mes: ¿ya se cargó la matriz de Alex? (R19.5)."""
         conn = self._conexion()

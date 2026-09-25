@@ -381,10 +381,15 @@ def test_referencia_y_reconciliacion(engine, repo, libro_sintetico):
     )
 
 
-def test_carga_mensual_exclusion(repo):
+def test_carga_mensual_exclusion(engine, repo, libro_sintetico):
     assert not repo.exclusiones_cargadas(1, 2026, 8)
-    assert repo.registrar_carga_exclusion(1, 2026, 8, "exclusion_agosto.xlsx", "b" * 64) > 0
-    assert repo.exclusiones_cargadas(1, 2026, 8)
+    id_carga = repo.registrar_carga_exclusion(1, 2026, 8, "exclusion_agosto.xlsx", "b" * 64)
+    assert id_carga > 0 and repo.exclusiones_cargadas(1, 2026, 8)
+    cfg, _, _ = _corrida(repo, libro_sintetico, exclusiones="con_exclusiones", tipo="cierre_mensual")
+    assert repo.vincular_carga_con_cierre(id_carga, cfg.id_corrida)
+    assert not repo.vincular_carga_con_cierre(id_carga, cfg.id_corrida)  # una sola vez: no se pisa
+    vinculada = _consulta(engine, "SELECT IdCorridaCierre FROM dbo.exclusion_matrix_carga WHERE IdCarga = ?", id_carga)
+    assert str(vinculada[0][0]).lower() == cfg.id_corrida
 
 
 def test_mes_cerrado_para_la_cola_de_cierres(repo, libro_sintetico):  # R19.3

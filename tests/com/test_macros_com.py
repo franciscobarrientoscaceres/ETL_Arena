@@ -45,7 +45,9 @@ def corrida_com(ruta_libro_real, tmp_path_factory):
 def test_macros_corren_en_orden(corrida_com):
     from etl_arena.workbook.macros import MACROS
 
-    assert list(corrida_com[2]) == list(MACROS)
+    tiempos = corrida_com[2]
+    assert [k for k in tiempos if k in MACROS] == list(MACROS)  # en orden; además: abrir, recalcular, guardar
+    assert {"abrir", "guardar"} <= set(tiempos)
 
 
 def _cerca(a, b) -> bool:

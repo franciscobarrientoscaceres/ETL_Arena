@@ -256,6 +256,11 @@ Detectados al emular el VBA línea por línea y comparar contra el golden de sep
 - Corrección (2026-09-25): `workbook.vba.macros_aplican_matriz` lee el VBA (oletools) y solo devuelve `True` si `cmdCalcAvailability` y `mcoCreateList` leen la hoja (maestro v1.1). Si no, `escribir_parametros` escribe C31/L14 = "No"; el orquestador omite la referencia Excel cuando el período tiene 1/2 en la matriz (`sin_referencia`), y la reconciliación trata "Yes" ≡ "No" en el nivel 1 cuando el período no tiene exclusiones.
 - Efecto medido (sep 1–21 vía COM): KPI, tabla y Daily idénticos; eventos con Δ ≤ 5,7e-14 (el VBA calcula H por otro camino con L14 = "No"), dentro de la tolerancia.
 
+### F-45 🟢 Las macros se aceleran sin tocar el VBA (2026-09-25)
+- Causa de la lentitud: las macros escriben celda por celda y, con recálculo automático, Excel recalcula el libro en cada escritura.
+- `workbook.macros` (modo `rapido`, por defecto): `ScreenUpdating = False` y recálculo manual; `Calculate` antes de cada macro (`mcoDailyAvailability` lee `Daily!C`, `mcoOrder` ordena `N:Q` por fórmulas), `mcoOrder` repetido ya recalculado si el Excel tiene `SortFields.Add2`, `Calculate` final, vuelta a automático y guardado.
+- Medido en FRANCISCO-PC (Excel 2016), referencia extraída **idéntica** al modo normal: septiembre 1–21 84 s → 48 s; agosto 114 s → 50 s (`cmdCalcAvailability` 45 s → 5 s). Lo que queda es abrir (~10 s), guardar (~5 s) y las lecturas de `mcoCreateList` (~22 s), propias del VBA. `run_lunes.py --macros-sin-optimizar` vuelve al modo antiguo.
+
 ### Decisiones asociadas
 - **D-16** (resuelta 2026-09-24, confirmada por negocio): los eventos (`mcoCreateList`, L14 = "Yes") usan la misma regla de la matriz que el KPI, para que `C14 = 4·L10` siga valiendo sin arrastre. La macro de agosto no lo hace (usa `PlantActivity!D`).
 - **D-17** (resuelta 2026-09-24): Alex entrega la `Exclusion_Matrix` una vez al mes, al final. Corridas semanales = oficiales "Sin Exclusiones"; cierre mensual = oficial "Con Exclusiones" (vigente).

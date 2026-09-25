@@ -8,6 +8,7 @@ La referencia se lee después por XML (``workbook.referencia``). Solo sobre copi
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 
 from etl_arena.config import ConfiguracionCalculo
@@ -89,11 +90,18 @@ def ejecutar_macros(
     timeout_s: float = 900,
     visible: bool = True,
     excel_aplica_matriz: bool | None = None,
+    rapido: bool = True,
 ) -> dict[str, float]:
-    """Parámetros + 4 macros + guardar. Devuelve los segundos por macro.
+    """Parámetros + 4 macros + guardar. Devuelve los segundos por macro (y por paso: abrir, recalcular, guardar).
 
     Solo sobre copias de trabajo de ``copiar_libro_trabajo`` (con su ``.bak`` al lado): las macros
     escriben y guardan el libro, así que nunca se corren sobre el maestro ni sobre ``data/processed``.
+
+    ``rapido`` (por defecto): pantalla sin refrescar y recálculo manual mientras corren las macros, que
+    escriben celda por celda y con recálculo automático hacen que Excel recalcule el libro miles de veces.
+    Se recalcula **antes de cada macro** (``mcoDailyAvailability`` lee las fechas de ``Daily!C`` y
+    ``mcoOrder`` ordena ``N:Q`` por fórmulas), se repite ``mcoOrder`` ya recalculado si el Excel sabe
+    ordenar, y al final se recalcula, se vuelve a automático y se guarda. El VBA no se toca.
     """
     libro = Path(libro)
     if not libro.with_suffix(libro.suffix + ".bak").exists():
@@ -107,28 +115,66 @@ def ejecutar_macros(
             extra={"id_corrida": cfg.id_corrida},
         )
     with SesionExcel(visible=visible, timeout_s=timeout_s) as sesion:
-        return _correr(sesion, libro, cfg, excel_aplica_matriz)  # el proxy del libro muere antes de cerrar Excel
+        # el proxy del libro muere antes de cerrar Excel
+        return _correr(sesion, libro, cfg, excel_aplica_matriz, rapido)
+
+
+XL_CALCULO_MANUAL = -4135
+XL_CALCULO_AUTOMATICO = -4105
 
 
 def _correr(
-    sesion: SesionExcel, libro: str | Path, cfg: ConfiguracionCalculo, excel_aplica_matriz: bool
+    sesion: SesionExcel, libro: str | Path, cfg: ConfiguracionCalculo, excel_aplica_matriz: bool, rapido: bool = True
 ) -> dict[str, float]:
+    extra = {"id_corrida": cfg.id_corrida}
     tiempos: dict[str, float] = {}
+    t = time.perf_counter()
     wb = sesion.abrir(libro)
+    tiempos["abrir"] = time.perf_counter() - t
+    app = getattr(sesion, "app", None)
+    rapido = rapido and app is not None
+    if rapido:
+        app.ScreenUpdating = False
+        app.Calculation = XL_CALCULO_MANUAL
     escribir_parametros(wb, cfg, excel_aplica_matriz)
+    recalculo = 0.0
     for macro in MACROS:
-        try:
-            tiempos[macro] = sesion.ejecutar_macro(wb, macro)
-        except ErrorVBA as exc:
-            if not (macro in EFECTO_SIN_ADD2 and "438" in exc.mensaje and sesion.build < BUILD_MINIMO_ADD2):
-                raise
-            tiempos[macro] = exc.segundos
-            log.warning(
-                "Excel %s sin SortFields.Add2: %s",
-                sesion.version,
-                EFECTO_SIN_ADD2[macro],
-                extra={"id_corrida": cfg.id_corrida},
-            )
-        log.info("macro %s: %.1f s", macro, tiempos[macro], extra={"id_corrida": cfg.id_corrida})
+        if rapido:
+            t = time.perf_counter()
+            app.Calculate()  # dependencias al día: Daily!C, C23, N:Q…
+            recalculo += time.perf_counter() - t
+        tiempos[macro] = _ejecutar(sesion, wb, macro, extra)
+        if rapido and macro == "mcoCreateList" and sesion.build >= BUILD_MINIMO_ADD2:
+            # mcoOrder (dentro de mcoCreateList) ordenó N:Q con valores sin recalcular: se repite ya al día
+            t = time.perf_counter()
+            app.Calculate()
+            tiempos["mcoOrder (recalculado)"] = sesion.ejecutar_macro(wb, "mcoOrder") + time.perf_counter() - t
+    t = time.perf_counter()
+    if rapido:
+        app.Calculate()
+        app.Calculation = XL_CALCULO_AUTOMATICO  # el libro guardado queda como estaba (automático)
+        app.ScreenUpdating = True
+        recalculo += time.perf_counter() - t
+        tiempos["recalcular"] = recalculo
+    t = time.perf_counter()
     wb.Save()
+    tiempos["guardar"] = time.perf_counter() - t
+    log.info(
+        "macros %s: %s",
+        "rápidas" if rapido else "normales",
+        ", ".join(f"{k} {v:.1f} s" for k, v in tiempos.items()),
+        extra=extra,
+    )
     return tiempos
+
+
+def _ejecutar(sesion: SesionExcel, wb, macro: str, extra: dict) -> float:
+    try:
+        segundos = sesion.ejecutar_macro(wb, macro)
+    except ErrorVBA as exc:
+        if not (macro in EFECTO_SIN_ADD2 and "438" in exc.mensaje and sesion.build < BUILD_MINIMO_ADD2):
+            raise
+        segundos = exc.segundos
+        log.warning("Excel %s sin SortFields.Add2: %s", sesion.version, EFECTO_SIN_ADD2[macro], extra=extra)
+    log.info("macro %s: %.1f s", macro, segundos, extra=extra)
+    return segundos
