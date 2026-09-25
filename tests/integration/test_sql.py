@@ -1,12 +1,17 @@
 """Tests de integración SQL Server (tarea 2.5, marker ``sql``; R11, R12, R15, R19.7).
 
-Usan una base propia (``ETL_Arena_test``) en la instancia de ``ETL_ARENA_DB_URL``: se crea al
-inicio de la sesión y se elimina al final. Se omiten si no hay URL o la instancia no responde.
+Base de pruebas:
+* ``ETL_ARENA_TEST_DB_URL`` en Azure (``*.database.windows.net``): base fija de pruebas (oferta
+  gratuita) cuyo esquema se reinicia al inicio de la sesión (``reiniciar_esquema`` exige "test" en el nombre).
+* ``ETL_ARENA_TEST_DB_URL`` local, o sin definir con ``ETL_ARENA_DB_URL`` local: se crea
+  ``ETL_Arena_test`` al inicio y se elimina al final.
+* Sin base de pruebas y con ``ETL_ARENA_DB_URL`` en Azure: se omiten (nunca se toca la base real).
 """
 
 from __future__ import annotations
 
 import hashlib
+import os
 import time
 import uuid
 from datetime import date, datetime
@@ -20,12 +25,15 @@ from etl_arena.persistence import (
     MetadatosCorrida,
     RepositorioCorridas,
     aplicar_esquema,
+    cargar_env,
     construir_paquete,
     crear_base_si_no_existe,
     crear_engine,
     eliminar_base,
+    reiniciar_esquema,
     url_configurada,
 )
+from etl_arena.persistence.conexion import es_azure
 from etl_arena.persistence.esquema import DIR_SQL, aplicar_script
 from etl_arena.pipeline import calcular_libro
 
@@ -33,19 +41,37 @@ pytestmark = pytest.mark.sql
 BASE = "ETL_Arena_test"
 
 
+def _url_pruebas():
+    from sqlalchemy.engine import make_url
+
+    cargar_env()
+    if os.environ.get("ETL_ARENA_TEST_DB_URL"):
+        url = make_url(os.environ["ETL_ARENA_TEST_DB_URL"])
+        return url if es_azure(url) else url.set(database=url.database or BASE)
+    url = url_configurada()
+    if es_azure(url):
+        pytest.skip("ETL_ARENA_DB_URL apunta a Azure: definir ETL_ARENA_TEST_DB_URL con una base de pruebas")
+    return url.set(database=BASE)
+
+
 @pytest.fixture(scope="session")
 def engine():
     try:
-        url = url_configurada()
-        eliminar_base(BASE, url)
-        crear_base_si_no_existe(BASE, url)
+        url = _url_pruebas()
+        local = not es_azure(url)
+        if local:
+            eliminar_base(url.database, url)
+            crear_base_si_no_existe(url.database, url)
+        eng = crear_engine(url)
+        (aplicar_esquema if local else reiniciar_esquema)(eng)
+    except pytest.skip.Exception:
+        raise
     except Exception as exc:  # sin URL o instancia caída
         pytest.skip(f"SQL Server no disponible: {exc}")
-    eng = crear_engine(url.set(database=BASE))
-    aplicar_esquema(eng)
     yield eng
     eng.dispose()
-    eliminar_base(BASE, url)
+    if local:
+        eliminar_base(url.database, url)
 
 
 @pytest.fixture(scope="session")

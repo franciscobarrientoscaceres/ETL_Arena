@@ -20,3 +20,19 @@ F-29: el PC de oficina tenía solo Python 3.14, el driver ODBC legacy `SQL Serve
 - `ETL_ARENA_DB_URL` varía por equipo y vive solo en `.env` (no versionado).
 - El DDL debe ser compatible con SQL Server 2022 y 2025.
 - Instancia nombrada: si la conexión desde otro equipo falla, verificar el servicio *SQL Server Browser* o fijar el puerto.
+
+## Actualización 2026-09-24 — Azure SQL Database (serverless, oferta gratuita)
+
+**Contexto:** en Trina no se permite instalar SQL Server en la laptop de trabajo.
+
+**Decisión:** la base de producción pasa a **Azure SQL Database, General Purpose serverless (Gen5), oferta gratuita** (100.000 vCore-segundos + 32 GB al mes, sin cargo al superar: pausa hasta el mes siguiente):
+- Servidor `trina-etl.database.windows.net`, base `trina_etl`, región **Brazil South** (Chile Central no admite la oferta gratuita), grupo de recursos `rg_trina_etl`, suscripción *Azure subscription 1* de F. Barrientos (cuenta @trinasolar.com).
+- Autenticación **Microsoft Entra ID** con token de `azure-identity` (`ETL_ARENA_DB_AUTH=entra`, `persistence/entra.py`): sin contraseñas en `.env`; el navegador se abre una vez y el token queda en la caché cifrada de Windows. El admin SQL `trina_admin` queda solo como respaldo (contraseña fuera del repositorio).
+- Firewall por IP de cliente + "Permitir servicios de Azure" (Power BI sin gateway).
+- Reintento automático de conexión ante errores transitorios (40613 al reanudar, 258, …) y login timeout de 60 s.
+- El código nunca crea ni elimina bases en Azure (un `CREATE DATABASE` sería de pago); `crear_base.py` solo aplica el esquema.
+- Tests de integración: `ETL_ARENA_TEST_DB_URL` (base de pruebas aparte con "test" en el nombre, que se reinicia; o instancia local que se crea y borra).
+
+**Medido:** esquema aplicado sin cambios de DDL; una corrida real de septiembre (244.748 filas) se guarda en ~46 s desde Chile.
+
+**Pendiente:** probar la conexión desde la red de Trina (puerto 1433 saliente) y agregar la IP de la oficina al firewall; Power BI en modo *Import* (DirectQuery mantendría la base despierta).

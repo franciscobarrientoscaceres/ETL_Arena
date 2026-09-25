@@ -119,7 +119,7 @@ python -m venv .venv                       # Python >= 3.13 (probado con 3.14)
 .venv\Scripts\python -m ruff check src tests
 ```
 
-- **Base de datos** (ADR-10): copiar `.env.example` a `.env` con `ETL_ARENA_DB_URL` (instancia local con autenticación Windows, o Docker con `docker compose -f docker/mssql.compose.yml --env-file .env up -d`) y crear/actualizar el esquema con `.venv\Scripts\python scripts\crear_base.py` (idempotente; fechas siempre `DATETIME`).
+- **Base de datos** (ADR-10): producción en **Azure SQL Database serverless** (`trina-etl.database.windows.net/trina_etl`, Entra ID con `ETL_ARENA_DB_AUTH=entra`; la primera conexión abre el navegador para iniciar sesión y la base pausada tarda ~1 min en despertar). Alternativas: copiar `.env.example` a `.env` con `ETL_ARENA_DB_URL` (instancia local con autenticación Windows, o Docker con `docker compose -f docker/mssql.compose.yml --env-file .env up -d`) y crear/actualizar el esquema con `.venv\Scripts\python scripts\crear_base.py` (idempotente; fechas siempre `DATETIME`).
 - Seed del catálogo: `.venv\Scripts\python scripts\generar_seed_tipo_detencion.py` regenera `sql/05_seed_tipo_detencion.sql` desde `PCS-Fault` (163 códigos; duplicados según D-14).
 - Tests de integración SQL (`-m sql`): crean y eliminan su propia base `ETL_Arena_test`; se omiten si no hay instancia.
 - Requiere **ODBC Driver 18 for SQL Server** (instalador de Microsoft, con permisos de administrador). El driver legacy `SQL Server` no sirve (no maneja `DATETIME2` ni `fast_executemany`).

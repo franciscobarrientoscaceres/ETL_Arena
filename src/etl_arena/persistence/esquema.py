@@ -53,3 +53,34 @@ def aplicar_script(engine: Engine, ruta: Path) -> int:
 def aplicar_esquema(engine: Engine, directorio: Path = DIR_SQL) -> dict[str, int]:
     """Aplica ``ORDEN_SCRIPTS``. Todos son idempotentes: se puede ejecutar cualquier número de veces."""
     return {nombre: aplicar_script(engine, directorio / nombre) for nombre in ORDEN_SCRIPTS}
+
+
+_REINICIO = """
+DECLARE @sql NVARCHAR(MAX) = N'';
+SELECT @sql += N'ALTER TABLE ' + QUOTENAME(SCHEMA_NAME(t.schema_id)) + N'.' + QUOTENAME(t.name)
+             + N' DROP CONSTRAINT ' + QUOTENAME(f.name) + N';' + NCHAR(10)
+FROM sys.foreign_keys AS f JOIN sys.tables AS t ON t.object_id = f.parent_object_id;
+SELECT @sql += N'DROP VIEW ' + QUOTENAME(SCHEMA_NAME(schema_id)) + N'.' + QUOTENAME(name) + N';' + NCHAR(10)
+FROM sys.views WHERE is_ms_shipped = 0;
+SELECT @sql += N'DROP TABLE ' + QUOTENAME(SCHEMA_NAME(schema_id)) + N'.' + QUOTENAME(name) + N';' + NCHAR(10)
+FROM sys.tables WHERE is_ms_shipped = 0;
+EXEC sys.sp_executesql @sql;
+"""
+
+
+def reiniciar_esquema(engine: Engine, directorio: Path = DIR_SQL) -> dict[str, int]:
+    """Solo pruebas: elimina vistas y tablas y vuelve a aplicar el esquema. Se niega a operar sobre
+    una base cuyo nombre no contenga "test" (p. ej. la base fija de pruebas en Azure)."""
+    base = (engine.url.database or "").lower()
+    if "test" not in base:
+        raise RuntimeError(f"reiniciar_esquema solo opera sobre bases de prueba, no sobre {engine.url.database!r}")
+    conn = engine.raw_connection()
+    try:
+        conn.driver_connection.autocommit = True
+        cur = conn.cursor()
+        cur.execute(_REINICIO)
+        cur.close()
+    finally:
+        conn.driver_connection.autocommit = False
+        conn.close()
+    return aplicar_esquema(engine, directorio)

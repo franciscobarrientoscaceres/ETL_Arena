@@ -26,7 +26,7 @@ El sistema reproduce en Python la lógica de las macros VBA del libro `Availabil
 | ADR-08 | SQL append-only por `IdCorrida`; workflow de revisión en tabla aparte | R11, F-27 |
 | ADR-09 | Tablas de muestras con *clustered columnstore* | Volumen ~1M filas/tabla/corrida (F-28) |
 | ADR-11 | `Exclusion_Matrix` (0/1/2 por fila y PCS) reemplaza a `PlantActivity!D` como fuente de la exclusión; unión por fila; valor 2 = baterías previas al EE (definición de negocio, igual a la macro de agosto en todo el libro) | Definición de negocio 2026-09-24 (F-37); `docs/adr/ADR-11-exclusion-matrix.md` |
-| ADR-10 | Python ≥ 3.13 (D-10 resuelta), ODBC Driver 18; SQL de desarrollo en instancia local (`FRANCISCO-PC\SQLSERVER2025DEV`, auth Windows) o Docker 2022 | Entorno (F-29); detalle en `docs/adr/` |
+| ADR-10 | Python ≥ 3.13, ODBC Driver 18; **producción en Azure SQL Database serverless (oferta gratuita, `trina-etl`/`trina_etl`, Brazil South) con Microsoft Entra ID**; desarrollo opcional en instancia local o Docker | Entorno (F-29); en Trina no se permite instalar SQL Server (2026-09-24); detalle en `docs/adr/ADR-10-entorno.md` |
 
 Convención de nombres: **SQL** en PascalCase español (`BloquesMuestreo`); **Python** en snake_case español (`bloques_muestreo`); los nombres de celda Excel (C12, L14…) se citan en comentarios.
 

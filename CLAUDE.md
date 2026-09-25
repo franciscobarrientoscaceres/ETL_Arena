@@ -179,6 +179,8 @@ SCADA ~03:00 AM (solo extract)
   → notificar a Misael: refresh Power BI
 ```
 
+Base de datos (ADR-10, 2026-09-24): **Azure SQL Database serverless, oferta gratuita** — `trina-etl.database.windows.net/trina_etl` (Brazil South), autenticación Microsoft Entra ID (`ETL_ARENA_DB_AUTH=entra`). El código nunca crea ni borra bases en Azure; los tests usan `ETL_ARENA_TEST_DB_URL`.
+
 Orquestador: `scripts/run_lunes.py` con etapas `acquire-wait`, `prepare-workbook`, `run-macros`, `run-etl`, `reconcile`, `notify-bi`. Fases P0–P9 y detalle en `AGENTS.md` §14 Fase S. Runbook: `docs/runbook-lunes.md`.
 
 **Reglas:** export **incremental** (desde el dato siguiente al último cargado hasta el último dato del lunes; continuidad validada al recibir; D-07); KPI semanal = mes en curso hasta el último dato; cierre mensual = mes completo; KPI oficial con `C31 = L14 = "Yes"` (D-03); transporte hoy solo TeamViewer (sin UNC/API); solo `RawData-PCS` desde SCADA; `Exclusion_Matrix` la entrega Alex a fin de mes: KPI semanal oficial "Sin Exclusiones", cierre mensual oficial "Con Exclusiones" (D-17, F-37); PlantActivity solo para C21 (D-12); correcciones solo por `reproceso` con registro de celdas cambiadas (D-13); macros y ETL solo en PC local; Power BI modo notificación (owner Misael) hasta service principal.

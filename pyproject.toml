@@ -19,6 +19,7 @@ dependencies = [
 sql = [
     "sqlalchemy>=2.0",
     "pyodbc>=5.2",
+    "azure-identity>=1.17",  # token Microsoft Entra ID para Azure SQL (ADR-10)
 ]
 com = [
     "pywin32>=308; sys_platform == 'win32'",

@@ -13,6 +13,7 @@ Checklist operativa semanal. Detalle de diseño: `AGENTS.md` §14 Fase S.
 
 ## 0. Precondiciones (antes de las ~03:00 del lunes)
 
+- [ ] Conexión a Azure SQL (`trina-etl.database.windows.net`): la IP de la red desde donde corres está en el firewall del servidor (portal → `trina-etl` → Redes); si cambias de red, agrégala. La primera conexión del día puede tardar ~1 min (la base serverless se reanuda) y, si el token expiró, abre el navegador para iniciar sesión con @trinasolar.com.
 - [ ] Ventana libre en SCADA / se coordinó con operaciones.
 - [ ] PC local: Excel instalado (macros COM), Python del proyecto, TeamViewer.
 - [ ] Existe `data/inbox/` (crear si no).
