@@ -33,8 +33,13 @@ def test_conversiones():
 
 def _resultado(tmp_path, **cfg):
     s = [serial_min(15 * k) for k in range(-1, 4)]  # 31-ago 23:45 … 01-sep 00:45
-    filas = [fila_raw(s[0], [4, None]), fila_raw(s[1], [4, 4]), fila_raw(s[2], [3, 4], ["F55 X", "NO FAULTS"]),
-             fila_raw(s[3], [4, 4]), fila_raw(s[4], [4, 4])]
+    filas = [
+        fila_raw(s[0], [4, None]),
+        fila_raw(s[1], [4, 4]),
+        fila_raw(s[2], [3, 4], ["F55 X", "NO FAULTS"]),
+        fila_raw(s[3], [4, 4]),
+        fila_raw(s[4], [4, 4]),
+    ]
     ruta = crear_libro(tmp_path / "l.xlsx", filas, actividad={r: [None, s[r - 2], 1, 1] for r in range(2, 7)})
     return calcular_libro(ruta, config_prueba(**cfg), codigos_resumen=[("F55", "EXT")])
 

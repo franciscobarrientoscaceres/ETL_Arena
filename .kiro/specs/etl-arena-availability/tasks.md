@@ -187,24 +187,24 @@ Agentes disponibles en `.opencode/agent/` (OpenCode, `mode: subagent`). Son perf
 
 ### Fase 3 — Pipeline, calidad y reconciliación
 
-- [ ] 3.1 `pipeline.py` + `scripts/ejecutar_etl.py` — **backend-architect**
+- [x] 3.1 `pipeline.py` + `scripts/ejecutar_etl.py` — **backend-architect** *(hecho 2026-09-24: `etl_arena/ejecucion.py` orquesta y persiste; `etl_run` se registra antes de calcular (fallas → `failed` con traza); log JSON con `id_corrida` (`registro.py`); CLI con salida 0/2/1; KPI mensual oficial + anual desde SQL)*
   - Orden: config → ingesta → normalización → enriquecimiento → disponibilidad → eventos → agregaciones → calidad → persistencia → (reconciliación si `--referencia`). Logging estructurado con `IdCorrida`; exit ≠ 0 ante error.
   - _R11.2, R15, R19.4_
 
-- [ ] 3.2 `reporting.calidad` — **data-engineer**
+- [x] 3.2 `reporting.calidad` — **data-engineer** *(hecho: `reporting/calidad.py`, resumen R15.3 en `etl_run.ResumenCalidad`)*
   - Resumen JSON (R15.3) + filas `data_quality_issue`.
   - _R15_
 
-- [ ] 3.3 `reconciliation` — **data-engineer**
+- [x] 3.3 `reconciliation` — **data-engineer** *(hecho: niveles 1–5 + invariantes con `no_aplica`, `a_filas` → `reconciliation_result`; la referencia se extrae por XML con `workbook/referencia.py`, adelantado de la 4.2)*
   - Niveles 1–5 + invariantes (con condiciones de aplicabilidad), `tolerancias.py` sincronizado con `golden_index._meta` (test), `ReporteReconciliacion` → `reconciliation_result`, `parity_failed` si fallan niveles 3–5, `sin_referencia` si no hay referencia.
   - Tests: datos idénticos → pass; C14 alterado → fail nivel 3; evento con D +15 min → fail nivel 5; invariante `no_aplica` cuando `L14 ≠ C31`.
   - _R13, F-24_
 
-- [ ] 3.4 E2E local — **backend-architect**
+- [x] 3.4 E2E local — **backend-architect** *(hecho: libro real de septiembre → SQL (instancia local de pruebas) → reconciliación: `success`, niveles 1–5 con Δ máx 0,0 en 125.744 comparaciones; mensual 1975 bloques y anual jul–sep)*
   - `ejecutar_etl.py` sobre el libro real (sep) → SQL en Docker → reconciliar contra la referencia del golden v2 → `success` y todos los niveles `pass`.
   - _R11, R13, R14_
 
-- [ ] **Checkpoint C — code-reviewer**: revisión del pipeline y de la reconciliación; confirmar con el usuario antes de tocar Excel real vía COM.
+- [x] **Checkpoint C — code-reviewer**: revisión del pipeline y de la reconciliación; confirmar con el usuario antes de tocar Excel real vía COM. *(revisión cerrada 2026-09-24: C-1 CLI — un período explícito arrastra L2/L4 y Daily salvo que se den aparte (D-07); C-2 `v_monthly_kpi_vigente` prefiere "Con Exclusiones" (D-17), aplicado también en `trina_etl`; C-3 la referencia usa `texto_excel` para `ListOfFaults!G`. Observaciones: una corrida oficial `parity_failed` no queda vigente (las vistas solo publican `success`); las diferencias conocidas de la macro de agosto (`ee2_*`) aún no se marcan como explicadas en la reconciliación (se resuelve con el maestro v1.1, 4.0). **Pendiente: confirmación del usuario antes de usar COM (Fase 4).**)*
 
 ### Fase 4 — Cadena semanal (S → T → M → E → R → B)
 
@@ -217,7 +217,7 @@ Agentes disponibles en `.opencode/agent/` (OpenCode, `mode: subagent`). Son perf
   - `DispatchEx`, visible, `DisplayAlerts=False`, watchdog por PID, cierre solo de la instancia propia; verificación de *Trusted Location*.
   - _R3.7, F-23_
 
-- [ ] 4.2 `workbook.macros` + `workbook.referencia` — **backend-architect**
+- [ ] 4.2 `workbook.macros` + `workbook.referencia` — **backend-architect** *(la extracción por XML `workbook/referencia.py` ya existe desde la 3.3; falta la parte COM)*
   - Escribir C5/C7/C21/C31/L2/L4/L14/`Daily!D5` y las fórmulas `Daily!C9:C(8+n)` (limpiando el resto; F-33), ejecutar las 4 macros en orden, guardar; extraer referencia completa por XML → `referencia_excel.json` + `excel_reference_*`.
   - _R3.5, R3.6, F-05, F-23_
 

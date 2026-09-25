@@ -30,6 +30,7 @@ def test_nombre_de_base_invalido():
 def test_entra_solo_contra_azure(monkeypatch):
     monkeypatch.setenv("ETL_ARENA_DB_AUTH", "entra")
     capturado = {}
+
     def falso(engine, entra):
         capturado["entra"] = entra
         return engine

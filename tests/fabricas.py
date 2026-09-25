@@ -182,3 +182,62 @@ def exclusion(m: MatrizPCS, valores: Sequence[Sequence[float | None]], baterias_
         filas[int(m.numero_fila[i])] = celdas
     datos, _ = asociar_exclusion(m, filas, config_prueba(total_pcs=m.p, baterias_por_pcs=baterias_por_pcs))
     return datos
+
+
+def referencia_desde_resultado(r):
+    """ReferenciaExcel idéntica a lo que produjeron los motores (para probar la reconciliación
+    alterando un valor a la vez)."""
+    from datetime import datetime as _dt
+
+    from etl_arena.excel_semantics import texto_excel
+    from etl_arena.model import DiaReferencia, EventoReferencia, ReferenciaExcel
+
+    cfg, d, ev = r.cfg, r.disponibilidad, r.eventos
+    tabla = [
+        (k + 4, float(d.serial[k]), pcs, float(d.ponderadas[k, j]))
+        for k in range(d.bloques_muestreo)
+        for j, pcs in enumerate(d.pcs)
+        if not np.isnan(d.ponderadas[k, j])
+    ]
+    registros = [*ev.cerrados, *([ev.incompleto] if ev.incompleto is not None else [])]
+    return ReferenciaExcel(
+        corte="prueba",
+        archivo_libro="libro.xlsm",
+        hash_libro="0" * 64,
+        extraido_en=_dt(2026, 9, 24),
+        c5=cfg.inicio_periodo,
+        c7=cfg.fin_periodo,
+        l2=cfg.inicio_periodo_eventos,
+        l4=cfg.fin_periodo_eventos,
+        c21="Yes" if cfg.solo_tiempo_operacional else "No",
+        c31="Yes" if cfg.aplicar_evento_excusable else "No",
+        l14="Yes" if cfg.aplicar_evento_excusable_eventos else "No",
+        daily_d5=cfg.fin_diario,
+        c12=d.bloques_muestreo,
+        c14=d.bloques_racks_indisponibles,
+        c16=d.disponibilidad_periodo,
+        c19=d.disponibilidad_anual_acumulada,
+        c23=d.minutos_muestreo_derivado,
+        l10=ev.horas_rack_totales,
+        tabla=tabla,
+        seriales_tabla=[float(x) for x in d.serial],
+        bo=[float(x) for x in d.bo_evento_excusado_pa],
+        eventos=[
+            EventoReferencia(
+                e.orden_excel,
+                e.numero_pcs,
+                e.serial_inicio,
+                e.serial_fin,
+                e.duracion_horas,
+                e.codigo_falla,
+                texto_excel(e.descripcion_falla),
+                e.promedio_baterias,
+                e.horas_rack,
+            )
+            for e in registros
+        ],
+        diario=[
+            DiaReferencia(x.numero_dia, x.dia, x.diario, x.acumulado, x.disponibilidad, x.variacion) for x in r.diario
+        ],
+        resumen_codigos=[(f.codigo, f.horas_rack) for f in ev.resumen],
+    )

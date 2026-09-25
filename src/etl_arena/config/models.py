@@ -45,11 +45,17 @@ class ConfiguracionCalculo:
     es_oficial: bool
     archivo_origen: str
     zona_horaria: str = "America/Santiago"  # documental (ADR-07)
+    # D-06: el acumulado anual (Annual_AVA) parte en julio 2026; los años siguientes, en enero
+    inicio_acumulado_anual: date = date(2026, 7, 1)
 
     @property
     def total_racks(self) -> int:
         """C11 = 12 * C2 * C3."""
         return self.racks_por_pcs * self.total_pcs * self.baterias_por_pcs
+
+    def mes_inicio_acumulado(self, anio: int) -> int:
+        """Primer mes que acumula en ``Annual_AVA`` para ``anio`` (D-06)."""
+        return self.inicio_acumulado_anual.month if anio == self.inicio_acumulado_anual.year else 1
 
     @property
     def dias_diario(self) -> int:

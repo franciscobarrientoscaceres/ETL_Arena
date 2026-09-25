@@ -24,6 +24,7 @@ _FECHAS = (
     "inicio_periodo_eventos",
     "fin_periodo_eventos",
     "fin_diario",
+    "inicio_acumulado_anual",
 )
 _BOOLEANOS = ("solo_tiempo_operacional", "aplicar_evento_excusable", "aplicar_evento_excusable_eventos", "es_oficial")
 

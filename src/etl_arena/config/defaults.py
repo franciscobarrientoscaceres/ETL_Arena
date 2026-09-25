@@ -28,5 +28,6 @@ CONFIG_POR_DEFECTO = MappingProxyType(
         "tipo_corrida": "semanal",
         "es_oficial": False,
         "archivo_origen": "",
+        "inicio_acumulado_anual": date(2026, 7, 1),  # D-06
     }
 )

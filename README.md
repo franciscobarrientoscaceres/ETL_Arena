@@ -123,6 +123,7 @@ python -m venv .venv                       # Python >= 3.13 (probado con 3.14)
 - Seed del catálogo: `.venv\Scripts\python scripts\generar_seed_tipo_detencion.py` regenera `sql/05_seed_tipo_detencion.sql` desde `PCS-Fault` (163 códigos; duplicados según D-14).
 - Tests de integración SQL (`-m sql`): crean y eliminan su propia base `ETL_Arena_test`; se omiten si no hay instancia.
 - Requiere **ODBC Driver 18 for SQL Server** (instalador de Microsoft, con permisos de administrador). El driver legacy `SQL Server` no sirve (no maneja `DATETIME2` ni `fast_executemany`).
+- **Corrida del ETL** (`scripts/ejecutar_etl.py`): `--parametros-desde-libro` toma C5/C7/C21/C31/L2/L4/L14 del libro; `--referencia libro` reconcilia contra los valores que dejaron las macros en ese mismo libro; `--sin-bd` calcula sin persistir; `--oficial` marca la corrida como vigente para Power BI. Salida: 0 = success, 2 = parity_failed, 1 = failed. Ejemplo: `.venv\Scripts\python scripts\ejecutar_etl.py --libro <libro.xlsm> --parametros-desde-libro --referencia libro --sin-bd`.
 - Golden references: `python tests/golden/extract_golden.py --excel <libro> --month N --year 2026 --label <mes>` (ver `tests/golden/data/golden_index.json`).
 - Agentes de Claude Code en `.claude/agents/` (plan de asignación en `.kiro/specs/etl-arena-availability/tasks.md`).
 

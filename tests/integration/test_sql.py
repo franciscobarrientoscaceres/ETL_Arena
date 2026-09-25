@@ -248,6 +248,30 @@ def test_revision_sobrevive_a_nueva_corrida(engine, repo, libro_sintetico):
     assert tuple(fila[0][1:]) == ("revisado", "ok")
 
 
+def test_kpi_mensual_vigente_prefiere_con_exclusiones(engine, repo, libro_sintetico):  # Checkpoint C-2
+    from etl_arena.ejecucion import ejecutar_corrida
+
+    def correr(estado):
+        cfg = config_prueba(es_oficial=True, id_proyecto=4, archivo_origen=libro_sintetico.name)
+        ejecutar_corrida(
+            libro_sintetico,
+            cfg,
+            repo,
+            hash_archivo="0" * 64,
+            estado_exclusiones=estado,
+            codigos_resumen=[("F55", "EXTERNAL")],
+        )
+        return cfg.id_corrida
+
+    cierre = correr("con_exclusiones")
+    time.sleep(1)
+    correr("sin_exclusiones")  # reproceso posterior del mismo mes, sin la matriz
+    vigente = _consulta(
+        engine, "SELECT IdCorrida FROM dbo.v_monthly_kpi_vigente WHERE IdProyecto = 4 AND Anio = 2026 AND Mes = 9"
+    )
+    assert [str(v).lower() for (v,) in vigente] == [cierre]
+
+
 # ------------------------------------------------------------------ seguridad (06_roles.sql)
 def _como_usuario(engine, rol, sentencias):
     """Ejecuta ``sentencias`` como un usuario sin login miembro de ``rol``; devuelve los errores."""
@@ -364,3 +388,74 @@ def test_rendimiento_corrida_real(engine, repo, ruta_libro_real):
         engine, "SELECT BloquesRacksIndisponibles FROM dbo.availability_run_result WHERE IdCorrida = ?", cfg.id_corrida
     )[0][0]
     assert c14 == 104134.2920000001
+
+
+# ------------------------------------------------------------------ E2E (tarea 3.4)
+@pytest.mark.golden
+def test_e2e_corrida_real_con_reconciliacion(engine, repo, ruta_libro_real):
+    """Libro real de septiembre → motores → calidad → SQL → reconciliación contra sus valores
+    cacheados → ``success`` con los niveles 1–5 aprobados y el KPI mensual/anual registrado."""
+    import json
+
+    from etl_arena.config import construir_config, parametros_desde_celdas
+    from etl_arena.ejecucion import ejecutar_corrida
+    from etl_arena.ingestion import leer_celdas_parametros
+    from etl_arena.workbook import extraer_referencia, sha256_archivo
+
+    cfg = construir_config(
+        **parametros_desde_celdas(leer_celdas_parametros(ruta_libro_real)).valores,
+        archivo_origen=ruta_libro_real.name,
+        es_oficial=True,
+    )
+    res = ejecutar_corrida(
+        ruta_libro_real,
+        cfg,
+        repo,
+        hash_archivo=sha256_archivo(ruta_libro_real),
+        referencia=extraer_referencia(ruta_libro_real),
+    )
+    assert res.estado == "success" and res.error is None
+
+    estado, id_ref, resumen = _consulta(
+        engine, "SELECT Estado, IdReferenciaExcel, ResumenCalidad FROM dbo.etl_run WHERE IdCorrida = ?", cfg.id_corrida
+    )[0]
+    assert estado == "success" and id_ref is not None
+    calidad = json.loads(resumen)
+    assert calidad["reconciliacion"]["estado"] == "pass"
+    assert calidad["plant_activity"]["pa_sin_timestamp"] == 659 and calidad["timestamp"] == {"dst_salto": 1}
+
+    niveles = _consulta(
+        engine,
+        "SELECT Nivel, Metrica, Aprobado FROM dbo.reconciliation_result WHERE IdCorrida = ? ORDER BY Nivel",
+        cfg.id_corrida,
+    )
+    assert [(n, m, bool(a)) for n, m, a in niveles] == [
+        (1, "resumen", True),
+        (2, "resumen", True),
+        (3, "resumen", True),
+        (4, "resumen", True),
+        (5, "resumen", True),
+        (9, "no_aplica", True),
+    ]  # invariantes: C31 ≠ L14 en este libro
+    ref = _consulta(
+        engine,
+        "SELECT C14, (SELECT COUNT(*) FROM dbo.excel_reference_fault_event f "
+        "WHERE f.IdReferencia = r.IdReferencia) FROM dbo.excel_reference_run r "
+        "WHERE IdReferencia = ?",
+        id_ref,
+    )[0]
+    assert tuple(ref) == (104134.2920000001, 334)
+
+    # KPI mensual oficial (D-07: bloques = C12) y anual desde julio (D-06) con jul/ago excel_manual
+    mensual = _consulta(
+        engine,
+        "SELECT BloquesMuestreo, BloquesRacksIndisponibles, Origen FROM dbo.v_monthly_kpi_vigente "
+        "WHERE IdProyecto = 1 AND Anio = 2026 AND Mes = 9",
+    )[0]
+    assert tuple(mensual) == (1975.0, 104134.2920000001, "corrida")
+    anual = _consulta(
+        engine,
+        "SELECT Mes, BloquesMuestreoAcumulados FROM dbo.annual_availability WHERE IdCorrida = ? ORDER BY Mes",
+        cfg.id_corrida,
+    )
+    assert [tuple(a) for a in anual] == [(7, 2976.0), (8, 5952.0), (9, 7927.0)]

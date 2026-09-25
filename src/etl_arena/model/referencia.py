@@ -60,8 +60,11 @@ class ReferenciaExcel:
     c23: float | None = None
     l10: float | None = None
     tabla: list[tuple[int, float, int, float]] = field(default_factory=list)  # (fila, serial E, PCS, valor F:BN)
+    seriales_tabla: list[float] = field(default_factory=list)  # Calc!E4.. (una por fila de resultado)
+    bo: list[float | None] = field(default_factory=list)  # Calc!BO por fila de resultado
     eventos: list[EventoReferencia] = field(default_factory=list)
     diario: list[DiaReferencia] = field(default_factory=list)
+    resumen_codigos: list[tuple[str, float | None]] = field(default_factory=list)  # ListOfFaults!N:P
     id_referencia: str = field(default_factory=lambda: str(uuid.uuid4()))
 
 

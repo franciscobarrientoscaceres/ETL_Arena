@@ -19,7 +19,7 @@ from typing import Literal
 from sqlalchemy.engine import Engine
 
 from etl_arena.config import ConfiguracionCalculo
-from etl_arena.model import FilaReconciliacion, ReferenciaExcel
+from etl_arena.model import FilaReconciliacion, KpiMensual, ReferenciaExcel
 from etl_arena.persistence.paquete import LOTE, MetadatosCorrida, PaqueteCorrida, Tabla, _dt, _f, fila_etl_run
 
 EstadoFinal = Literal["success", "failed", "parity_failed"]
@@ -58,6 +58,24 @@ class RepositorioCorridas:
             cur = conn.cursor()
             cur.execute("SELECT CodigoFalla, IdTipoDetencion FROM dbo.tipo_detencion")
             return {codigo: id_tipo for codigo, id_tipo in cur.fetchall()}
+        finally:
+            conn.close()
+
+    def kpi_mensuales_vigentes(self, id_proyecto: int, anio: int) -> list[KpiMensual]:
+        """Filas vigentes de ``v_monthly_kpi_vigente`` (corridas oficiales + ``excel_manual``) para el anual (R10)."""
+        conn = self._conexion()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT Anio, Mes, DiasMes, BloquesMuestreo, BloquesRacksIndisponibles, Origen, IdCorrida, "
+                "DisponibilidadContractual FROM dbo.v_monthly_kpi_vigente WHERE IdProyecto = ? AND Anio = ?",
+                id_proyecto,
+                anio,
+            )
+            return [
+                KpiMensual(int(a), int(m), float(d), float(b), float(f), o, str(i).lower() if i else None, float(k))
+                for a, m, d, b, f, o, i, k in cur.fetchall()
+            ]
         finally:
             conn.close()
 

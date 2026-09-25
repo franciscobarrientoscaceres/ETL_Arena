@@ -60,15 +60,20 @@ FROM dbo.v_corrida_oficial_vigente AS v
 JOIN dbo.fault_code_summary AS s ON s.IdCorrida = v.IdCorrida;
 GO
 
--- KPI mensual vigente (última fila por mes) con la disponibilidad calculada (R10).
+-- KPI mensual vigente por mes con la disponibilidad calculada (R10). Igual que las corridas (D-17,
+-- Checkpoint C-2): gana el de una corrida "Con Exclusiones"; a igualdad, el más reciente.
 CREATE OR ALTER VIEW dbo.v_monthly_kpi_vigente AS
 SELECT k.IdProyecto, k.Anio, k.Mes, k.DiasMes, k.BloquesMuestreo, k.BloquesRacksIndisponibles,
        CASE WHEN p.TotalRacks > 0 AND k.BloquesMuestreo > 0
             THEN 1 - k.BloquesRacksIndisponibles / (p.TotalRacks * k.BloquesMuestreo) END AS DisponibilidadMensual,
        k.DisponibilidadContractual, k.Origen, k.IdCorrida, k.RegistradoEn
 FROM (
-    SELECT *, ROW_NUMBER() OVER (PARTITION BY IdProyecto, Anio, Mes ORDER BY RegistradoEn DESC, IdKpiMensual DESC) AS rn
-    FROM dbo.monthly_official_kpi
+    SELECT m.*, ROW_NUMBER() OVER (
+               PARTITION BY m.IdProyecto, m.Anio, m.Mes
+               ORDER BY CASE r.EstadoExclusiones WHEN N'con_exclusiones' THEN 0 ELSE 1 END,
+                        m.RegistradoEn DESC, m.IdKpiMensual DESC) AS rn
+    FROM dbo.monthly_official_kpi AS m
+    LEFT JOIN dbo.etl_run AS r ON r.IdCorrida = m.IdCorrida
 ) AS k
 JOIN dbo.proyecto AS p ON p.IdProyecto = k.IdProyecto
 WHERE k.rn = 1;

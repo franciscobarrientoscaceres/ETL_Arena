@@ -86,6 +86,13 @@ python scripts/run_lunes.py --reproceso data/inbox/<tramo_corregido>.<ext> --wor
 - [ ] Revisar `cambios.csv` / `v_correccion_dato`: cada celda cambiada con valor anterior y nuevo, y KPI antes/después.
 
 > `run_lunes.py` puede no existir aún (tareas del SDD). Hasta entonces: exportar a mano, transformar fechas, correr macros y `ejecutar_etl.py` siguiendo AGENTS §14.
+>
+> Paso ETL manual (ya disponible, Fase 3), después de correr las macros en el libro de trabajo:
+> ```powershell
+> .venv\Scripts\python scripts\ejecutar_etl.py --libro data\work\<corte>\libro.xlsm --parametros-desde-libro --referencia libro --oficial
+> ```
+> Salida 0 = `success`; 2 = `parity_failed` (revisar `reconciliation_result` de la corrida); 1 = `failed` (ver `etl_run.MensajeError`).
+> Una corrida oficial `parity_failed` **no se publica** en Power BI (las vistas `v_*_vigente` solo toman `success`): revisar las discrepancias, corregir y volver a correr.
 
 ---
 

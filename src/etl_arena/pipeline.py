@@ -13,7 +13,7 @@ from etl_arena.availability import ResultadoDisponibilidad, calcular
 from etl_arena.config import ConfiguracionCalculo
 from etl_arena.enrichment import asociar_actividad, asociar_exclusion
 from etl_arena.fault_events import ResultadoEventos, detectar_eventos
-from etl_arena.ingestion import LibroCrudo, leer_libro
+from etl_arena.ingestion import ErrorLibro, LibroCrudo, leer_libro
 from etl_arena.ingestion.catalogos import leer_codigos_resumen
 from etl_arena.model import Anomalia, DatosActividad, DatosExclusion, DiaDisponibilidad, ErrorParidad, MatrizPCS
 from etl_arena.normalization import a_matriz, validar_esquema
@@ -49,11 +49,25 @@ def calcular_libro(
     act, anomalias_pa = asociar_actividad(m, libro.actividad)
     exc, anomalias_em = asociar_exclusion(m, libro.exclusion, cfg)
     disp = calcular(m, act, cfg, exc)
+    anomalias_resumen: list[Anomalia] = []
     if codigos_resumen is None:
-        codigos_resumen = leer_codigos_resumen(ruta)
+        try:
+            codigos_resumen = leer_codigos_resumen(ruta)
+        except ErrorLibro:
+            codigos_resumen = []
+            anomalias_resumen.append(
+                Anomalia("resumen_sin_catalogo", "info", detalle="el libro no trae ListOfFaults: resumen N:Q vacío")
+            )
     eventos = detectar_eventos(m, exc, cfg, disp.minutos_muestreo_derivado, codigos_resumen)
     diario = calcular_diaria(disp, cfg)
-    anomalias = [*libro.anomalias, *anomalias_esquema, *anomalias_pa, *anomalias_em, *eventos.anomalias]
+    anomalias = [
+        *libro.anomalias,
+        *anomalias_esquema,
+        *anomalias_pa,
+        *anomalias_em,
+        *eventos.anomalias,
+        *anomalias_resumen,
+    ]
     if disp.minutos_muestreo_derivado is not None and disp.minutos_muestreo_derivado != cfg.minutos_muestreo:
         anomalias.append(
             Anomalia(
