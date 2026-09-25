@@ -7,13 +7,13 @@ F-29: el PC de oficina tenía solo Python 3.14, el driver ODBC legacy `SQL Serve
 
 ## Opciones
 - Python: fijar una versión, o `requires-python >= 3.13` (hay wheels de todas las dependencias en 3.13 y 3.14).
-- SQL: contenedor Docker (`mcr.microsoft.com/mssql/server:2022`) o instancia local.
+- SQL: instancia local (el contenedor Docker de la primera versión se retiró el 2026-09-25: no se usaba).
 - Autenticación de desarrollo: `sa` con contraseña en `.env`, o autenticación Windows.
 
 ## Decisión
 - `requires-python >= 3.13` (D-10). Una `.venv` por equipo.
 - **ODBC Driver 18 for SQL Server** obligatorio.
-- SQL de desarrollo: la instancia local si existe (`FRANCISCO-PC\SQLSERVER2025DEV`); si no, `docker/mssql.compose.yml`.
+- SQL de desarrollo: la instancia local (`FRANCISCO-PC\SQLSERVER2025DEV`) para los tests de integración; producción y pruebas en Azure (ver actualizaciones abajo).
 - Desarrollo con **autenticación Windows** (`trusted_connection=yes`): no hay contraseñas en `.env`. `sa` no se usa desde el código; la carga productiva usa el login de mínimo privilegio `etl_writer` (tarea 2.3).
 
 ## Consecuencias
@@ -50,3 +50,9 @@ F-29: el PC de oficina tenía solo Python 3.14, el driver ODBC legacy `SQL Serve
 - TEST/QA nunca puede resolver a la base de PROD; `run_lunes.py` en TEST/QA usa `data/work/_prueba`, copia (no mueve) el export y no avisa a Misael.
 - **Incidente 2026-09-25:** con `ETL_ARENA_TEST_DB_URL` apuntando a `trina_etl_prueba`, los tests de integración la reiniciaron (el guard de `reiniciar_esquema` aceptaba "prueba" en el nombre) y se perdió la carga de validación. Corrección: `reiniciar_esquema` exige "test" en el nombre y rechaza siempre `trina_etl` y `trina_etl_prueba`; los tests de integración se omiten si su base es un ambiente; `verificar_entorno.py` lo reporta como FALTA.
 - Vaciado deliberado de TEST/QA: `crear_base.py --entorno prueba --vaciar --confirmar trina_etl_prueba` (`esquema.vaciar_ambiente_prueba`: borra vistas y tablas, re-aplica el esquema, IDENTITY desde 1, conserva roles y usuarios). Solo acepta `trina_etl_prueba` y la confirmación exacta; con PROD se niega. Usado el 2026-09-25 para limpiar el incidente y recargar agosto (con matriz) y septiembre.
+
+## Actualización 2026-09-25 — Cambios de esquema en PROD
+
+- Columnas nuevas: `detencion.DuracionHoras` (junto a `DuracionSegundos`) y `etl_run.NumCorrida` (correlativo para personas, `IDENTITY_CACHE = OFF` para que no salte de a 1000 al reanudar la base serverless). Llegan por migración idempotente en `sql/02_corrida.sql`; `ALTER TABLE` las agrega al final de la tabla.
+- PROD estaba vacía: se recreó solo `dbo.detencion` (autorizado por F. Barrientos) para dejar `DuracionHoras` físicamente junto a `DuracionSegundos`. En `etl_run` de PROD, `NumCorrida` quedó al final (recrearla arrastra casi todas las tablas); en las vistas aparece junto a `IdCorrida`. En TEST/QA, recreada completa, ambas quedan en su lugar.
+- Se retiró `docker/mssql.compose.yml` (no se usaba).

@@ -212,7 +212,7 @@ original.
 ```
 Esperado: al final, una línea como `372 passed, 4 skipped` (los 4 omitidos son las pruebas de Excel, que van aparte).
 
-**8.2 Pruebas con Excel real** (~2 minutos; se abre Excel solo, **no lo toques** mientras):
+**8.2 Pruebas con Excel real** (~1 minuto y medio; se abre Excel solo, **no lo toques** mientras):
 
 ```powershell
 $env:ETL_ARENA_EXCEL = "1"; .venv\Scripts\python -m pytest tests\com -q

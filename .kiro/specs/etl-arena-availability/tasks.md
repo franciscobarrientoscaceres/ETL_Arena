@@ -217,7 +217,7 @@ Agentes disponibles en `.opencode/agent/` (OpenCode, `mode: subagent`). Son perf
   - `DispatchEx`, visible, `DisplayAlerts=False`, watchdog por PID, cierre solo de la instancia propia; verificación de *Trusted Location*.
   - _R3.7, F-23_
 
-- [x] 4.2 `workbook.macros` + `workbook.referencia` — **backend-architect** *(hecha 2026-09-24: además de C y E escribe `Daily!B/F/G` con las fórmulas de la plantilla y limpia las sobrantes (F-41); en Excel 2016 tolera el error 438 de `SortFields.Add2` en `mcoCreateList`/`Graphupdate` con advertencia (F-40))*
+- [x] 4.2 `workbook.macros` + `workbook.referencia` — **backend-architect** *(2026-09-25: modo rápido por defecto — pantalla sin refrescar y recálculo manual con `Calculate` antes de cada macro; septiembre 84 s → 48 s, agosto 114 s → 50 s, referencia idéntica (F-45); `--macros-sin-optimizar` para el modo antiguo)* *(hecha 2026-09-24: además de C y E escribe `Daily!B/F/G` con las fórmulas de la plantilla y limpia las sobrantes (F-41); en Excel 2016 tolera el error 438 de `SortFields.Add2` en `mcoCreateList`/`Graphupdate` con advertencia (F-40))*
   - Escribir C5/C7/C21/C31/L2/L4/L14/`Daily!D5` y las fórmulas `Daily!C9:C(8+n)` (limpiando el resto; F-33), ejecutar las 4 macros en orden, guardar; extraer referencia completa por XML → `referencia_excel.json` + `excel_reference_*`.
   - _R3.5, R3.6, F-05, F-23_
 

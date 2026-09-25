@@ -185,6 +185,8 @@ Orquestador: `scripts/run_lunes.py` con etapas `acquire-wait`, `prepare-workbook
 
 **Macros y exclusiones (F-44):** las macros de septiembre con C31/L14 = "Yes" excusan con `PlantActivity!D`; por eso `workbook.macros` escribe "No" salvo que el VBA lea `Exclusion_Matrix` (maestro v1.1, detectado con `workbook.vba`), y si el período tiene exclusiones la referencia Excel se omite.
 
+**Velocidad de las macros (F-45):** `workbook.macros` corre por defecto en modo rápido: pantalla sin refrescar y recálculo manual, con `Calculate` antes de cada macro y al final (resultado idéntico, ~2× más rápido; el VBA no se toca). `run_lunes.py --macros-sin-optimizar` vuelve al modo antiguo.
+
 **Reglas:** export **incremental** (desde el dato siguiente al último cargado hasta el último dato del lunes; continuidad validada al recibir; D-07); KPI semanal = mes en curso hasta el último dato; cierre mensual = mes completo; KPI oficial con `C31 = L14 = "Yes"` (D-03); transporte hoy solo TeamViewer (sin UNC/API); solo `RawData-PCS` desde SCADA; `Exclusion_Matrix` la entrega Alex a fin de mes: KPI semanal oficial "Sin Exclusiones", cierre mensual oficial "Con Exclusiones" (D-17, F-37); PlantActivity solo para C21 (D-12); correcciones solo por `reproceso` con registro de celdas cambiadas (D-13); macros y ETL solo en PC local; Power BI modo notificación (owner Misael) hasta service principal.
 
 ---

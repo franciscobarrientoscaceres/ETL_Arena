@@ -146,7 +146,7 @@ Copy-Item .env.example .env                             # y completar (ver insta
 
 ```powershell
 .venv\Scripts\python -m pytest -q                                       # ~372 tests (markers: golden, sql, excel)
-$env:ETL_ARENA_EXCEL = "1"; .venv\Scripts\python -m pytest tests\com -q  # macros reales vía COM (~2 min)
+$env:ETL_ARENA_EXCEL = "1"; .venv\Scripts\python -m pytest tests\com -q  # macros reales vía COM (~1 min 15 s)
 .venv\Scripts\python -m ruff check src tests scripts
 ```
 

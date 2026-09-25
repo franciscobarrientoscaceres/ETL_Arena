@@ -198,6 +198,7 @@ erDiagram
         int Mes
         string ArchivoOrigen
         string Sha256Archivo
+        uuid IdCorridaCierre "cierre que la usó"
     }
 ```
 
@@ -384,7 +385,7 @@ TEST/QA no es la corrida 12 de PROD.
 | Mapa de columnas | `raw_pcs_column_map` | En qué columna del Excel estaba cada dato de cada PCS (para auditar). |
 | Actividad de planta | `plant_activity_sample` | Lo de `PlantActivity`. Solo influye si C21 = "Yes". |
 | Marca de exclusión | `exclusion_matrix_sample` | Solo las celdas marcadas con **1 o 2** en la `Exclusion_Matrix`, con el comentario de Alex. |
-| Carga de la matriz | `exclusion_matrix_carga` | Cada vez que Alex entrega la matriz de un mes: qué archivo y cuándo. |
+| Carga de la matriz | `exclusion_matrix_carga` | Cada vez que Alex entrega la matriz de un mes: qué archivo, cuándo y qué cierre mensual la usó (`IdCorridaCierre`). |
 
 ### 📤 4. Lo que sale
 

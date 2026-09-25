@@ -41,7 +41,7 @@ testpaths = ["tests"]
 addopts = "-ra --strict-markers"
 markers = [
     "golden: requiere el libro .xlsm real (variable ETL_ARENA_XLSM o ruta por defecto en data/)",
-    "sql: requiere SQL Server (docker/mssql.compose.yml) y ETL_ARENA_DB_URL",
+    "sql: requiere un SQL Server para tests en ETL_ARENA_TEST_DB_URL (base propia con 'test' en el nombre)",
     "excel: requiere Excel instalado (COM); solo PC local Windows",
 ]
 

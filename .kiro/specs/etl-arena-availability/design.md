@@ -65,7 +65,7 @@ Dependencias permitidas: `excel_semantics` y `config` no dependen de nada; los m
 ## Estructura del repositorio
 
 ```text
-pyproject.toml            .env.example            docker/mssql.compose.yml
+pyproject.toml            .env.example
 src/etl_arena/
   config/                 models.py (ConfiguracionCalculo), defaults.py, desde_excel.py
   excel_semantics/        celdas.py, texto.py, fechas.py, redondeo.py
@@ -953,7 +953,7 @@ No se redondea ningún intermedio. No se usan `print` para errores: logging estr
 | Unit | `tests/unit/` | CI + local | `excel_semantics` con casos del libro real; motores con matrices pequeñas escritas a mano |
 | Property | `tests/property/` | CI + local | Hypothesis, Properties 1–11 |
 | Golden | `tests/golden/` | local (requiere `.xlsm`, `ETL_ARENA_XLSM`) | integridad de JSON (siempre) + runner sobre meses `verified` |
-| Integración SQL | `tests/integration/` (marker `sql`) | local con Docker | DDL, append-only, rollback, vistas |
+| Integración SQL | `tests/integration/` (marker `sql`) | instancia local (`ETL_ARENA_TEST_DB_URL`) | DDL, append-only, rollback, vistas |
 | COM | `tests/com/` (marker `excel`) | solo PC local Windows con Excel | smoke de macros sobre copia en `tmp` |
 
 Fixtures: `tests/fixtures/` contiene libros sintéticos generados por código (sin datos reales) y un recorte CSV del libro real (48 h de septiembre, 5 PCS) con sus valores Excel esperados obtenidos vía COM.
