@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from datetime import date
 from pathlib import Path
@@ -75,6 +76,7 @@ def construir_parser() -> argparse.ArgumentParser:
         help="'libro' (valores cacheados del mismo libro), ruta a un .xlsm con macros ejecutadas, o 'none'",
     )
     ap.add_argument("--sin-bd", action="store_true", help="calcular y reconciliar sin persistir")
+    ap.add_argument("--entorno", choices=("produccion", "prueba"), help="prueba: persiste en ETL_ARENA_DB_URL_PRUEBA")
     ap.add_argument("--salida-json", type=Path, help="escribir aquí el resumen de la corrida")
     ap.add_argument("--log-texto", action="store_true", help="log legible en vez de JSON")
     return ap
@@ -110,6 +112,8 @@ def valores_config(args: argparse.Namespace) -> dict:
 def main(argv: list[str] | None = None) -> int:
     args = construir_parser().parse_args(argv)
     configurar_logging(json_=not args.log_texto)
+    if args.entorno:
+        os.environ["ETL_ARENA_ENTORNO"] = args.entorno
     cfg = construir_config(
         **valores_config(args), tipo_corrida=args.tipo, es_oficial=args.oficial, archivo_origen=args.libro.name
     )

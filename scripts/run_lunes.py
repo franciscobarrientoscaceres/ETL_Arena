@@ -129,7 +129,9 @@ def configuracion(args, libro: Path):
 def etapa_acquire(args, estado: Estado, dir_corte: Path) -> dict:
     from etl_arena.acquisition import acquire_wait
 
-    a = acquire_wait(args.inbox, args.processed, args.corte, timeout_s=args.timeout_espera)
+    a = acquire_wait(
+        args.inbox, args.processed, args.corte, timeout_s=args.timeout_espera, mover=args.entorno != "prueba"
+    )
     return {"archivo": str(a.ruta), "sha256": a.sha256, "bytes": a.bytes}
 
 
@@ -227,6 +229,7 @@ def etapa_etl(args, estado: Estado, dir_corte: Path) -> dict:
         )
     return {
         "id_corrida": res.id_corrida,
+        "entorno": args.entorno,
         "estado": res.estado,
         "tipo": cfg.tipo_corrida,
         "oficial": cfg.es_oficial,
@@ -277,6 +280,9 @@ def etapa_notify(args, estado: Estado, dir_corte: Path) -> dict:
         {"anomalias": etl.get("anomalias") or {}},
         ColaCierres(args.work).pendientes(),
     )
+    if args.entorno == "prueba":  # nunca avisar a Misael de una carga de prueba
+        mensaje["titulo"] = f"[PRUEBA] {mensaje['titulo']}"
+        return {"destino": enviar(mensaje, dir_corte, webhook="")}
     return {"destino": enviar(mensaje, dir_corte)}
 
 
@@ -371,6 +377,12 @@ FUNCIONES = {
 def construir_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--stage", choices=(*ETAPAS, "all", "cierre-mensual", "load-exclusion-matrix"), required=True)
+    ap.add_argument(
+        "--entorno",
+        choices=("produccion", "prueba"),
+        help="prueba: base ETL_ARENA_DB_URL_PRUEBA y carpetas data/work/_prueba, data/processed/_prueba "
+        "(por defecto, ETL_ARENA_ENTORNO o produccion)",
+    )
     ap.add_argument("--archivo-matriz", type=Path, help="load-exclusion-matrix: entrega de Alex del mes (--mes)")
     ap.add_argument("--corte", default=date.today().isoformat(), help="identificador del corte (por defecto, hoy)")
     ap.add_argument("--inbox", type=Path, default=RAIZ / "data" / "inbox")
@@ -491,9 +503,28 @@ def cargar_matriz(args) -> int:
     return codigo
 
 
+def aplicar_entorno(args) -> None:
+    """Fija el entorno para todo el proceso (la conexión lo lee de ETL_ARENA_ENTORNO) y separa las carpetas."""
+    import os
+
+    from etl_arena.persistence.conexion import VARIABLE_ENTORNO, entorno
+
+    if args.entorno:
+        os.environ[VARIABLE_ENTORNO] = args.entorno
+    args.entorno = entorno()
+    if args.entorno == "prueba":
+        defecto = construir_parser().parse_args(["--stage", "all"])
+        if args.work == defecto.work:
+            args.work = defecto.work / "_prueba"
+        if args.processed == defecto.processed:
+            args.processed = defecto.processed / "_prueba"
+        print(f"[entorno] PRUEBA: base ETL_ARENA_DB_URL_PRUEBA, carpeta {args.work}")
+
+
 def main(argv: list[str] | None = None) -> int:
     args = construir_parser().parse_args(argv)
     configurar_logging(json_=True)
+    aplicar_entorno(args)
     if args.stage == "cierre-mensual":
         return cierre_mensual(args)
     if args.stage == "load-exclusion-matrix":

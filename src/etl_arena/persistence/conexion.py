@@ -1,6 +1,8 @@
 """Conexión a SQL Server / Azure SQL Database (ADR-10).
 
 * URL en ``ETL_ARENA_DB_URL`` (variable de entorno o ``.env``).
+* ``ETL_ARENA_ENTORNO=prueba`` (o ``--entorno prueba`` en los scripts) usa ``ETL_ARENA_DB_URL_PRUEBA``:
+  una base aparte para cargar, validar y repetir sin tocar producción. Nunca puede ser la misma base.
 * ``ETL_ARENA_DB_AUTH=entra``: token de Microsoft Entra ID por conexión (``persistence.entra``);
   sin valor, manda lo que diga la URL (autenticación Windows o usuario SQL).
 * Toda conexión física reintenta ante errores transitorios de Azure (p. ej. 40613 mientras una
@@ -22,7 +24,10 @@ from sqlalchemy import event
 from sqlalchemy.engine import URL, Engine, make_url
 
 VARIABLE_URL = "ETL_ARENA_DB_URL"
+VARIABLE_URL_PRUEBA = "ETL_ARENA_DB_URL_PRUEBA"
 VARIABLE_AUTH = "ETL_ARENA_DB_AUTH"
+VARIABLE_ENTORNO = "ETL_ARENA_ENTORNO"
+ENTORNOS = ("produccion", "prueba")
 # Errores transitorios documentados para Azure SQL Database (reintentar la conexión).
 CODIGOS_TRANSITORIOS = (
     "40613",
@@ -68,14 +73,32 @@ def cargar_env(ruta: str | Path = ".env") -> dict[str, str]:
     return leidas
 
 
-def url_configurada(base_datos: str | None = None) -> URL:
-    """URL de ``ETL_ARENA_DB_URL``; con ``base_datos`` reemplaza la base (p. ej. ``master`` o una de pruebas)."""
-    if VARIABLE_URL not in os.environ:
+def entorno() -> str:
+    """``produccion`` (por defecto) o ``prueba``, según ``ETL_ARENA_ENTORNO``."""
+    if VARIABLE_ENTORNO not in os.environ:
         cargar_env()
-    texto = os.environ.get(VARIABLE_URL)
+    valor = os.environ.get(VARIABLE_ENTORNO, "").strip().lower() or "produccion"
+    if valor not in ENTORNOS:
+        raise ErrorConexion(f"{VARIABLE_ENTORNO}={valor!r}: se admite {' o '.join(ENTORNOS)}")
+    return valor
+
+
+def url_configurada(base_datos: str | None = None) -> URL:
+    """URL del entorno activo (``ETL_ARENA_DB_URL`` o, en ``prueba``, ``ETL_ARENA_DB_URL_PRUEBA``);
+    con ``base_datos`` reemplaza la base (p. ej. ``master`` o una de pruebas)."""
+    if VARIABLE_URL not in os.environ or VARIABLE_URL_PRUEBA not in os.environ:
+        cargar_env()
+    variable = VARIABLE_URL_PRUEBA if entorno() == "prueba" else VARIABLE_URL
+    texto = os.environ.get(variable)
     if not texto:
-        raise ErrorConexion(f"falta {VARIABLE_URL} (ver .env.example)")
+        raise ErrorConexion(f"falta {variable} (ver .env.example)")
     url = make_url(texto)
+    if variable == VARIABLE_URL_PRUEBA and os.environ.get(VARIABLE_URL):
+        prod = make_url(os.environ[VARIABLE_URL])
+        if (url.host or "").lower() == (prod.host or "").lower() and url.database == prod.database:
+            raise ErrorConexion(
+                f"{VARIABLE_URL_PRUEBA} apunta a la base de producción ({prod.database}): usar otra base"
+            )
     return url.set(database=base_datos) if base_datos else url
 
 

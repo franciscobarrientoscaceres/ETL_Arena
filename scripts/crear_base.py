@@ -11,6 +11,7 @@ Uso:
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -24,7 +25,10 @@ from etl_arena.persistence.conexion import es_azure  # noqa: E402
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--base", help="nombre de la base (por defecto, el de ETL_ARENA_DB_URL)")
+    ap.add_argument("--entorno", choices=("produccion", "prueba"), help="prueba: aplica en ETL_ARENA_DB_URL_PRUEBA")
     args = ap.parse_args()
+    if args.entorno:
+        os.environ["ETL_ARENA_ENTORNO"] = args.entorno
     url = url_configurada(args.base)
     if not url.database:
         raise SystemExit("la URL no indica base de datos; usar --base")

@@ -57,8 +57,12 @@ def acquire_wait(
     timeout_s: float = 3600,
     poll_s: float = 30,
     estabilidad_s: float = 5,
+    mover: bool = True,
 ) -> ArchivoAdquirido:
-    """Devuelve el archivo adquirido. Con más de un candidato falla (no adivina cuál usar)."""
+    """Devuelve el archivo adquirido. Con más de un candidato falla (no adivina cuál usar).
+
+    ``mover=False`` (entorno de prueba) copia en vez de mover: el export queda en ``inbox`` para la
+    corrida definitiva."""
     inbox, destino_dir = Path(inbox), Path(procesados) / corte
     if not inbox.is_dir():
         raise ErrorAdquisicion(f"no existe la carpeta de entrada {inbox}")
@@ -92,7 +96,10 @@ def acquire_wait(
     destino = destino_dir / archivo.name
     if destino.exists():
         raise ErrorAdquisicion(f"{destino} ya existe: data/processed es inmutable (usar otro corte)")
-    shutil.move(str(archivo), destino)
+    if mover:
+        shutil.move(str(archivo), destino)
+    else:
+        shutil.copy2(archivo, destino)
     (destino_dir / f"{archivo.name}.sha256").write_text(f"{digest}  {archivo.name}\n", encoding="ascii")
     log.info("adquirido %s (%d bytes, sha256 %s…)", destino, tamano, digest[:12])
     return ArchivoAdquirido(destino, digest, tamano, corte)

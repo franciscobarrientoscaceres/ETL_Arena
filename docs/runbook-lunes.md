@@ -153,6 +153,41 @@ Sin `--sin-exclusiones`, `cierre-mensual` se niega si la matriz del mes no está
 una copia nueva del libro base, correr como un corte nuevo con `--tipo reproceso --oficial` y anotar en el shadow
 log qué se corrigió y por qué.
 
+## 6b. Entorno de prueba: cargar, validar y después cargar lo definitivo
+
+Para probar una carga sin tocar la base de producción ni el libro base, cualquier comando acepta
+`--entorno prueba`:
+
+| | `produccion` (por defecto) | `prueba` |
+|---|---|---|
+| Base | `ETL_ARENA_DB_URL` (`trina_etl`) | `ETL_ARENA_DB_URL_PRUEBA` (p. ej. `trina_etl_prueba`); falla si apunta a producción |
+| Carpeta de trabajo | `data/work/` | `data/work/_prueba/` (libro base y cola de cierres propios) |
+| Export en `data/inbox` | Se **mueve** a `data/processed/<corte>/` | Se **copia** a `data/processed/_prueba/<corte>/` (queda para la corrida definitiva) |
+| Notificación | Webhook o `notificacion.md` | Solo `notificacion.md`, titulado `[PRUEBA]` (nunca avisa a Misael) |
+
+**Una sola vez:** crear la base de prueba en el portal de Azure (servidor `trina-etl` → Crear base de datos →
+`trina_etl_prueba`; aplicar la oferta gratuita si el portal la ofrece y, si no, revisar el costo antes de crear; **sin** "test" en el nombre, porque los tests de integración reinician
+esas bases), agregar a `.env`
+`ETL_ARENA_DB_URL_PRUEBA=mssql+pyodbc://@trina-etl.database.windows.net:1433/trina_etl_prueba?driver=ODBC+Driver+18+for+SQL+Server&Encrypt=yes&TrustServerCertificate=no`
+y aplicar el esquema:
+
+```powershell
+.venv\Scripts\python scripts\crear_base.py --entorno prueba
+```
+
+**Cada prueba:**
+
+```powershell
+run_lunes --entorno prueba --stage all --omitir-acquire --corte 2026-09-21 --libro-preparado "<libro>" --oficial
+```
+
+Validar en la base de prueba (mismas vistas que verá Power BI: `v_kpi_vigente`, `v_daily_vigente`, …) y en
+`data/work/_prueba/<corte>/`. Se puede repetir con otro `--corte`; para empezar de cero, borrar `data/work/_prueba/`
+(la base de prueba se puede vaciar recreándola en el portal).
+
+**Carga definitiva:** el mismo comando **sin** `--entorno prueba`, cuando se apruebe. No se reutiliza nada de la
+prueba: la corrida definitiva vuelve a calcular desde el libro.
+
 ## 7. Registro del shadow mode (5.4)
 
 Mientras Excel siga siendo la fuente oficial, después de cada corrida:

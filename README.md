@@ -247,6 +247,7 @@ unzip -p "data/..." xl/worksheets/sheet10.xml | grep "termino"
 | [`CLAUDE.md`](./CLAUDE.md) | Contexto técnico para agentes de IA: arquitectura del Excel, módulos VBA, reglas para agentes |
 | [`docs/runbook-lunes.md`](./docs/runbook-lunes.md) | Checklist operativa del lunes (SCADA → inbox → macros → ETL) |
 | [`docs/pbi-handoff.md`](./docs/pbi-handoff.md) | Handoff Power BI (Misael): conexión, vistas `v_*_vigente`, semántica del KPI, refresh |
+| [`docs/instalacion.md`](./docs/instalacion.md) | Instalar y validar el proyecto en otra PC (laptop de la empresa) |
 | [`docs/shadow-log.md`](./docs/shadow-log.md) | Registro del shadow mode (Excel oficial vs Python) y criterio de salida |
 | [`docs/go-no-go.md`](./docs/go-no-go.md) | Criterios de aceptación con evidencia, condiciones para retirar el Excel y backlog `availability-v2` |
 | `.kiro/specs/etl-arena-availability/` | SDD revisión 2 (2026-09-24): `audit.md` (auditoría contra el VBA real), requirements, design, tasks por fases con agente asignado |
