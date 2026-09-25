@@ -179,7 +179,7 @@ SCADA ~03:00 AM (solo extract)
   → notificar a Misael: refresh Power BI
 ```
 
-Base de datos (ADR-10, 2026-09-24): **Azure SQL Database serverless, oferta gratuita** — `trina-etl.database.windows.net/trina_etl` (Brazil South), autenticación Microsoft Entra ID (`ETL_ARENA_DB_AUTH=entra`). El código nunca crea ni borra bases en Azure; los tests usan `ETL_ARENA_TEST_DB_URL`.
+Base de datos (ADR-10, 2026-09-24): **Azure SQL Database serverless, oferta gratuita** — servidor `trina-etl.database.windows.net` (Brazil South), autenticación Microsoft Entra ID (`ETL_ARENA_DB_AUTH=entra`, por defecto). **Dos ambientes fijos en `src/etl_arena/ambientes.py`:** **PROD** = `trina_etl` (por defecto) y **TEST/QA** = `trina_etl_prueba` (`--entorno prueba|qa|test` o `ETL_ARENA_ENTORNO`; usa además `data/work/_prueba`). Sin `.env` se usan esas direcciones; `ETL_ARENA_DB_URL` / `ETL_ARENA_DB_URL_PRUEBA` solo las reemplazan. El código nunca crea ni borra bases en Azure. Los tests de integración usan su propia base (`ETL_ARENA_TEST_DB_URL`, con "test" en el nombre); `reiniciar_esquema` se niega a tocar `trina_etl` y `trina_etl_prueba` (incidente 2026-09-25: los tests vaciaron TEST/QA).
 
 Orquestador: `scripts/run_lunes.py` con etapas `acquire-wait`, `prepare-workbook`, `run-macros`, `run-etl`, `reconcile`, `notify-bi`, más `cierre-mensual` y `load-exclusion-matrix` (mensuales). Entre cortes (`etl_arena.orquestacion`): libro base promovido tras cada corrida oficial exitosa y cola de cierres mensuales. Fases P0–P9 y detalle en `AGENTS.md` §14 Fase S. Runbook: `docs/runbook-lunes.md`. Power BI: `docs/pbi-handoff.md`.
 
@@ -210,11 +210,11 @@ src/etl_arena/
   reconciliation/   <- niveles, invariantes, servicio, reporte
   reporting/        <- calidad, notificacion
   pipeline.py
-scripts/  ejecutar_etl.py  run_lunes.py  shadow_log.py  crear_base.py  generar_seed_tipo_detencion.py
+scripts/  ejecutar_etl.py  run_lunes.py  shadow_log.py  verificar_entorno.py  crear_base.py  generar_seed_tipo_detencion.py
 sql/      00_database.sql … 07_audit_queries.sql
 tests/    unit/ property/ golden/ integration/ com/ fixtures/
 data/     inbox/ processed/ work/
-docs/     runbook-lunes.md  instalacion.md  pbi-handoff.md  shadow-log.md  go-no-go.md  data-contract-*.md  adr/
+docs/     glosario.md  modelo-datos.md  runbook-lunes.md  instalacion.md  pbi-handoff.md  shadow-log.md  go-no-go.md  data-contract-*.md  adr/
 ```
 
 Scripts principales: `scripts/run_lunes.py` (orquestador semanal) y `scripts/ejecutar_etl.py` (pipeline de corrida).

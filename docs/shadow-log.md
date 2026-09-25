@@ -1,28 +1,58 @@
-# Shadow log — Excel oficial vs Python/SQL (tarea 5.4)
+# Registro del periodo de prueba en paralelo (shadow mode)
 
-Para: Francisco, Alex y quien decida el go/no-go (`docs/go-no-go.md`).
+Para: Francisco, Alex y quienes decidan si se deja de usar el Excel ([go/no-go](./go-no-go.md)).
 
-Durante el shadow mode, **el Excel sigue siendo la fuente oficial**: Alex calcula y reporta el KPI como siempre, y
-la cadena Python/SQL corre en paralelo cada lunes. Este registro acumula la evidencia para retirar el Excel.
+## ¿Qué es esto?
 
-## Criterio de salida
+Antes de apagar el Excel, hay que demostrar **en la vida real** que el nuevo sistema da lo mismo. Durante unas
+semanas se trabaja "en paralelo":
 
-- **4 lunes consecutivos** con corrida semanal oficial en `success` y reconciliación `pass` contra la referencia
-  Excel, o con cada discrepancia explicada (p. ej. F-40, F-44).
-- **1 cierre mensual** en `success`, idealmente "Con Exclusiones" con la `Exclusion_Matrix` de Alex.
-- En cada fila, el KPI que reportó Alex coincide con `C16 Python`, o la diferencia está explicada en la nota.
+- **El Excel sigue siendo el oficial.** Alex calcula y reporta la disponibilidad como siempre.
+- **El nuevo sistema corre al lado**, cada lunes, con los mismos datos.
+- **Aquí se anota** cada semana si los dos dieron lo mismo.
 
-## Cómo registrar
+## ¿Cuándo termina?
 
-Después de cada corrida (`docs/runbook-lunes.md` §7):
+Cuando la tabla de abajo tenga:
+
+- ✅ **4 lunes seguidos** que terminaron bien (`success`) y dieron igual que el Excel (`pass`), o cuya diferencia
+  está explicada en la nota;
+- ✅ **1 cierre de mes** que terminó bien (idealmente "Con Exclusiones", con la matriz de Alex);
+- ✅ en cada fila, el número de Alex igual al del nuevo sistema (o la diferencia explicada).
+
+Para saber cuánto falta:
 
 ```powershell
-.venv\Scripts\python scripts\shadow_log.py --corte <corte> --kpi-excel-oficial <KPI de Alex> --nota "<observaciones>"
-.venv\Scripts\python scripts\shadow_log.py --resumen      # avance contra el criterio de salida
+.venv\Scripts\python scripts\shadow_log.py --resumen
 ```
 
-`Reconciliación` = resultado contra la referencia Excel que genera la propia corrida (macros por COM).
-`KPI Alex` = valor que reportó Alex con su Excel ese día (se ingresa a mano). `Δ` = `C16 Python − KPI Alex`.
+## Cómo anotar una semana
+
+Después de cada corrida (paso 5 de la [guía del lunes](./runbook-lunes.md)), con el número que Alex obtuvo en su
+Excel (por ejemplo 0.9819 = 98,19 %):
+
+```powershell
+.venv\Scripts\python scripts\shadow_log.py --corte 2026-09-28 --kpi-excel-oficial 0.9819 --nota "sin novedades"
+```
+
+El programa agrega la fila solo. **No edites la tabla a mano** (el programa la lee para calcular el avance).
+
+Qué significa cada columna:
+
+| Columna | Significa |
+|---|---|
+| Registrado | Cuándo se anotó |
+| Corte / Tipo / Período | Qué corrida es (semanal o cierre de mes) y qué fechas calculó |
+| Etiqueta | "Sin Exclusiones" o "Con Exclusiones" |
+| Estado | `success` = terminó bien |
+| Reconciliación | Comparación automática con las macros del Excel: `pass` = iguales |
+| C12 | Cantidad de bloques de 15 minutos del período |
+| C14 Python / C14 Excel | Racks-bloque indisponibles según cada uno |
+| C16 Python | La disponibilidad que calculó el nuevo sistema |
+| KPI Alex | La disponibilidad que reportó Alex con su Excel (se ingresa a mano) |
+| Δ | La diferencia: `C16 Python − KPI Alex` (idealmente 0) |
+| IdCorrida | El código de la corrida en la base de datos |
+| Nota | Observaciones o explicación de diferencias |
 
 ## Registro
 

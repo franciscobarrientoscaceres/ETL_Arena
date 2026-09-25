@@ -5,7 +5,7 @@ from sqlalchemy.engine import make_url
 
 from etl_arena.persistence import conexion
 from etl_arena.persistence.conexion import ErrorConexion, crear_base_si_no_existe, eliminar_base, es_azure
-from etl_arena.persistence.esquema import reiniciar_esquema
+from etl_arena.persistence.esquema import reiniciar_esquema, vaciar_ambiente_prueba
 
 AZURE = "mssql+pyodbc://@trina-etl.database.windows.net:1433/trina_etl?driver=ODBC+Driver+18+for+SQL+Server"
 LOCAL = "mssql+pyodbc://@FRANCISCO-PC\\SQLSERVER2025DEV/ETL_Arena?driver=ODBC+Driver+18+for+SQL+Server"
@@ -48,3 +48,26 @@ def test_reiniciar_esquema_solo_en_bases_de_prueba():
     engine = conexion.sa.create_engine(AZURE)
     with pytest.raises(RuntimeError):
         reiniciar_esquema(engine)
+
+
+@pytest.mark.parametrize("base", ["trina_etl", "trina_etl_prueba", "TRINA_ETL_PRUEBA"])
+def test_reiniciar_esquema_nunca_toca_los_ambientes(base):
+    """Incidente 2026-09-25: los tests de integración vaciaron TEST/QA porque el guard aceptaba "prueba"."""
+    engine = conexion.sa.create_engine(conexion.url_azure(base))
+    with pytest.raises(RuntimeError, match="base de ambiente"):
+        reiniciar_esquema(engine)
+
+
+@pytest.mark.parametrize(
+    ("base", "confirmacion", "mensaje"),
+    [
+        ("trina_etl", "trina_etl", "solo opera sobre 'trina_etl_prueba'"),  # PROD: nunca
+        ("ETL_Arena_test", "ETL_Arena_test", "solo opera sobre"),
+        ("trina_etl_prueba", "", "confirmar"),
+        ("trina_etl_prueba", "si", "confirmar"),
+    ],
+)
+def test_vaciar_ambiente_prueba_solo_qa_y_con_confirmacion(base, confirmacion, mensaje):
+    engine = conexion.sa.create_engine(conexion.url_azure(base))  # no se conecta: falla antes
+    with pytest.raises(RuntimeError, match=mensaje):
+        vaciar_ambiente_prueba(engine, confirmacion)

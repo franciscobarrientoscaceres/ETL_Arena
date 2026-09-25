@@ -1,4 +1,4 @@
-"""Entorno de prueba: otra base, otras carpetas, sin avisar a Misael (validar antes de cargar lo definitivo)."""
+"""Ambientes PROD (trina_etl) y TEST/QA (trina_etl_prueba): bases fijas, carpetas separadas, sin avisar a Misael."""
 
 import importlib.util
 import json
@@ -35,19 +35,48 @@ def test_prueba_usa_su_propia_base(env):
     assert conexion.url_configurada().database == "trina_etl_prueba"
 
 
-@pytest.mark.parametrize(
-    ("url_prueba", "mensaje"), [(None, "falta ETL_ARENA_DB_URL_PRUEBA"), (PROD, "apunta a la base de producción")]
-)
-def test_prueba_nunca_cae_en_produccion(env, url_prueba, mensaje):
+def test_prueba_nunca_cae_en_produccion(env):
     env.setenv(conexion.VARIABLE_ENTORNO, "prueba")
-    if url_prueba:
-        env.setenv(conexion.VARIABLE_URL_PRUEBA, url_prueba)
-    with pytest.raises(conexion.ErrorConexion, match=mensaje):
+    env.setenv(conexion.VARIABLE_URL_PRUEBA, PROD)
+    with pytest.raises(conexion.ErrorConexion, match="apunta a la base de producción"):
         conexion.url_configurada()
 
 
+@pytest.mark.parametrize(
+    ("valor", "ambiente", "base"),
+    [
+        (None, "produccion", "trina_etl"),
+        ("prod", "produccion", "trina_etl"),
+        ("PRODUCCION", "produccion", "trina_etl"),
+        ("prueba", "prueba", "trina_etl_prueba"),
+        ("qa", "prueba", "trina_etl_prueba"),
+        ("test", "prueba", "trina_etl_prueba"),
+    ],
+)
+def test_sin_env_las_bases_por_defecto_son_las_de_azure(monkeypatch, valor, ambiente, base):
+    """Un PC nuevo sin .env apunta igual a PROD (trina_etl) o TEST/QA (trina_etl_prueba) en Azure."""
+    for v in (conexion.VARIABLE_URL, conexion.VARIABLE_URL_PRUEBA, conexion.VARIABLE_ENTORNO):
+        monkeypatch.delenv(v, raising=False)
+    monkeypatch.setattr(conexion, "cargar_env", lambda *a, **k: {})
+    monkeypatch.setenv(conexion.VARIABLE_ENTORNO, valor or "")
+    url = conexion.url_configurada()
+    assert conexion.entorno() == ambiente
+    assert (url.host, url.port, url.database) == ("trina-etl.database.windows.net", 1433, base)
+    assert url.query["driver"] == "ODBC Driver 18 for SQL Server" and url.query["Encrypt"] == "yes"
+    etiqueta = "PROD" if ambiente == "produccion" else "TEST/QA"
+    assert conexion.descripcion_ambiente() == f"{etiqueta} → trina-etl.database.windows.net/{base}"
+
+
+def test_entra_por_defecto(monkeypatch):
+    monkeypatch.delenv("ETL_ARENA_DB_AUTH", raising=False)
+    monkeypatch.setattr(conexion, "cargar_env", lambda *a, **k: {})
+    assert conexion._usa_entra()
+    monkeypatch.setenv("ETL_ARENA_DB_AUTH", "url")
+    assert not conexion._usa_entra()
+
+
 def test_entorno_invalido(env):
-    env.setenv(conexion.VARIABLE_ENTORNO, "qa")
+    env.setenv(conexion.VARIABLE_ENTORNO, "staging")
     with pytest.raises(conexion.ErrorConexion, match="se admite"):
         conexion.entorno()
 

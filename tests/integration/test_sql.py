@@ -1,8 +1,9 @@
 """Tests de integración SQL Server (tarea 2.5, marker ``sql``; R11, R12, R15, R19.7).
 
 Base de pruebas:
-* ``ETL_ARENA_TEST_DB_URL`` en Azure (``*.database.windows.net``): base fija de pruebas (oferta
+* ``ETL_ARENA_TEST_DB_URL`` en Azure (``*.database.windows.net``): base fija de tests (oferta
   gratuita) cuyo esquema se reinicia al inicio de la sesión (``reiniciar_esquema`` exige "test" en el nombre).
+  **Nunca** ``trina_etl`` (PROD) ni ``trina_etl_prueba`` (TEST/QA): con ellas los tests se omiten.
 * ``ETL_ARENA_TEST_DB_URL`` local, o sin definir con ``ETL_ARENA_DB_URL`` local: se crea
   ``ETL_Arena_test`` al inicio y se elimina al final.
 * Sin base de pruebas y con ``ETL_ARENA_DB_URL`` en Azure: se omiten (nunca se toca la base real).
@@ -20,6 +21,7 @@ import pyodbc
 import pytest
 from fabricas import config_prueba, crear_libro, fila_raw, serial_min
 
+from etl_arena.ambientes import es_base_de_ambiente
 from etl_arena.model import DiaReferencia, EventoReferencia, FilaReconciliacion, ReferenciaExcel
 from etl_arena.persistence import (
     MetadatosCorrida,
@@ -47,6 +49,11 @@ def _url_pruebas():
     cargar_env()
     if os.environ.get("ETL_ARENA_TEST_DB_URL"):
         url = make_url(os.environ["ETL_ARENA_TEST_DB_URL"])
+        if es_base_de_ambiente(url.database):  # nunca vaciar PROD ni TEST/QA
+            pytest.skip(
+                f"ETL_ARENA_TEST_DB_URL apunta a {url.database} (un ambiente PROD o TEST/QA): usar una base propia "
+                "con 'test' en el nombre (p. ej. la instancia local ETL_Arena_test)"
+            )
         return url if es_azure(url) else url.set(database=url.database or BASE)
     url = url_configurada()
     if es_azure(url):

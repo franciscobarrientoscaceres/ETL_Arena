@@ -1,10 +1,17 @@
 """Conexión a SQL Server / Azure SQL Database (ADR-10).
 
-* URL en ``ETL_ARENA_DB_URL`` (variable de entorno o ``.env``).
-* ``ETL_ARENA_ENTORNO=prueba`` (o ``--entorno prueba`` en los scripts) usa ``ETL_ARENA_DB_URL_PRUEBA``:
-  una base aparte para cargar, validar y repetir sin tocar producción. Nunca puede ser la misma base.
-* ``ETL_ARENA_DB_AUTH=entra``: token de Microsoft Entra ID por conexión (``persistence.entra``);
-  sin valor, manda lo que diga la URL (autenticación Windows o usuario SQL).
+Dos ambientes fijos en el servidor Azure ``trina-etl.database.windows.net`` (ver ``AMBIENTES``):
+
+| Ambiente | ``--entorno`` / ``ETL_ARENA_ENTORNO`` | Base | Variable que la reemplaza |
+|---|---|---|---|
+| PROD | ``produccion`` (por defecto; alias ``prod``) | ``trina_etl`` | ``ETL_ARENA_DB_URL`` |
+| TEST/QA | ``prueba`` (alias ``qa``, ``test``) | ``trina_etl_prueba`` | ``ETL_ARENA_DB_URL_PRUEBA`` |
+
+* Sin ``.env`` se usan esas direcciones, así cualquier PC nueva apunta a las bases correctas. El ``.env``
+  (en la carpeta actual o en la raíz del proyecto) solo hace falta para cambiarlas (p. ej. una instancia local).
+* TEST/QA nunca puede apuntar a la base de PROD.
+* ``ETL_ARENA_DB_AUTH``: ``entra`` (por defecto) usa un token de Microsoft Entra ID contra Azure
+  (``persistence.entra``); ``url`` deja que mande la URL (autenticación Windows o usuario SQL).
 * Toda conexión física reintenta ante errores transitorios de Azure (p. ej. 40613 mientras una
   base serverless se reanuda, ~1 min).
 * En Azure (``*.database.windows.net``) nunca se crean ni eliminan bases desde el código: un
@@ -23,11 +30,19 @@ import sqlalchemy as sa
 from sqlalchemy import event
 from sqlalchemy.engine import URL, Engine, make_url
 
-VARIABLE_URL = "ETL_ARENA_DB_URL"
-VARIABLE_URL_PRUEBA = "ETL_ARENA_DB_URL_PRUEBA"
+from etl_arena.ambientes import (  # noqa: E402  (se re-exportan para compatibilidad)
+    AMBIENTES,
+    VARIABLE_ENTORNO,
+    VARIABLE_URL,
+    VARIABLE_URL_PRUEBA,
+    ErrorAmbiente,
+    url_azure,
+)
+from etl_arena.ambientes import normalizar_entorno as _normalizar  # noqa: E402
+
 VARIABLE_AUTH = "ETL_ARENA_DB_AUTH"
-VARIABLE_ENTORNO = "ETL_ARENA_ENTORNO"
-ENTORNOS = ("produccion", "prueba")
+ENTORNOS = tuple(AMBIENTES)
+RAIZ_PROYECTO = Path(__file__).resolve().parents[3]
 # Errores transitorios documentados para Azure SQL Database (reintentar la conexión).
 CODIGOS_TRANSITORIOS = (
     "40613",
@@ -57,8 +72,12 @@ class ErrorConexion(RuntimeError):
     """No hay URL configurada o la base no responde."""
 
 
-def cargar_env(ruta: str | Path = ".env") -> dict[str, str]:
-    """Lee ``CLAVE=valor`` de un ``.env`` (sin sobrescribir variables ya definidas). Sin dependencias."""
+def cargar_env(ruta: str | Path | None = None) -> dict[str, str]:
+    """Lee ``CLAVE=valor`` de un ``.env`` (sin sobrescribir variables ya definidas). Sin dependencias.
+
+    Sin ``ruta``: el ``.env`` de la carpeta actual o, si no hay, el de la raíz del proyecto."""
+    if ruta is None:
+        ruta = next((p for p in (Path(".env"), RAIZ_PROYECTO / ".env") if p.exists()), Path(".env"))
     ruta = Path(ruta)
     leidas: dict[str, str] = {}
     if not ruta.exists():
@@ -73,28 +92,36 @@ def cargar_env(ruta: str | Path = ".env") -> dict[str, str]:
     return leidas
 
 
+def normalizar_entorno(valor: str | None) -> str:
+    """``produccion`` o ``prueba`` desde un nombre o alias (``prod``, ``qa``, ``test``…); vacío = ``produccion``."""
+    try:
+        return _normalizar(valor)
+    except ErrorAmbiente as exc:
+        raise ErrorConexion(str(exc)) from exc
+
+
 def entorno() -> str:
-    """``produccion`` (por defecto) o ``prueba``, según ``ETL_ARENA_ENTORNO``."""
+    """``produccion`` (PROD, por defecto) o ``prueba`` (TEST/QA), según ``ETL_ARENA_ENTORNO``."""
     if VARIABLE_ENTORNO not in os.environ:
         cargar_env()
-    valor = os.environ.get(VARIABLE_ENTORNO, "").strip().lower() or "produccion"
-    if valor not in ENTORNOS:
-        raise ErrorConexion(f"{VARIABLE_ENTORNO}={valor!r}: se admite {' o '.join(ENTORNOS)}")
-    return valor
+    return normalizar_entorno(os.environ.get(VARIABLE_ENTORNO))
+
+
+def _texto_url(ambiente: str) -> str:
+    datos = AMBIENTES[ambiente]
+    return os.environ.get(datos["variable"], "").strip() or url_azure(datos["base"])
 
 
 def url_configurada(base_datos: str | None = None) -> URL:
-    """URL del entorno activo (``ETL_ARENA_DB_URL`` o, en ``prueba``, ``ETL_ARENA_DB_URL_PRUEBA``);
-    con ``base_datos`` reemplaza la base (p. ej. ``master`` o una de pruebas)."""
+    """URL del ambiente activo: la de su variable (``ETL_ARENA_DB_URL`` / ``ETL_ARENA_DB_URL_PRUEBA``) o,
+    si no está, la base fija del ambiente en Azure (``AMBIENTES``). Con ``base_datos`` reemplaza la base
+    (p. ej. ``master``). TEST/QA nunca puede resolver a la base de PROD."""
     if VARIABLE_URL not in os.environ or VARIABLE_URL_PRUEBA not in os.environ:
         cargar_env()
-    variable = VARIABLE_URL_PRUEBA if entorno() == "prueba" else VARIABLE_URL
-    texto = os.environ.get(variable)
-    if not texto:
-        raise ErrorConexion(f"falta {variable} (ver .env.example)")
-    url = make_url(texto)
-    if variable == VARIABLE_URL_PRUEBA and os.environ.get(VARIABLE_URL):
-        prod = make_url(os.environ[VARIABLE_URL])
+    ambiente = entorno()
+    url = make_url(_texto_url(ambiente))
+    if ambiente == "prueba":
+        prod = make_url(_texto_url("produccion"))
         if (url.host or "").lower() == (prod.host or "").lower() and url.database == prod.database:
             raise ErrorConexion(
                 f"{VARIABLE_URL_PRUEBA} apunta a la base de producción ({prod.database}): usar otra base"
@@ -102,14 +129,21 @@ def url_configurada(base_datos: str | None = None) -> URL:
     return url.set(database=base_datos) if base_datos else url
 
 
+def descripcion_ambiente() -> str:
+    """Texto para mostrar al operador, p. ej. ``PROD → trina-etl.database.windows.net/trina_etl``."""
+    url = url_configurada()
+    return f"{AMBIENTES[entorno()]['etiqueta']} → {url.host}/{url.database}"
+
+
 def es_azure(url: URL) -> bool:
     return (url.host or "").lower().endswith(".database.windows.net")
 
 
 def _usa_entra() -> bool:
+    """``entra`` por defecto (solo se aplica contra Azure); ``url`` u otro valor: manda la URL."""
     if VARIABLE_AUTH not in os.environ:
         cargar_env()
-    return os.environ.get(VARIABLE_AUTH, "").strip().lower() == "entra"
+    return (os.environ.get(VARIABLE_AUTH, "").strip().lower() or "entra") == "entra"
 
 
 def _instalar_conexion(engine: Engine, entra: bool) -> Engine:

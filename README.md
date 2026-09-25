@@ -1,253 +1,206 @@
-# ETL_Arena — Disponibilidad PCS & Baterías
+# ETL_Arena — Disponibilidad de PCS y baterías de Arena BESS
 
-Proyecto de reingeniería del cálculo de disponibilidad de unidades PCS (Power Conversion System) y racks de baterías, actualmente implementado en Excel/VBA, hacia un proceso reproducible y auditable en **Python + SQL Server**.
+## ¿Qué es esto?
 
-> **Estado (2026-09-25):** motor Python con paridad bit a bit contra el Excel (septiembre, julio y agosto), persistencia en Azure SQL, reconciliación automática, cadena semanal y mensual (`scripts/run_lunes.py`) con macros por COM, y handoff a Power BI. Próximo paso: **shadow mode** (`docs/shadow-log.md`) y go/no-go (`docs/go-no-go.md`). Pendientes externos: muestra del export SCADA, entrega real de la `Exclusion_Matrix` y maestro Excel v1.1.
+**Arena BESS** es una planta que guarda energía en baterías. Por contrato, Trina Solar debe demostrar cada mes qué
+porcentaje del tiempo estuvieron **disponibles** sus baterías: ese número es la **disponibilidad** (el KPI).
 
----
+Hasta ahora, ese cálculo se hacía con un **libro Excel con macros**. Funciona, pero es manual, difícil de auditar y
+depende de una sola planilla. Este proyecto hace **el mismo cálculo con Python** y guarda cada resultado en una
+**base de datos en la nube (Azure SQL)**, de donde lo lee **Power BI**.
 
-## Contexto
+La regla principal: **el nuevo sistema debe dar exactamente los mismos números que el Excel** antes de reemplazarlo.
+Hoy ya lo hace, dígito por dígito, en julio, agosto y septiembre de 2026.
 
-El proyecto **Arena BESS**, operativo desde el **08/Abril/2026**, requiere calcular mensualmente la **disponibilidad** de 61 unidades PCS (Power Conversion System), sus 244 baterías BEC (61 PCS × 4 módulos BEC) y 2.928 racks (61 × 4 × 12). Actualmente el equipo TS-ESD (Trina Solar Chile) realiza ese cálculo con un libro Excel con macros VBA. El resultado es el KPI contractual que determina si el activo cumple su compromiso de disponibilidad.
+> ¿Palabras raras? Todas están en el [glosario](./docs/glosario.md).
 
-El objetivo de este proyecto es reemplazar ese proceso de forma progresiva y controlada, garantizando que el resultado Python sea idéntico al Excel antes de retirar el Excel como fuente oficial.
+## ¿Por dónde empiezo?
 
----
-
-## KPI principal
-
-```
-DisponibilidadPeriodo = 1 - BloquesRacksIndisponibles / (TotalRacks × BloquesMuestreo)
-```
-
-| Variable | Equivalente Excel | Significado |
-|---|---|---|
-| `BloquesRacksIndisponibles` | C14 | Acumulado de `(racks indisponibles) × bloques`, opcionalmente ponderado por `Exclusion_Matrix` (C31) y FactorOperacional (C21) |
-| `BloquesMuestreo` | C12 | Cantidad de bloques de 15 min en el período seleccionado |
-| `TotalRacks` | C11 | `total_pcs × baterias_por_pcs × racks_por_pcs` = 61 × 4 × 12 = **2.928** |
-
-Campo que gobierna la indisponibilidad: **`Arena - PCS XX - POWERELECTRONICS HEM-k NUMBER OF MODULES`**
-
-Un PCS se considera indisponible en un bloque cuando `NUMBER_OF_MODULES < 4`. Si el campo está vacío, se trata como disponible (= 4) y se marca con `ModulosDisponiblesNulo = True`.
-
----
-
-## Flujo semanal (lunes) — SCADA → Excel → Python → SQL → Power BI
-
-La data cruda de `RawData-PCS` sale cada lunes del **server SCADA** (TeamViewer hoy). Solo extracción allí; macros y ETL en PC local.
-
-```text
-SCADA ~03:00 (extract only)
-  → data/inbox/raw_pcs_<corte>.<ext>
-  → acquire-wait + scada_adapter (fechas mm-dd → serial Excel, mapping, backup .xlsm)
-  → macros COM + extrae C12/C14/C16/C19
-  → run-etl → SQL (IdCorrida nuevo)
-  → reconcile → notify-bi (Misael / PBI)
-```
-
-Runbook: [`docs/runbook-lunes.md`](./docs/runbook-lunes.md). Diseño: `AGENTS.md` §14 Fase S.
-
-| Regla | Detalle |
+| Quiero… | Leo… |
 |---|---|
-| Fechas reporte | Export incremental: desde el dato siguiente al último cargado hasta el último dato del lunes; el adapter valida la continuidad (D-07) |
-| Transporte | Solo TeamViewer (sin UNC/API) |
-| Formato | Origen `mm-dd-aaaa` → serial/fecha Excel real en la hoja (formato visual `dd-mm-aaaa`; nunca texto) |
-| PlantActivity | Fuente aparte (no desde SCADA) |
-| PBI | Owner Misael; notificación hasta service principal |
+| Entender las palabras (PCS, rack, SCADA, exclusión…) | [Glosario](./docs/glosario.md) |
+| Instalar el proyecto en un computador | [Guía de instalación](./docs/instalacion.md) |
+| Hacer la corrida de cada lunes o el cierre de mes | [Guía del lunes](./docs/runbook-lunes.md) |
+| Entender qué se guarda en la base de datos | [Modelo de datos](./docs/modelo-datos.md) (con diagramas) |
+| Conectar Power BI | [Handoff Power BI](./docs/pbi-handoff.md) |
+| Ver el avance del periodo de prueba en paralelo | [Registro del shadow mode](./docs/shadow-log.md) |
+| Saber si ya se puede dejar el Excel | [Go / no-go](./docs/go-no-go.md) |
 
----
+## ¿Cómo funciona?
 
-## Arquitectura del flujo
-
-```text
-SCADA (server) --extract--> data/inbox/
-  → Fase S/T: acquire-wait + scada_adapter
-  → Fase M: macros Excel COM (referencia KPI)
-  → ModuloStaging (copia inmutable)
-  → ModuloNormalizacion (ancho → largo)
-  → MotorDisponibilidad || MotorEventosFalla
-  → AgregacionDiaria/Anual
-  → SQL Server (KPI + intermedios + auditoría)
-  → Reporting / BI (refresh PBI / notificación)
+```mermaid
+flowchart LR
+    A["📡 SCADA<br/>datos cada 15 min"] -- "export del lunes" --> B["📗 Libro Excel<br/>(copia de trabajo)"]
+    X["👤 Alex<br/>Exclusion_Matrix<br/>(fin de mes)"] --> B
+    B --> C["🐍 Python<br/>calcula"]
+    B --> D["⚙️ Macros Excel<br/>calculan"]
+    C --> E{"¿Dan lo<br/>mismo?"}
+    D --> E
+    E -- "sí" --> F["🗄️ Azure SQL"]
+    F --> G["📊 Power BI"]
+    E -- "no" --> H["🛑 No se publica<br/>y se revisa"]
 ```
 
----
+1. Cada lunes se **exporta** de SCADA lo que informaron los equipos en la semana.
+2. Esos datos se agregan a una **copia** del libro Excel (los originales nunca se tocan).
+3. **Python calcula** la disponibilidad y, en paralelo, las **macros del Excel** calculan lo mismo.
+4. Si los dos resultados son **idénticos**, se guarda en la base de datos y se avisa a Misael para Power BI.
+5. A fin de mes, Alex entrega la **matriz de exclusiones** (fallas que no son culpa de la planta) y se hace el
+   **cierre mensual**.
 
-## Estructura del proyecto
+Todo eso lo hace **un solo comando** (`scripts/run_lunes.py`). Paso a paso en la [guía del lunes](./docs/runbook-lunes.md).
+
+## La planta en números
+
+| Dato | Valor |
+|---|---|
+| Inicio de operación | 08-04-2026 |
+| PCS (equipos convertidores) | 61 |
+| Baterías (módulos BEC) por PCS | 4 → 244 en total |
+| Racks por batería | 12 → **2.928 racks** en total |
+| Frecuencia de los datos | cada 15 minutos |
+
+**Cómo se calcula la disponibilidad:**
+
+```text
+Disponibilidad = 1 − (racks indisponibles acumulados) / (2.928 racks × cantidad de bloques de 15 min)
+```
+
+- Cada 15 minutos, SCADA dice cuántas de las 4 baterías de cada PCS funcionan (`NUMBER_OF_MODULES`).
+- Si un PCS tiene 3 baterías, en ese bloque faltan 12 racks (1 batería × 12 racks). Eso se suma.
+- Ejemplo real: septiembre 1–21 de 2026 → 1.975 bloques, 104.134,292 racks-bloque indisponibles →
+  **disponibilidad 98,20 %**.
+- Si el dato viene vacío, se cuenta como disponible (igual que el Excel), pero queda marcado para revisarlo.
+
+## Estado del proyecto (25-09-2026)
+
+| Parte | Estado |
+|---|---|
+| Entender el Excel a fondo (macros y fórmulas) | ✅ Listo |
+| Cálculo en Python idéntico al Excel | ✅ Listo (julio, agosto y septiembre, dígito por dígito) |
+| Base de datos en Azure y comparación automática con Excel | ✅ Listo |
+| Corrida del lunes y cierre de mes en un comando | ✅ Listo |
+| Carga de la matriz de exclusiones de Alex | 🟡 Lista; falta probarla con una entrega real |
+| Lectura automática del export de SCADA | ⏳ Esperando una muestra real del export (hoy las filas se pegan a mano) |
+| Libro maestro v1.1 (Excel que aplica la matriz) | ⏳ Tarea de Francisco |
+| Periodo de prueba en paralelo (4 lunes + 1 cierre) | ⏳ Por empezar |
+| Decisión de dejar el Excel | ⏳ Después del periodo de prueba ([go/no-go](./docs/go-no-go.md)) |
+
+## Las dos bases de datos: PROD y TEST/QA
+
+| Ambiente | Base de datos (Azure) | Para qué | Cómo se elige |
+|---|---|---|---|
+| **PROD** (producción) | `trina_etl` | Resultados **oficiales**: los que ve Power BI | Por defecto (o `--entorno produccion` / `prod`) |
+| **TEST/QA** (pruebas) | `trina_etl_prueba` | **Practicar y validar** sin tocar lo oficial | `--entorno prueba` (o `qa` / `test`) |
+
+Las dos están en el servidor `trina-etl.database.windows.net`, tienen **las mismas tablas y vistas**, y se entra
+con la cuenta @trinasolar.com. Las direcciones **ya vienen escritas en el código** (`src/etl_arena/ambientes.py`):
+un computador nuevo apunta a las bases correctas **sin configurar nada**.
+
+> ⚠️ Las pruebas automáticas de los programadores (`pytest -m sql`) usan **una tercera base aparte** (`ETL_ARENA_TEST_DB_URL`, con "test" en el nombre) porque la **borran** cada vez. Nunca se configura ahí `trina_etl` ni `trina_etl_prueba`: el código lo impide.
+
+## Reglas que nunca se rompen
+
+1. **No se cambia el cálculo** mientras el Excel sea el oficial: se copia exactamente, incluso sus rarezas.
+2. **Lo que decide si hay falla es `NUMBER_OF_MODULES`** (cuántas baterías funcionan), no el código de falla.
+3. **Nada se borra de la base de datos.** Cada cálculo queda guardado con su propio código (`IdCorrida`).
+4. **Los archivos originales no se tocan:** el export se guarda con su "huella" (sha256) y el Excel se trabaja en copias.
+5. **En el server SCADA solo se exporta.** Todo el proceso corre en el computador local.
+6. **Las exclusiones salen solo de la `Exclusion_Matrix`** de Alex (`PlantActivity` no, hasta que Alex lo confirme).
+7. **No hay contraseñas guardadas:** se entra a la base con la cuenta @trinasolar.com.
+
+## Carpetas del proyecto
 
 ```text
 ETL_Arena/
-├── data/
-│   ├── AvailabilityCalculation_... .xlsm
-│   ├── inbox/          # drop zone SCADA semanal
-│   ├── processed/      # originales inmutables + sha256
-│   └── work/           # copia de trabajo .xlsm
-├── docs/            # runbook, handoff Power BI, shadow log, go/no-go, data contract, ADR
-├── scripts/         # run_lunes.py, ejecutar_etl.py, shadow_log.py, crear_base.py, seeds
-├── src/etl_arena/
-│   ├── config/
-│   ├── excel_semantics/ # reglas VBA/Excel (celdas, texto, fechas, redondeo)
-│   ├── model/
-│   ├── acquisition/    # Fase S: acquire-wait, contrato/lector SCADA
-│   ├── workbook/       # Fase M: sesión COM, preparar, macros, referencia
-│   ├── ingestion/
-│   ├── normalization/
-│   ├── enrichment/
-│   ├── availability/
-│   ├── fault_events/
-│   ├── aggregation/
-│   ├── persistence/
-│   ├── reconciliation/
-│   └── reporting/
-├── tests/
-├── sql/
-├── AGENTS.md
-├── CLAUDE.md
-└── README.md
+├── data/                  ← los libros Excel oficiales
+│   ├── inbox/             ← aquí se deja el export de SCADA cada lunes
+│   ├── processed/         ← los exports ya usados (no se tocan nunca)
+│   └── work/              ← copias de trabajo de cada semana (una carpeta por corte)
+├── docs/                  ← toda la documentación para personas
+├── scripts/               ← los programas que se ejecutan (run_lunes.py, verificar_entorno.py…)
+├── src/etl_arena/         ← el código del cálculo
+├── sql/                   ← la estructura de la base de datos
+├── tests/                 ← pruebas automáticas
+├── .env.example           ← modelo del archivo de configuración
+├── AGENTS.md, CLAUDE.md   ← documentación técnica para agentes de IA
+└── README.md              ← este archivo
 ```
-
-Además: `src/etl_arena/orquestacion.py` (libro base y cola de cierres), `pipeline.py` y `ejecucion.py`. Layout detallado en `design.md §Estructura del repositorio`.
 
 ---
 
-## Desarrollo
+## Para desarrolladores
+
+### Instalación rápida
+
+Guía completa y para no programadores: [docs/instalacion.md](./docs/instalacion.md).
 
 ```powershell
-python -m venv .venv                       # Python >= 3.13 (probado con 3.14)
+python -m venv .venv                                   # Python >= 3.13
 .venv\Scripts\python -m pip install -e ".[dev]"
-.venv\Scripts\python -m pytest            # tests (markers: golden, sql, excel)
-$env:ETL_ARENA_EXCEL = "1"; .venv\Scripts\python -m pytest tests\com   # macros reales vía COM (~2 min; no usar Excel mientras)
-.venv\Scripts\python -m ruff check src tests
+Copy-Item .env.example .env                             # y completar (ver instalacion.md, paso 5)
+.venv\Scripts\python scripts\verificar_entorno.py       # revisa todo el entorno
 ```
 
-- **Base de datos** (ADR-10): producción en **Azure SQL Database serverless** (`trina-etl.database.windows.net/trina_etl`, Entra ID con `ETL_ARENA_DB_AUTH=entra`; la primera conexión abre el navegador para iniciar sesión y la base pausada tarda ~1 min en despertar). Alternativas: copiar `.env.example` a `.env` con `ETL_ARENA_DB_URL` (instancia local con autenticación Windows, o Docker con `docker compose -f docker/mssql.compose.yml --env-file .env up -d`) y crear/actualizar el esquema con `.venv\Scripts\python scripts\crear_base.py` (idempotente; fechas siempre `DATETIME`).
-- Seed del catálogo: `.venv\Scripts\python scripts\generar_seed_tipo_detencion.py` regenera `sql/05_seed_tipo_detencion.sql` desde `PCS-Fault` (163 códigos; duplicados según D-14).
-- Tests de integración SQL (`-m sql`): crean y eliminan su propia base `ETL_Arena_test`; se omiten si no hay instancia.
-- Requiere **ODBC Driver 18 for SQL Server** (instalador de Microsoft, con permisos de administrador). El driver legacy `SQL Server` no sirve (no maneja `DATETIME2` ni `fast_executemany`).
-- **Corrida del ETL** (`scripts/ejecutar_etl.py`): `--parametros-desde-libro` toma C5/C7/C21/C31/L2/L4/L14 del libro; `--referencia libro` reconcilia contra los valores que dejaron las macros en ese mismo libro; `--sin-bd` calcula sin persistir; `--oficial` marca la corrida como vigente para Power BI. Salida: 0 = success, 2 = parity_failed, 1 = failed. Ejemplo: `.venv\Scripts\python scripts\ejecutar_etl.py --libro <libro.xlsm> --parametros-desde-libro --referencia libro --sin-bd`.
-- **Shadow mode**: `.venv\Scripts\python scripts\shadow_log.py --corte <corte> --kpi-excel-oficial <KPI de Alex>` agrega la corrida a `docs/shadow-log.md`; `--resumen` evalúa el criterio de salida.
-- Golden references: `python tests/golden/extract_golden.py --excel <libro> --month N --year 2026 --label <mes>` (ver `tests/golden/data/golden_index.json`).
-- Agentes de Claude Code en `.claude/agents/` (plan de asignación en `.kiro/specs/etl-arena-availability/tasks.md`).
+### Pruebas
 
-## Tablas SQL Server
+```powershell
+.venv\Scripts\python -m pytest -q                                       # ~372 tests (markers: golden, sql, excel)
+$env:ETL_ARENA_EXCEL = "1"; .venv\Scripts\python -m pytest tests\com -q  # macros reales vía COM (~2 min)
+.venv\Scripts\python -m ruff check src tests scripts
+```
 
-| Tabla | Contenido |
+- Los tests de integración SQL (`-m sql`) usan `ETL_ARENA_TEST_DB_URL` (instancia local; crean y borran su propia base).
+- Los goldens (`tests/golden/data/`) son resultados del Excel usados como respuestas correctas; se regeneran con
+  `tests/golden/extract_golden.py`.
+
+### Scripts
+
+| Script | Para qué |
 |---|---|
-| `etl_run` | Metadatos de cada corrida: `IdCorrida`, período, parámetros, `VersionAlgoritmo` |
-| `proyecto` | Tabla maestra de 4 proyectos BESS con parámetros de configuración |
-| `tipo_detencion` | Catálogo de 163 códigos de falla (F0…F257; `PCS-Fault` trae 167 filas con 4 duplicados, F-35/D-14; seed generado por script) |
-| `raw_pcs_sample` | Datos crudos normalizados — 1 fila por `NumeroPCS × MarcaTiempoMuestra` |
-| `plant_activity_sample` | `FactorOperacional` (`EsOperacional`) por fila; col D solo espejo (F-37) |
-| `exclusion_matrix_sample` | Eventos de exclusión 0/1/2 por fila y PCS, baterías previas y causa (F-37) |
-| `availability_sample_result` | Resultado intermedio por `NumeroPCS × MarcaTiempoMuestra`: `BateriasIndisponibles`, factores, `ImpactoRackPonderado` |
-| `availability_run_result` | KPI del período: `DisponibilidadPeriodo` (C16), `DisponibilidadAnualAcumulada` (C19), `BloquesMuestreo` (C12), `BloquesRacksIndisponibles` (C14) |
-| `fault_event` | Eventos de falla consolidados con `DuracionHoras`, `CodigoFalla`, `PromedioBateriasInvolucradas`, `HorasRackIndisponibles` |
-| `detencion` | Vista operacional de detenciones con `IdProyecto`, `DuracionSegundos`, `EstadoRevision` y `Observacion` |
-| `daily_availability` | KPI diario (`Disponibilidad`) y `Variacion` respecto al día anterior |
-| `annual_availability` | `DisponibilidadMensual` y `DisponibilidadAcumulada` anual |
+| `scripts/run_lunes.py` | Orquestador: corrida semanal, `cierre-mensual`, `load-exclusion-matrix`, `--entorno prueba` |
+| `scripts/ejecutar_etl.py` | Solo el cálculo Python sobre un libro ya preparado (`--sin-bd`, `--referencia libro`, `--oficial`) |
+| `scripts/verificar_entorno.py` | Revisa Python, paquetes, driver ODBC, `.env`, red, base de datos y Excel |
+| `scripts/shadow_log.py` | Registra cada corrida del periodo de prueba y evalúa el criterio de salida |
+| `scripts/crear_base.py` | Crea/actualiza las tablas (idempotente; en Azure no crea la base) |
+| `scripts/generar_seed_tipo_detencion.py` | Regenera el catálogo de códigos de falla desde `PCS-Fault` |
 
-SQL es **append-only por `IdCorrida`**. No se borran resultados históricos.
+### Base de datos
 
----
+- **Azure SQL Database serverless** `trina-etl.database.windows.net` (Brazil South), entrada con Microsoft Entra ID
+  (por defecto). Ambientes fijos en `src/etl_arena/ambientes.py`: **PROD** `trina_etl` (por defecto) y **TEST/QA**
+  `trina_etl_prueba` (`--entorno prueba|qa|test` o `ETL_ARENA_ENTORNO`). `ETL_ARENA_DB_URL` /
+  `ETL_ARENA_DB_URL_PRUEBA` solo reemplazan esas direcciones (p. ej. una instancia local).
+- Tests de integración (`-m sql`): base propia en `ETL_ARENA_TEST_DB_URL` con "test" en el nombre; `reiniciar_esquema`
+  se niega a tocar `trina_etl` y `trina_etl_prueba`.
+- Requiere **ODBC Driver 18 for SQL Server**.
+- Modelo conceptual, tablas y vistas: [docs/modelo-datos.md](./docs/modelo-datos.md). DDL en `sql/`.
+- Todas las fechas en `DATETIME`; SQL **append-only** por `IdCorrida`.
 
-## Plan de implementación
+### Reglas técnicas
 
-| Etapa | Descripción | Estado |
-|---|---|---|
-| 1 | Reverse engineering de macros VBA y fórmulas Excel | Completado (auditoría `audit.md`, F-01…F-44) |
-| **S** | **Adquisición SCADA (inbox + adapter de fechas) y orquestador del lunes** | `acquire-wait` y orquestador listos; lector del export pendiente de la muestra real (0.6/0.7) |
-| 2 | Data contract: columnas, tipos, timestamps, tratamiento DST | Libro: completado (`docs/data-contract-libro.md`); SCADA: pendiente de la muestra |
-| 3 | DDL SQL Server: staging, normalized, KPI, auditoría | Completado (`sql/`, aplicado en Azure `trina_etl`) |
-| 4 | ETL: extract -> validate -> stage -> normalize -> enrich | Completado |
-| 5 | MotorDisponibilidad (equivalente `cmdCalcAvailability`) | Completado, paridad bit a bit |
-| 6 | MotorEventosFalla (equivalente `mcoCreateList`) | Completado, paridad bit a bit |
-| 7 | Agregaciones: KPI diario, mensual, anual | Completado (agosto histórico no reproducible: D-11) |
-| 8 | ModuloReconciliacion automático Excel vs Python | Completado (5 niveles + invariantes) |
-| 8b | Runner COM de macros (sustituye trabajo manual de Alex) | En curso: `workbook.com`/`macros` y `run_lunes.py --stage run-macros` validados contra septiembre, julio y agosto; cierre mensual y carga de la `Exclusion_Matrix` (`--stage cierre-mensual`, `--stage load-exclusion-matrix`) listos salvo el formato real de la entrega de Alex |
-| 9 | Shadow mode: Excel oficial, Python en paralelo | Listo para empezar (`docs/shadow-log.md`, `scripts/shadow_log.py`) |
-| 10 | Producción: origen → orquestador lunes → Python/SQL → refresh PBI | Go/no-go preparado (`docs/go-no-go.md`); decisión tras el shadow mode |
+1. No modificar el algoritmo durante la fase de paridad; reproducir incluso los defectos del VBA (con flags).
+2. No hardcodear `61`, `4`, `12`, `15`: vienen de `ConfiguracionCalculo`.
+3. Conservar `SerialFechaExcelOrigen` + `MarcaTiempoLocalOrigen`; no convertir a UTC.
+4. Marcar `ModulosDisponiblesNulo` y `DescripcionFallaFallback` para auditoría.
+5. Toda corrida registra `VersionAlgoritmo = "availability-v1.1-exclusion-matrix"`.
+6. El pipeline nunca edita VBA ni el libro base.
 
-El detalle de cada etapa, las fórmulas exactas y las reglas de negocio están en [`AGENTS.md`](./AGENTS.md).
-
----
-
-## Criterios de aceptación
-
-La migración se considera completa cuando una corrida Python pueda reproducir exactamente una corrida Excel con el mismo input, verificando:
-
-- `BloquesMuestreo` (C12) — bloques de 15 min procesados
-- `BloquesRacksIndisponibles` (C14) — acumulado de racks indisponibles × bloques
-- `DisponibilidadPeriodo` (C16) — disponibilidad del período
-- `DisponibilidadAnualAcumulada` (C19) — disponibilidad acumulada anual
-- Lista completa de eventos en `ListOfFaults`
-- `Disponibilidad` diaria y acumulada mensual
-- Períodos que atraviesan cambio de horario (DST Chile, septiembre 2026)
-
-Tolerancias numéricas: tabla única en `.kiro/specs/etl-arena-availability/design.md §Tolerancias` (p. ej. C14 ≤ 1e-6, C16/C19 ≤ 1e-9).
-
----
-
-## Riesgos principales
-
-| Riesgo | Descripción | Acción |
-|---|---|---|
-| A | Comentario VBA dice `CURRENT FAULT` pero la lógica usa `NUMBER_OF_MODULES` | Priorizar código ejecutable sobre comentarios |
-| B | Fórmula anual hardcodea `365 × 24 × 4` días/bloques | Conservar durante paridad; revisar con negocio después |
-| C | Factor `12` está fijo en el motor | Parametrizar luego de obtener paridad |
-| D | Fechas seriales Excel pueden diferir por DST | Conservar `SerialFechaExcelOrigen` + `MarcaTiempoLocalOrigen` en staging |
-| E | `RawData-PCS` tiene 244 columnas en formato ancho | NormalizadorPCS convierte a modelo largo antes del cálculo |
-| F | `mcoCleanTable` destruye resultados anteriores | SQL append-only por `IdCorrida`; nunca replicar ese comportamiento |
-| G | `NUMBER_OF_MODULES` vacío ignorado silenciosamente por el Excel | Marcar con `ModulosDisponiblesNulo = True`; incluir en reporte de calidad |
-| H | Descripción de falla puede provenir del intervalo anterior | Marcar con `DescripcionFallaFallback = True`; reportar frecuencia |
-| I | Export SCADA con formato de fecha distinto al Excel | Fase T: transformador estricto `mm-dd-aaaa` → serial Excel (formato `dd-mm-aaaa`, nunca texto) + validación de rango |
-| J | Sin API SCADA; transporte solo TeamViewer | `acquire-wait` + alerta si no hay archivo; pedir share/API a GPM como mejora |
-| K | PlantActivity no se actualiza con SCADA | Fuente fuera de esta cadena; se une por fila: validar alineación y reportar filas sin timestamp en calidad de corrida |
-
----
-
-## Reglas clave para desarrolladores
-
-1. **No modificar el algoritmo** durante la fase de paridad — reproducirlo exactamente.
-2. **No hardcodear** `61`, `4`, `12` o `15` — provienen de `ConfiguracionCalculo`.
-3. **`NUMBER_OF_MODULES`** es el campo que gobierna la indisponibilidad, no el código de falla.
-4. **SQL append-only** — usar `IdCorrida`; nunca sobreescribir resultados históricos.
-5. **Timestamps**: conservar `SerialFechaExcelOrigen` + `MarcaTiempoLocalOrigen`; no convertir a UTC sin documentar.
-6. **`ModulosDisponiblesNulo`**: intervalos con `NUMBER_OF_MODULES` vacío = disponible (= 4) + flag de auditoría.
-7. **`DescripcionFallaFallback`**: eventos con descripción tomada del intervalo anterior se marcan en `fault_event`.
-8. **Versionado**: cada resultado debe incluir `VersionAlgoritmo` (hoy `"availability-v1.1-exclusion-matrix"`, F-37).
-
----
-
-## Inspección del Excel desde CLI
-
-Extraer código VBA:
+### Inspeccionar el Excel sin abrirlo
 
 ```bash
-pip install oletools
-python -m oletools.olevba "data/AvailabilityCalculation_PCS&Batteries_20260907_septiembre 2026.xlsm"
+python -m oletools.olevba "data/AvailabilityCalculation_PCS&Batteries_20260907_septiembre 2026.xlsm"   # código VBA
+unzip -p "data/AvailabilityCalculation_PCS&Batteries_20260907_septiembre 2026.xlsm" xl/workbook.xml     # hojas
 ```
 
-Inspeccionar estructura XML:
+Las hojas `DateFormat_Correction` y `PlantActivity` pesan ~5 MB de XML: usar `unzip -p … | grep`.
 
-```bash
-# listar hojas y nombres definidos
-unzip -p "data/AvailabilityCalculation_PCS&Batteries_20260907_septiembre 2026.xlsm" xl/workbook.xml
-
-# buscar en hojas grandes sin cargarlas completas (~5 MB cada una)
-unzip -p "data/..." xl/worksheets/sheet10.xml | grep "termino"
-```
-
----
-
-## Documentación de referencia
+### Documentación técnica
 
 | Archivo | Contenido |
 |---|---|
-| [`AGENTS.md`](./AGENTS.md) | Plan completo de implementación, lógica exacta de las macros, fórmulas, diseño de datos SQL, ETL, estrategia de paridad, **Fase S SCADA** |
-| [`CLAUDE.md`](./CLAUDE.md) | Contexto técnico para agentes de IA: arquitectura del Excel, módulos VBA, reglas para agentes |
-| [`docs/runbook-lunes.md`](./docs/runbook-lunes.md) | Checklist operativa del lunes (SCADA → inbox → macros → ETL) |
-| [`docs/pbi-handoff.md`](./docs/pbi-handoff.md) | Handoff Power BI (Misael): conexión, vistas `v_*_vigente`, semántica del KPI, refresh |
-| [`docs/instalacion.md`](./docs/instalacion.md) | Instalar y validar el proyecto en otra PC (laptop de la empresa) |
-| [`docs/shadow-log.md`](./docs/shadow-log.md) | Registro del shadow mode (Excel oficial vs Python) y criterio de salida |
-| [`docs/go-no-go.md`](./docs/go-no-go.md) | Criterios de aceptación con evidencia, condiciones para retirar el Excel y backlog `availability-v2` |
-| `.kiro/specs/etl-arena-availability/` | SDD revisión 2 (2026-09-24): `audit.md` (auditoría contra el VBA real), requirements, design, tasks por fases con agente asignado |
+| [`AGENTS.md`](./AGENTS.md) | Plan de reingeniería completo: lógica exacta de las macros, fórmulas, diseño SQL, ETL, paridad |
+| [`CLAUDE.md`](./CLAUDE.md) | Contexto técnico resumido para agentes de IA |
+| `.kiro/specs/etl-arena-availability/` | Especificación ejecutable (rev. 2): `audit.md` (hallazgos F-xx), `requirements.md`, `design.md`, `tasks.md` |
+| [`docs/data-contract-libro.md`](./docs/data-contract-libro.md) | Contrato de datos del libro Excel (hojas, columnas, tipos) |
+| [`docs/adr/`](./docs/adr/) | Decisiones de arquitectura (ADR) y decisiones de negocio abiertas (D-xx) |

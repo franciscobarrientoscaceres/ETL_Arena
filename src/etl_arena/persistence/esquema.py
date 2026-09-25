@@ -69,11 +69,42 @@ EXEC sys.sp_executesql @sql;
 
 
 def reiniciar_esquema(engine: Engine, directorio: Path = DIR_SQL) -> dict[str, int]:
-    """Solo pruebas: elimina vistas y tablas y vuelve a aplicar el esquema. Se niega a operar sobre
-    una base cuyo nombre no contenga "test" o "prueba"."""
+    """Solo tests automáticos: elimina vistas y tablas y vuelve a aplicar el esquema.
+
+    Se niega si la base no tiene "test" en el nombre, y **siempre** con las bases de los ambientes
+    (``trina_etl`` = PROD, ``trina_etl_prueba`` = TEST/QA): esas guardan datos que alguien validó."""
+    from etl_arena.ambientes import es_base_de_ambiente
+
     base = (engine.url.database or "").lower()
-    if "test" not in base and "prueba" not in base:
-        raise RuntimeError(f"reiniciar_esquema solo opera sobre bases de prueba, no sobre {engine.url.database!r}")
+    if es_base_de_ambiente(base):
+        raise RuntimeError(
+            f"reiniciar_esquema no opera sobre {engine.url.database!r}: es una base de ambiente (PROD o TEST/QA). "
+            "Los tests de integración necesitan su propia base con 'test' en el nombre (ETL_ARENA_TEST_DB_URL)"
+        )
+    if "test" not in base:
+        raise RuntimeError(f"reiniciar_esquema solo opera sobre bases de tests, no sobre {engine.url.database!r}")
+    return _borrar_y_aplicar(engine, directorio)
+
+
+def vaciar_ambiente_prueba(engine: Engine, confirmacion: str, directorio: Path = DIR_SQL) -> dict[str, int]:
+    """Deja TEST/QA (``trina_etl_prueba``) como recién creada: borra vistas y tablas y vuelve a aplicar el
+    esquema, así los ``IDENTITY`` parten de 1 y los maestros (proyecto, catálogo, julio/agosto manuales) se
+    vuelven a sembrar. Roles y usuarios de la base se conservan; los permisos se re-aplican (06_roles).
+
+    Solo para ``trina_etl_prueba`` y solo si ``confirmacion`` es exactamente ese nombre: nunca PROD, y
+    ningún test automático la puede disparar sin querer (``crear_base.py --vaciar --confirmar …``)."""
+    from etl_arena.ambientes import AMBIENTES
+
+    esperado = AMBIENTES["prueba"]["base"]
+    base = engine.url.database or ""
+    if base.lower() != esperado:
+        raise RuntimeError(f"vaciar_ambiente_prueba solo opera sobre {esperado!r} (TEST/QA), no sobre {base!r}")
+    if confirmacion != esperado:
+        raise RuntimeError(f"para vaciar TEST/QA hay que confirmar escribiendo exactamente {esperado!r}")
+    return _borrar_y_aplicar(engine, directorio)
+
+
+def _borrar_y_aplicar(engine: Engine, directorio: Path) -> dict[str, int]:
     conn = engine.raw_connection()
     try:
         conn.driver_connection.autocommit = True

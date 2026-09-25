@@ -3,6 +3,14 @@
 Para: **Misael** (owner del reporte Power BI). Mantiene: Francisco Barrientos (ETL).
 Estado: 2026-09-25, previo al shadow mode (tarea 5.4). Fuente de verdad del esquema: `sql/04_vistas.sql`.
 
+> **En palabras simples:** cada lunes (y a fin de mes) el nuevo sistema calcula la disponibilidad y la guarda en
+> una base de datos en la nube. Power BI solo tiene que leer unas **vistas** (tablas ya preparadas) que siempre
+> muestran **un único resultado oficial por mes**. No hay que elegir corridas ni filtrar nada: si el cálculo de
+> una semana sale mal, la vista sigue mostrando el último resultado bueno.
+>
+> Palabras técnicas: [glosario](./glosario.md). Cómo se relacionan los datos: [modelo de datos](./modelo-datos.md)
+> (§6 muestra las vistas en un dibujo).
+
 ---
 
 ## 1. Qué cambia
@@ -26,7 +34,7 @@ excusables, así que normalmente muestra una disponibilidad mayor.
 |---|---|
 | Conector | SQL Server database (Azure SQL Database) |
 | Servidor | `trina-etl.database.windows.net` |
-| Base | `trina_etl` |
+| Base | `trina_etl` (**PROD**, la oficial). Para validar el reporte con datos de práctica: `trina_etl_prueba` (**TEST/QA**, mismas vistas) |
 | Autenticación | Cuenta Microsoft / Entra ID (@trinasolar.com). No hay usuario ni contraseña SQL |
 | Permiso | Rol `bi_reader`: `SELECT` solo sobre las vistas `v_*`; las tablas base no son visibles |
 | Modo recomendado | Import (el volumen es chico y el dato cambia una vez por semana) |

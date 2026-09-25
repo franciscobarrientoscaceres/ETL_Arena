@@ -45,6 +45,7 @@ from pathlib import Path
 RAIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ / "src"))
 
+from etl_arena.ambientes import AYUDA_ENTORNO, OPCIONES_ENTORNO  # noqa: E402
 from etl_arena.config import construir_config  # noqa: E402
 from etl_arena.excel_semantics import serial_a_datetime  # noqa: E402
 from etl_arena.ingestion import LibroXlsx  # noqa: E402
@@ -379,8 +380,8 @@ def construir_parser() -> argparse.ArgumentParser:
     ap.add_argument("--stage", choices=(*ETAPAS, "all", "cierre-mensual", "load-exclusion-matrix"), required=True)
     ap.add_argument(
         "--entorno",
-        choices=("produccion", "prueba"),
-        help="prueba: base ETL_ARENA_DB_URL_PRUEBA y carpetas data/work/_prueba, data/processed/_prueba "
+        choices=OPCIONES_ENTORNO,
+        help=f"{AYUDA_ENTORNO}. TEST/QA usa además data/work/_prueba y data/processed/_prueba "
         "(por defecto, ETL_ARENA_ENTORNO o produccion)",
     )
     ap.add_argument("--archivo-matriz", type=Path, help="load-exclusion-matrix: entrega de Alex del mes (--mes)")
@@ -507,18 +508,20 @@ def aplicar_entorno(args) -> None:
     """Fija el entorno para todo el proceso (la conexión lo lee de ETL_ARENA_ENTORNO) y separa las carpetas."""
     import os
 
-    from etl_arena.persistence.conexion import VARIABLE_ENTORNO, entorno
+    from etl_arena.ambientes import AMBIENTES, VARIABLE_ENTORNO, normalizar_entorno
 
     if args.entorno:
-        os.environ[VARIABLE_ENTORNO] = args.entorno
-    args.entorno = entorno()
+        os.environ[VARIABLE_ENTORNO] = normalizar_entorno(args.entorno)
+    args.entorno = normalizar_entorno(os.environ.get(VARIABLE_ENTORNO))
     if args.entorno == "prueba":
         defecto = construir_parser().parse_args(["--stage", "all"])
         if args.work == defecto.work:
             args.work = defecto.work / "_prueba"
         if args.processed == defecto.processed:
             args.processed = defecto.processed / "_prueba"
-        print(f"[entorno] PRUEBA: base ETL_ARENA_DB_URL_PRUEBA, carpeta {args.work}")
+    ambiente = AMBIENTES[args.entorno]
+    base = "sin base de datos (--sin-bd)" if args.sin_bd else f"base {ambiente['base']}"
+    print(f"[entorno] {ambiente['etiqueta']}: {base}, carpeta {args.work}")
 
 
 def main(argv: list[str] | None = None) -> int:

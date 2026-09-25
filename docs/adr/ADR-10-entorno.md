@@ -36,3 +36,17 @@ F-29: el PC de oficina tenía solo Python 3.14, el driver ODBC legacy `SQL Serve
 **Medido:** esquema aplicado sin cambios de DDL; una corrida real de septiembre (244.748 filas) se guarda en ~46 s desde Chile.
 
 **Pendiente:** probar la conexión desde la red de Trina (puerto 1433 saliente) y agregar la IP de la oficina al firewall; Power BI en modo *Import* (DirectQuery mantendría la base despierta).
+
+## Actualización 2026-09-25 — Ambientes PROD y TEST/QA
+
+**Decisión:** dos bases en el mismo servidor, con el mismo esquema, fijadas en el código (`src/etl_arena/ambientes.py`) para que cualquier PC funcione sin configurar URLs:
+
+| Ambiente | Base | Selección |
+|---|---|---|
+| PROD | `trina_etl` | por defecto (`--entorno produccion`/`prod`) |
+| TEST/QA | `trina_etl_prueba` | `--entorno prueba`/`qa`/`test` o `ETL_ARENA_ENTORNO` |
+
+- `ETL_ARENA_DB_URL` / `ETL_ARENA_DB_URL_PRUEBA` quedan como reemplazo opcional (p. ej. instancia local); `ETL_ARENA_DB_AUTH` es `entra` por defecto; el `.env` se busca en la carpeta actual y luego en la raíz del proyecto.
+- TEST/QA nunca puede resolver a la base de PROD; `run_lunes.py` en TEST/QA usa `data/work/_prueba`, copia (no mueve) el export y no avisa a Misael.
+- **Incidente 2026-09-25:** con `ETL_ARENA_TEST_DB_URL` apuntando a `trina_etl_prueba`, los tests de integración la reiniciaron (el guard de `reiniciar_esquema` aceptaba "prueba" en el nombre) y se perdió la carga de validación. Corrección: `reiniciar_esquema` exige "test" en el nombre y rechaza siempre `trina_etl` y `trina_etl_prueba`; los tests de integración se omiten si su base es un ambiente; `verificar_entorno.py` lo reporta como FALTA.
+- Vaciado deliberado de TEST/QA: `crear_base.py --entorno prueba --vaciar --confirmar trina_etl_prueba` (`esquema.vaciar_ambiente_prueba`: borra vistas y tablas, re-aplica el esquema, IDENTITY desde 1, conserva roles y usuarios). Solo acepta `trina_etl_prueba` y la confirmación exacta; con PROD se niega. Usado el 2026-09-25 para limpiar el incidente y recargar agosto (con matriz) y septiembre.

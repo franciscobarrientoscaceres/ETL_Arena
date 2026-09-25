@@ -3,6 +3,15 @@
 Para: Francisco, Alex y negocio (decisión) · revisión técnica: software-architect + code-reviewer.
 Estado: **preparado 2026-09-25, decisión pendiente**. Se decide al terminar el shadow mode (`docs/shadow-log.md`).
 
+> **En palabras simples:** este documento responde *"¿ya podemos dejar de usar el Excel?"*. Para decir que sí,
+> el nuevo sistema tiene que (1) dar **exactamente** los mismos números que el Excel —ya está demostrado— y
+> (2) funcionar bien **varias semanas seguidas en la vida real** —eso es el periodo de prueba en paralelo
+> ([shadow log](./shadow-log.md))—. También faltan algunas cosas que dependen de otras personas (la muestra de
+> SCADA, la matriz real de Alex, el libro maestro v1.1).
+>
+> Símbolos: ✅ listo · ⚠️ listo con una salvedad · 🟡 hecho en parte · ⏳ esperando. Palabras técnicas:
+> [glosario](./glosario.md).
+
 ---
 
 ## 1. Recomendación actual: **todavía no (no-go)**

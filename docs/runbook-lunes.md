@@ -1,225 +1,274 @@
-# Runbook — Flujo del lunes (SCADA → Excel → Python → SQL → Power BI)
+# Guía del lunes — cómo calcular la disponibilidad cada semana
 
-Para: quien opera la corrida semanal (Francisco / Alex). Actualizado: 2026-09-25.
-Diseño: `AGENTS.md` §14 Fase S y `.kiro/specs/etl-arena-availability/`. Power BI: `docs/pbi-handoff.md`.
+Para: quien hace la corrida semanal (Francisco / Alex). Si una palabra no se entiende, está en el
+[glosario](./glosario.md). Si el computador es nuevo, primero sigue la [guía de instalación](./instalacion.md).
 
-**Reglas de oro**
-
-- Server SCADA: **solo exportar**. Macros y ETL corren únicamente en la PC local.
-- Solo `RawData-PCS` sale de SCADA. Las exclusiones salen **solo** de la `Exclusion_Matrix` que entrega Alex a
-  fin de mes; `PlantActivity` no se usa para exclusiones hasta que Alex lo confirme.
-- Nunca se edita el libro base ni `data/processed/`: cada corte trabaja sobre su propia copia en `data/work/<corte>/`.
-- SQL es append-only: cada corrida tiene un `IdCorrida` nuevo; Power BI solo ve corridas oficiales en `success`.
-- Mientras corre `run-macros`, **no usar Excel** (la etapa abre su propia ventana ~2 min y la cierra sola).
-
-Todos los comandos se corren desde la raíz del repo, en PowerShell:
-`.venv\Scripts\python scripts\run_lunes.py …` (abreviado abajo como `run_lunes …`).
+**Cuándo:** cada lunes, después de que SCADA tenga los datos de la semana.
+**Cuánto tarda:** unos 15 minutos de trabajo y ~5 minutos de espera.
+**Dónde:** siempre en el **mismo computador** (el "oficial"), dentro de la carpeta del proyecto, en PowerShell.
 
 ---
 
-## 0. Precondiciones
+## El lunes en un dibujo
 
-- [ ] **Azure SQL** (`trina-etl.database.windows.net`): la IP de la red está en el firewall del servidor (portal →
-  `trina-etl` → Redes). La primera conexión del día tarda ~1 min (la base se reanuda) y puede abrir el navegador
-  para iniciar sesión con la cuenta @trinasolar.com.
-- [ ] **Excel** instalado en la PC. No hace falta *Trusted Location*: la corrida habilita macros solo en su propia
-  instancia y quita la marca de "descargado de Internet" de la copia. Si una política de TI igual bloquea las
-  macros, agregar `data\work\` como ubicación de confianza (Excel → Opciones → Centro de confianza).
-- [ ] `data/inbox/` existe y está vacío (solo debe quedar el export del corte).
-- [ ] Sabes cuál es el **libro base**: `data/work/libro_base.json` (campo `ruta`); si no existe, es el maestro de `data/`.
-- [ ] `DESDE` del export = dato siguiente al último de `RawData-PCS` del libro base; `HASTA` = último dato disponible.
+```mermaid
+flowchart LR
+    A["📡 1. Exportar<br/>de SCADA"] --> B["📗 2. Pegar las filas<br/>nuevas en el libro"]
+    B --> C["▶️ 3. Un comando<br/>hace todo"]
+    C --> D{"✅ 4. ¿Salió<br/>bien?"}
+    D -- "sí" --> E["📨 5. Avisar a Misael<br/>y anotar"]
+    D -- "no" --> F["🔧 Ver 'Si algo falla'"]
+    F --> C
+```
 
-## 1. Export desde SCADA (~03:00)
+## Reglas de oro
 
-- [ ] TeamViewer al server SCADA; exportar el reporte de `RawData-PCS` con `DESDE`/`HASTA`. No procesar nada allí.
-- [ ] Transferir por TeamViewer a `data/inbox/raw_pcs_<AAAA-MM-DD>.<ext>`.
+1. **En el server SCADA solo se exporta.** Nunca se corre nada allí.
+2. **Los originales no se tocan.** El programa siempre trabaja sobre **copias** (carpeta `data/work/`).
+3. **Nada se borra de la base de datos.** Cada cálculo queda guardado con su propio código (`IdCorrida`).
+4. **Las exclusiones salen solo de la `Exclusion_Matrix`** que entrega Alex a fin de mes. `PlantActivity` no se
+   usa para exclusiones mientras Alex no lo confirme.
+5. **Mientras el programa usa Excel, no uses Excel** (se abre una ventana sola por unos 2 minutos y se cierra sola).
 
-## 2. Preparar el libro (manual hasta tener la muestra SCADA, tareas 0.6/0.7)
+---
 
-Hasta que exista el lector del export, las filas nuevas se pegan a mano:
+## Antes de empezar (1 minuto)
 
-1. Copiar el libro base a `data/work/<corte>-preparado.xlsm`.
-2. Pegar las filas nuevas **al final** de `RawData-PCS`, sin tocar las existentes. La columna A debe quedar como
-   fecha de Excel (alineada a la derecha, formato `dd-mm-aaaa hh:mm:ss`), **nunca como texto** (F-21).
-3. Guardar y cerrar Excel.
+- [ ] Estás en el computador oficial, en la carpeta del proyecto (`cd C:\dev\ETL_Arena` o donde esté).
+- [ ] La carpeta `data\inbox\` está vacía.
+- [ ] (Recomendado) La revisión automática da todo OK:
+  ```powershell
+  .venv\Scripts\python scripts\verificar_entorno.py --sin-excel
+  ```
 
-## 3. Corrida semanal
+## Paso 1 — Exportar los datos de SCADA
+
+1. Conéctate por **TeamViewer** al server SCADA.
+2. Abre el reporte de exportación de `RawData-PCS`.
+3. Pon las fechas:
+   - **DESDE** = el dato siguiente al último que ya está en el libro. (Ejemplo: si el último dato cargado es
+     21-09-2026 14:15, desde 21-09-2026 14:30.)
+   - **HASTA** = el último dato disponible hoy.
+4. Exporta y copia el archivo por TeamViewer a esta PC, en `data\inbox\`, con el nombre
+   `raw_pcs_AAAA-MM-DD.<extensión>` (la fecha de hoy).
+
+> ¿Cuál es "el último dato cargado"? Está al final de la hoja `RawData-PCS` del **libro base**. El programa
+> anota cuál es el libro base en `data\work\libro_base.json` (campo `ruta`). La primera vez es el libro de `data\`.
+
+## Paso 2 — Pegar las filas nuevas en el libro (a mano, por ahora)
+
+Mientras no tengamos la muestra real del export de SCADA (tarea 0.6), las filas nuevas se pegan a mano:
+
+1. Copia el **libro base** y guárdalo como `data\work\AAAA-MM-DD-preparado.xlsm` (la fecha de hoy).
+2. Ábrelo y pega las filas nuevas **al final** de la hoja `RawData-PCS`. **No cambies ninguna fila existente.**
+3. Revisa la columna A (fecha y hora): debe verse **alineada a la derecha** (es una fecha de verdad). Si está a la
+   izquierda, es texto y el cálculo fallará: corrígelo antes de seguir.
+4. Guarda y **cierra Excel**.
+
+## Paso 3 — Un comando hace todo
+
+Cambia la fecha (dos veces) y ejecuta:
 
 ```powershell
-run_lunes --stage all --corte 2026-09-28 --libro-preparado data\work\2026-09-28-preparado.xlsm --oficial
+.venv\Scripts\python scripts\run_lunes.py --stage all --corte 2026-09-28 --libro-preparado "data\work\2026-09-28-preparado.xlsm" --oficial
 ```
 
-| Etapa | Qué hace | Resultado en `data/work/<corte>/` |
+Qué significa cada parte:
+
+| Parte | Significa |
+|---|---|
+| `--stage all` | Hacer todas las etapas, una tras otra |
+| `--corte 2026-09-28` | El nombre de esta corrida (usa la fecha de hoy). Crea la carpeta `data\work\2026-09-28\` |
+| `--libro-preparado "…"` | El libro que preparaste en el paso 2 |
+| `--oficial` | El resultado es oficial y lo podrá ver Power BI |
+
+El programa va mostrando cada etapa. Esto es lo que hace cada una:
+
+| Etapa | En palabras simples |
+|---|---|
+| `acquire-wait` | Busca el export en `data\inbox\`, revisa que no esté vacío, le saca una "huella" (sha256) y lo guarda para siempre en `data\processed\` |
+| `prepare-workbook` | Hace una copia del libro preparado para trabajar sobre ella (y otra copia de respaldo `.bak`) |
+| `run-macros` | Abre Excel, escribe las fechas, corre las macros y anota los resultados de Excel |
+| `run-etl` | Python calcula todo por su cuenta, lo compara con Excel y lo guarda en la base de datos |
+| `reconcile` | Decide si se puede publicar: si Python y Excel no coinciden, se detiene |
+| `notify-bi` | Prepara el aviso para Misael |
+
+**Qué período calcula:** desde el **día 1 del mes** hasta el **último dato** (así lo pide el contrato).
+Los resultados semanales salen con la etiqueta **"Sin Exclusiones"**, porque la matriz de exclusiones de Alex llega
+a fin de mes. Igual son oficiales.
+
+## Paso 4 — ¿Salió bien?
+
+**Mira la última línea.** Si todas las etapas dicen `ok` y PowerShell no muestra `ERROR`, salió bien.
+
+Para saber más, abre `data\work\<corte>\run_state.json` con el Bloc de notas. En `run-etl` busca:
+
+| Dato | Qué debe decir | Qué significa |
 |---|---|---|
-| `acquire-wait` | Espera el export en `data/inbox`, valida que no esté vacío ni copiándose, lo mueve a `data/processed/<corte>/` con su `.sha256` | — |
-| `prepare-workbook` | Copia el libro preparado a `libro.xlsm` (+ `libro.xlsm.bak`) | `libro.xlsm` |
-| `run-macros` | Escribe parámetros y corre las 4 macros por COM; extrae la referencia Excel | `referencia_excel.json` |
-| `run-etl` | Motores Python → SQL (`IdCorrida` nuevo) + reconciliación contra la referencia; encola cierres de meses completos | fila en `etl_run` |
-| `reconcile` | Detiene la cadena si `parity_failed`; si todo está bien y es `--oficial`, **promueve** la copia a libro base | `data/work/libro_base.json` |
-| `notify-bi` | Webhook (`ETL_ARENA_NOTIFY_WEBHOOK`) o `notificacion.md` para Misael | `notificacion.md` |
+| `"estado"` | `success` | El cálculo terminó bien |
+| `"reconciliacion" → "estado"` | `pass` | Python y Excel dan **exactamente** lo mismo |
+| `"kpi" → "C16"` | un número como `0.98` | La disponibilidad del período (0,98 = 98 %) |
+| `"cierres_encolados"` | vacío, o un mes como `["2026-09"]` | Si aparece un mes, ese mes ya terminó y hay que cerrarlo (ver "Fin de mes") |
+| `"anomalias"` | cantidades por tipo | Cosas raras en los datos (ver tabla de abajo) |
 
-- **Período por defecto:** del día 1 del mes del último dato hasta ese dato (D-07). Otro período: `--periodo-inicio`
-  / `--periodo-fin` (AAAA-MM-DD).
-- **Parámetros oficiales:** C21 = "No", C31 = L14 = "Yes" (D-03). Con las macros de septiembre, en Excel se escribe
-  "No" en C31/L14 para no excusar con `PlantActivity!D` (F-44); sin exclusiones en el período da lo mismo.
-- **Etiqueta:** las semanales son oficiales **"Sin Exclusiones"** (D-17).
-- Opciones útiles: `--omitir-acquire` (el export ya se movió o no hay), `--omitir-macros` (sin Excel: la corrida
-  queda `sin_referencia`), `--sin-bd` (ensayo sin escribir en SQL; no promueve el libro base).
+**Resultados de la comparación con Excel:**
 
-### Reanudar
+- `pass` → todo igual. ✅
+- `sin_referencia` → no hubo Excel para comparar (por ejemplo, porque el período tiene exclusiones y el libro aún no
+  sabe aplicarlas). **No es un error**: el resultado se publica igual.
+- `fail` / `parity_failed` → Python y Excel no coinciden. **No se publica.** Ver "Si algo falla".
 
-El estado de cada etapa queda en `data/work/<corte>/run_state.json`. Volver a correr el **mismo comando** salta las
-etapas ya `ok` y sigue desde la que falló. `--forzar` repite las etapas desde `run-macros` (nunca repite
-`acquire-wait` ni `prepare-workbook`: el export ya está en `data/processed` y la copia de trabajo no se pisa). Una
-sola etapa: `run_lunes --stage run-etl --corte <corte> …`.
+**Cosas raras en los datos (anomalías) que vale la pena mirar:**
 
-Códigos de salida: `0` ok · `2` `parity_failed` · `1` error (mensaje en `run_state.json` → `<etapa>.error`).
-
-## 4. Leer el resultado
-
-### Reconciliación (Python vs Excel)
-
-`run_state.json` → `run-etl.artefactos.reconciliacion`: `estado` (`pass` / `fail` / `sin_referencia`) y, por nivel,
-`comparaciones`, `fallidas` y `max_delta`.
-
-| Nivel | Compara | Si falla |
+| Tipo | Qué significa | Qué hacer |
 |---|---|---|
-| 1 `input` | Filas procesadas, primer/último serial, C23 y parámetros escritos | Revisar que el libro y el período sean los esperados (informativo: no bloquea) |
-| 2 `muestra` | Cada celda de la tabla `Calculation-Availability!F:BN` | Buscar la fila/PCS en `reconciliation_result` |
-| 3 `acumulados` | C12 y C14 | **Bloquea** (`parity_failed`) |
-| 4 `kpi` | C16, C19 y `Daily` por día | **Bloquea** |
-| 5 `eventos` | `ListOfFaults` evento a evento, L10, resumen por código | **Bloquea** |
+| `hueco`, `duplicado`, `fuera_de_orden` | Faltan datos, o hay datos repetidos o desordenados en el export | Revisar el export de SCADA |
+| `dst_salto`, `dst_repeticion` | Cambio de hora | Normal en esas fechas |
+| `pa_vacio`, `pa_desalineado` | `PlantActivity` sin datos para las filas nuevas | Solo importa si se usa "Only Operational Time" (hoy no) |
+| `codigo_sin_catalogo` | Apareció un código de falla que no está en `PCS-Fault` | Agregarlo al catálogo si es nuevo |
+| `em_*`, `ee2_*` | Algo raro en la `Exclusion_Matrix` | Revisarlo con Alex |
+| `exclusion_matrix_ausente` | El libro no tiene matriz de exclusiones | Normal en las semanas antes de la entrega de Alex |
 
-Detalle en SQL:
+## Paso 5 — Avisar y anotar
 
-```sql
-SELECT Nivel, Metrica, Clave, ValorPython, ValorExcel, Delta, Tolerancia
-FROM dbo.reconciliation_result WHERE IdCorrida = '<IdCorrida>' AND Aprobado = 0 ORDER BY Nivel;
-```
+1. **Avisar a Misael:** si hay un webhook configurado, el aviso ya se envió solo. Si no, reenvía el archivo
+   `data\work\<corte>\notificacion.md` (trae el período, el resultado y la disponibilidad).
+2. **Anotar en el registro del periodo de prueba (shadow mode)**, con el número que Alex calculó en su Excel:
+   ```powershell
+   .venv\Scripts\python scripts\shadow_log.py --corte 2026-09-28 --kpi-excel-oficial 0.9819 --nota "sin novedades"
+   ```
+   Esto agrega una fila a [`shadow-log.md`](./shadow-log.md).
 
-`sin_referencia` no es un error: significa que no hubo macros (`--omitir-macros`, falla de Excel, o período con
-exclusiones mientras el maestro no sea v1.1). La corrida se publica igual si es `success`.
+¡Listo por esta semana! ✅
 
-Diferencias conocidas y aceptadas: eventos con Δ ≈ 1e-14 cuando L14 se escribe "No" (F-44); `ListOfFaults!N:Q`
-sin ordenar en Excel 2016 (F-40, se compara como mapa).
+---
 
-### Calidad de datos
+## Fin de mes: el cierre mensual
 
-`run-etl.artefactos.anomalias` (`total`, `por_severidad`, `por_tipo`), en SQL `dbo.v_calidad_corrida`, y el
-resumen completo en `etl_run.ResumenCalidad` (JSON; incluye `modulos_nulos`, eventos con descripción tomada de la
-fila anterior y eventos arrastrados). Revisar:
+Cuando los datos llegan al último bloque de un mes (el último día a las 23:45), el programa lo anota como
+**cierre pendiente** y lo muestra en el aviso. El cierre calcula el mes completo.
 
-| Tipo | Qué significa | Acción |
-|---|---|---|
-| `ModulosDisponiblesNulo` (`modulos_nulos` en el resumen; `v_modulos_nulos_historico`) | `NUMBER_OF_MODULES` vacío: se cuenta como disponible, igual que el Excel | Informar a operación si crece |
-| `pa_vacio`, `pa_desalineado`, `pa_sin_timestamp` | `PlantActivity` sin dato o desalineada en filas nuevas (F-31) | Solo afecta si C21 = "Yes" (oficial = "No"); actualizarla aparte |
-| `hueco`, `duplicado`, `fuera_de_orden`, `frecuencia_distinta` | Export incompleto o repetido | Revisar el export antes de publicar |
-| `dst_salto`, `dst_repeticion` | Cambio de hora (septiembre / abril) | Esperado en esas fechas |
-| `codigo_sin_catalogo` | Código de falla fuera de `PCS-Fault` | Agregar al catálogo si es nuevo |
-| `em_desalineado`, `em_sin_timestamp`, `ee2_*` | `Exclusion_Matrix` desalineada o con un 2 sin fila previa | Revisar la entrega con Alex |
-| `exclusion_matrix_ausente` | El libro no trae la matriz | Normal en semanales antes de la entrega de Alex |
+**Caso normal: con la `Exclusion_Matrix` de Alex** (resultado oficial **"Con Exclusiones"**):
 
-## 5. Cierre mensual
+1. Guarda el archivo que envió Alex en `data\inbox\` (por ejemplo `data\inbox\em_2026-09.xlsx`).
+2. Ejecuta (cambia el mes y el nombre del archivo):
+   ```powershell
+   .venv\Scripts\python scripts\run_lunes.py --stage load-exclusion-matrix --mes 2026-09 --archivo-matriz "data\inbox\em_2026-09.xlsx"
+   ```
+3. Revisa `data\work\matriz-2026-09\cambios.csv` (se abre con Excel): muestra **cada celda** de la matriz que
+   cambió, con el valor anterior y el nuevo.
 
-Cuando los datos llegan al último bloque de un mes (último día 23:45) sin cierre oficial, `run-etl` lo agrega a
-`data/work/cola_cierres.json` y la notificación lo muestra como **cierre pendiente**.
+Qué debe traer el archivo de Alex: una hoja `Exclusion_Matrix` con las columnas `Date/time` (fecha de Excel, no
+texto), `PCS01` … `PCS61` (con 0, 1, 2 o vacío), `Excused Event` y `Comments`. Si una fecha no existe en los datos o
+hay un valor distinto de 0, 1 o 2, el programa se detiene y dice cuáles son, para corregirlos con Alex.
 
-**Con la `Exclusion_Matrix` de Alex** (oficial "Con Exclusiones", el caso normal):
+> Mientras no exista el libro "maestro v1.1" (tarea 4.0), Excel no sabe aplicar la matriz: el programa se salta la
+> comparación con Excel y el resultado queda como `sin_referencia`. Es lo esperado.
+
+**Caso especial: cerrar sin esperar la matriz** (queda oficial **"Sin Exclusiones"**; solo si se decide así):
 
 ```powershell
-run_lunes --stage load-exclusion-matrix --mes 2026-09 --archivo-matriz data\inbox\<entrega>.xlsx
+.venv\Scripts\python scripts\run_lunes.py --stage cierre-mensual --mes 2026-09 --sin-exclusiones
 ```
 
-- Formato esperado (hasta confirmar con la muestra de Alex, 0.8): hoja `Exclusion_Matrix` con `Date/time` (fecha de
-  Excel), `PCS01…PCS61` (0, 1, 2 o vacío), `Excused Event`, `Comments`. Solo se toman las filas del mes; un
-  timestamp que no exista en `RawData-PCS` o un valor fuera de 0/1/2 detiene la etapa con la lista.
-- Trabaja en `data/work/matriz-AAAA-MM/`: copia el libro base, escribe la matriz por Excel, deja `cambios.csv`
-  (qué celdas cambiaron; abre en Excel), registra la carga y las correcciones en SQL y corre el cierre del mes.
-  El libro con la matriz pasa a ser el libro base.
-- Mientras el maestro no sea v1.1 (4.0), `run-macros` se omite solo (las macros de septiembre no leen la matriz):
-  la corrida queda `sin_referencia`.
+Sin `--sin-exclusiones`, el programa **no deja** cerrar un mes que no tenga su matriz cargada.
 
-**Sin esperar la matriz** (decisión explícita, R19.6; queda oficial "Sin Exclusiones"):
+## Corregir datos que ya se cargaron
+
+La herramienta automática de corrección (`--reproceso`, tarea 4.13) aún no existe: depende del formato real del
+export de SCADA. Mientras tanto: corregir en una **copia nueva** del libro base, correr como un corte nuevo agregando
+`--tipo reproceso --oficial`, y anotar en el registro del shadow mode qué se corrigió y por qué.
+
+---
+
+## Modo prueba: practicar sin tocar lo oficial
+
+Hay dos ambientes: **PROD** (base `trina_etl`, lo oficial) y **TEST/QA** (base `trina_etl_prueba`, para
+practicar). Cualquier comando acepta **`--entorno prueba`** (también sirve `qa` o `test`). Así se puede cargar,
+revisar y repetir cuantas veces se quiera, y cuando todo esté bien, correr lo mismo **sin** `--entorno prueba` para
+cargarlo de verdad en PROD. Al empezar, el programa siempre muestra en qué ambiente está, por ejemplo
+`[entorno] TEST/QA: base trina_etl_prueba, carpeta …\data\work\_prueba`.
+
+| | PROD (normal) | TEST/QA (`--entorno prueba`) |
+|---|---|---|
+| Base de datos | `trina_etl` | `trina_etl_prueba` (nunca puede ser la oficial) |
+| Carpeta de trabajo | `data\work\` | `data\work\_prueba\` |
+| Export de `data\inbox\` | Se **mueve** a `data\processed\` | Se **copia** (queda para la carga oficial) |
+| Aviso | A Misael | Solo un archivo titulado `[PRUEBA]` (nunca avisa a Misael) |
+
+Ejemplo:
 
 ```powershell
-run_lunes --stage cierre-mensual --mes 2026-09 --sin-exclusiones
+.venv\Scripts\python scripts\run_lunes.py --entorno prueba --stage all --omitir-acquire --corte 2026-09-21 --libro-preparado "data\AvailabilityCalculation_PCS&Batteries_20260907_septiembre 2026.xlsm" --oficial
 ```
 
-Sin `--sin-exclusiones`, `cierre-mensual` se niega si la matriz del mes no está cargada.
-
-## 6. Correcciones de datos ya cargados (D-13)
-
-`--reproceso` (tarea 4.13) aún no existe: depende del formato real del export SCADA. Mientras tanto, corregir en
-una copia nueva del libro base, correr como un corte nuevo con `--tipo reproceso --oficial` y anotar en el shadow
-log qué se corrigió y por qué.
-
-## 6b. Entorno de prueba: cargar, validar y después cargar lo definitivo
-
-Para probar una carga sin tocar la base de producción ni el libro base, cualquier comando acepta
-`--entorno prueba`:
-
-| | `produccion` (por defecto) | `prueba` |
-|---|---|---|
-| Base | `ETL_ARENA_DB_URL` (`trina_etl`) | `ETL_ARENA_DB_URL_PRUEBA` (p. ej. `trina_etl_prueba`); falla si apunta a producción |
-| Carpeta de trabajo | `data/work/` | `data/work/_prueba/` (libro base y cola de cierres propios) |
-| Export en `data/inbox` | Se **mueve** a `data/processed/<corte>/` | Se **copia** a `data/processed/_prueba/<corte>/` (queda para la corrida definitiva) |
-| Notificación | Webhook o `notificacion.md` | Solo `notificacion.md`, titulado `[PRUEBA]` (nunca avisa a Misael) |
-
-**Una sola vez:** crear la base de prueba en el portal de Azure (servidor `trina-etl` → Crear base de datos →
-`trina_etl_prueba`; aplicar la oferta gratuita si el portal la ofrece y, si no, revisar el costo antes de crear; **sin** "test" en el nombre, porque los tests de integración reinician
-esas bases), agregar a `.env`
-`ETL_ARENA_DB_URL_PRUEBA=mssql+pyodbc://@trina-etl.database.windows.net:1433/trina_etl_prueba?driver=ODBC+Driver+18+for+SQL+Server&Encrypt=yes&TrustServerCertificate=no`
-y aplicar el esquema:
+**Preparación:** ya está hecha. La base `trina_etl_prueba` existe en Azure con todas sus tablas, y el código ya
+conoce su dirección (no hace falta tocar el `.env`). Si alguna vez hubiera que crear sus tablas de nuevo:
 
 ```powershell
 .venv\Scripts\python scripts\crear_base.py --entorno prueba
 ```
 
-**Cada prueba:**
+**Para empezar la práctica de cero:**
 
-```powershell
-run_lunes --entorno prueba --stage all --omitir-acquire --corte 2026-09-21 --libro-preparado "<libro>" --oficial
-```
+1. Mover o borrar la carpeta `data\work\_prueba\` (lo más seguro: renombrarla, por ejemplo a `_prueba_respaldo`).
+2. Vaciar la base TEST/QA. Borra **todas** sus corridas, recrea las tablas, reinicia los identificadores en 1 y
+   vuelve a cargar los datos maestros (proyectos, catálogo de fallas, julio y agosto manuales). Hay que escribir el
+   nombre de la base para confirmar; con PROD el programa se niega siempre:
+   ```powershell
+   .venv\Scripts\python scripts\crear_base.py --entorno prueba --vaciar --confirmar trina_etl_prueba
+   ```
 
-Validar en la base de prueba (mismas vistas que verá Power BI: `v_kpi_vigente`, `v_daily_vigente`, …) y en
-`data/work/_prueba/<corte>/`. Se puede repetir con otro `--corte`; para empezar de cero, borrar `data/work/_prueba/`
-(la base de prueba se puede vaciar recreándola en el portal).
+---
 
-**Carga definitiva:** el mismo comando **sin** `--entorno prueba`, cuando se apruebe. No se reutiliza nada de la
-prueba: la corrida definitiva vuelve a calcular desde el libro.
+## Si algo falla
 
-## 7. Registro del shadow mode (5.4)
+Primero: **no te asustes, nada se pierde.** Volver a ejecutar **el mismo comando** retoma desde la etapa que falló
+(las que ya salieron bien se saltan). El detalle del error queda en `data\work\<corte>\run_state.json`, en la etapa
+que dice `"error"`.
 
-Mientras Excel siga siendo la fuente oficial, después de cada corrida:
-
-```powershell
-.venv\Scripts\python scripts\shadow_log.py --corte 2026-09-28 --kpi-excel-oficial 0.9819 --nota "…"
-```
-
-Agrega una fila a `docs/shadow-log.md` con el resultado de la corrida y el KPI que reportó Alex con su Excel.
-
-## 8. Recuperación ante fallos
-
-| Situación | Qué hacer |
+| Qué pasó | Qué hacer |
 |---|---|
-| `acquire-wait`: no llegó el archivo / hay varios | Dejar un solo `raw_pcs_*` en `data/inbox` y repetir el comando |
-| `acquire-wait`: "ya existe en data/processed" | El corte ya se adquirió: usar otro `--corte` o `--omitir-acquire` |
-| `prepare-workbook`: "ya existe libro.xlsm" | Es una corrida repetida: reanudar sin `--forzar`, o usar otro `--corte` |
-| `run-macros`: error VBA | El texto del diálogo queda en `run_state.json`. El 438 en `mcoCreateList`/`Graphupdate` con Excel 2016 se tolera solo (F-40); cualquier otro: revisar el libro preparado (fechas como texto, filas vacías intermedias) |
-| `run-macros`: "abierto en otro Excel" | Cerrar el libro en Excel y repetir |
-| `run-macros`: timeout / Excel colgado | La etapa cierra su instancia. Repetir una vez con `--forzar`; si persiste, `run_lunes --stage run-etl …` (queda `sin_referencia`) |
-| Excel quedó abierto tras cortar Python | Cerrar esa ventana de Excel a mano (no guardar) |
-| `run-etl`: no conecta a Azure | Firewall (IP nueva) o base despertando: esperar 1 min y repetir |
-| `reconcile`: `parity_failed` | No se publica. Revisar `reconciliation_result` (§4), corregir la causa y repetir con `--forzar` |
-| "el libro base cambió después de promoverse" | Alguien editó `data/work/<corte>/libro.xlsm` de un corte ya promovido. Restaurar desde `libro.xlsm.bak` o avisar a Francisco |
-| `load-exclusion-matrix`: timestamps inexistentes / valores inválidos | Devolver la lista a Alex, corregir la entrega y repetir |
-| TeamViewer caído | Reintentar; no hay otro transporte hoy (RPA solo como P8) |
+| "no llegó ningún archivo" o "hay varios archivos" en `acquire-wait` | Dejar **un solo** `raw_pcs_…` en `data\inbox\` y repetir |
+| "ya existe en data/processed" | Ese corte ya se había tomado: repetir agregando `--omitir-acquire`, o usar otra fecha en `--corte` |
+| "ya existe libro.xlsm" en `prepare-workbook` | Estás repitiendo un corte: vuelve a ejecutar sin cambiar nada (retoma solo) |
+| Error de Excel ("error VBA") en `run-macros` | El texto del error queda en `run_state.json`. Casi siempre es el libro preparado: fechas como texto o filas vacías en medio. Corregir el libro y usar otra fecha en `--corte` |
+| Aviso "sin SortFields.Add2" / error 438 | Normal en Excel 2016. No afecta el resultado |
+| "está abierto en otro Excel" | Cerrar ese libro en Excel y repetir |
+| Excel se quedó pegado / "timeout" | El programa cierra su Excel solo. Repetir agregando `--forzar`. Si sigue fallando, ejecutar solo `--stage run-etl` (queda `sin_referencia`) |
+| Quedó una ventana de Excel abierta después de cortar el programa | Cerrarla a mano **sin guardar** |
+| No conecta a la base / "Client with IP address" | La red no está autorizada: [instalación, paso 6](./instalacion.md#paso-6--abrir-la-puerta-de-azure-firewall) |
+| "not currently available (40613)" | La base estaba dormida: el programa reintenta solo ~1 minuto |
+| `parity_failed` en `reconcile` | Python y Excel no coinciden y **no se publica**. Avisar a Francisco con la carpeta del corte |
+| "el libro base cambió después de promoverse" | Alguien abrió y guardó un libro de un corte anterior. Restaurar desde su `libro.xlsm.bak` o avisar a Francisco |
+| La matriz de Alex tiene fechas que no existen o valores raros | Devolver a Alex la lista que muestra el programa, corregir y repetir |
+| TeamViewer no conecta | Reintentar más tarde (hoy no hay otro camino) |
 
-## 9. Checklist de cierre del lunes
+Opciones útiles para casos especiales:
 
-- [ ] `run_lunes` terminó con código 0 y `run-etl` en `success`.
-- [ ] Reconciliación `pass` (o `sin_referencia` con motivo conocido).
-- [ ] Anomalías revisadas; nada nuevo sin explicar.
-- [ ] Notificación enviada a Misael (o `notificacion.md` reenviado).
-- [ ] Cierres pendientes anotados si la notificación los muestra.
-- [ ] Shadow log actualizado (§7).
+| Opción | Para qué |
+|---|---|
+| `--omitir-acquire` | El export ya se tomó antes, o no hay export (por ejemplo, en pruebas) |
+| `--omitir-macros` | Calcular sin abrir Excel (queda sin comparación, `sin_referencia`) |
+| `--sin-bd` | Calcular sin guardar nada en la base (ensayos) |
+| `--forzar` | Repetir las etapas desde `run-macros` aunque ya hayan salido bien |
+| `--periodo-inicio 2026-09-01 --periodo-fin 2026-09-21` | Calcular otro período distinto al normal |
+
+Códigos de salida (lo que devuelve el programa al terminar): `0` = bien · `2` = Python y Excel no coinciden · `1` = otro error.
+
+---
+
+## Lista final del lunes
+
+- [ ] El comando terminó sin `ERROR` y `run-etl` dice `success`.
+- [ ] La comparación con Excel dio `pass` (o `sin_referencia` por un motivo conocido).
+- [ ] Revisé las anomalías: nada nuevo sin explicación.
+- [ ] Misael recibió el aviso.
+- [ ] Si apareció un **cierre pendiente**, quedó anotado para fin de mes.
+- [ ] Anoté la corrida en el registro del shadow mode.
+
+## Para saber más
+
+- Qué se guarda y cómo se relaciona: [modelo de datos](./modelo-datos.md).
+- Qué ve Power BI: [handoff Power BI](./pbi-handoff.md).
+- Diseño técnico completo: `AGENTS.md` §14 y `.kiro/specs/etl-arena-availability/`.

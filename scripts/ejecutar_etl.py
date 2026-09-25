@@ -23,6 +23,7 @@ from pathlib import Path
 RAIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ / "src"))
 
+from etl_arena.ambientes import AYUDA_ENTORNO, OPCIONES_ENTORNO  # noqa: E402
 from etl_arena.config import construir_config, parametros_desde_celdas  # noqa: E402
 from etl_arena.ejecucion import ejecutar_corrida  # noqa: E402
 from etl_arena.ingestion import leer_celdas_parametros  # noqa: E402
@@ -76,7 +77,7 @@ def construir_parser() -> argparse.ArgumentParser:
         help="'libro' (valores cacheados del mismo libro), ruta a un .xlsm con macros ejecutadas, o 'none'",
     )
     ap.add_argument("--sin-bd", action="store_true", help="calcular y reconciliar sin persistir")
-    ap.add_argument("--entorno", choices=("produccion", "prueba"), help="prueba: persiste en ETL_ARENA_DB_URL_PRUEBA")
+    ap.add_argument("--entorno", choices=OPCIONES_ENTORNO, help=AYUDA_ENTORNO)
     ap.add_argument("--salida-json", type=Path, help="escribir aquí el resumen de la corrida")
     ap.add_argument("--log-texto", action="store_true", help="log legible en vez de JSON")
     return ap

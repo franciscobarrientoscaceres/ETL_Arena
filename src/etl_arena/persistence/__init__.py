@@ -8,7 +8,13 @@ from etl_arena.persistence.conexion import (
     eliminar_base,
     url_configurada,
 )
-from etl_arena.persistence.esquema import ORDEN_SCRIPTS, aplicar_esquema, lotes, reiniciar_esquema
+from etl_arena.persistence.esquema import (
+    ORDEN_SCRIPTS,
+    aplicar_esquema,
+    lotes,
+    reiniciar_esquema,
+    vaciar_ambiente_prueba,
+)
 from etl_arena.persistence.paquete import MetadatosCorrida, PaqueteCorrida, Tabla, construir_paquete, filas_staging
 from etl_arena.persistence.repositorio import RepositorioCorridas, ResultadoGuardado
 
@@ -29,5 +35,6 @@ __all__ = [
     "filas_staging",
     "lotes",
     "reiniciar_esquema",
+    "vaciar_ambiente_prueba",
     "url_configurada",
 ]

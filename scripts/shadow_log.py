@@ -68,10 +68,10 @@ def agregar(log: Path, fila: str) -> None:
 
 
 def filas_registradas(log: Path) -> list[dict]:
-    """Filas de la tabla del registro (después del encabezado ``| Registrado | …``)."""
+    """Filas de la tabla del registro (después del encabezado ``| Registrado | Corte | …``)."""
     lineas = log.read_text(encoding="utf-8").splitlines()
     try:
-        inicio = next(i for i, x in enumerate(lineas) if x.startswith("| Registrado |"))
+        inicio = next(i for i, x in enumerate(lineas) if x.startswith("| Registrado | Corte |"))
     except StopIteration:
         return []
     columnas = [c.strip() for c in lineas[inicio].strip("|").split("|")]
