@@ -245,4 +245,5 @@ unzip -p "data/..." xl/worksheets/sheet10.xml | grep "termino"
 | [`AGENTS.md`](./AGENTS.md) | Plan completo de implementación, lógica exacta de las macros, fórmulas, diseño de datos SQL, ETL, estrategia de paridad, **Fase S SCADA** |
 | [`CLAUDE.md`](./CLAUDE.md) | Contexto técnico para agentes de IA: arquitectura del Excel, módulos VBA, reglas para agentes |
 | [`docs/runbook-lunes.md`](./docs/runbook-lunes.md) | Checklist operativa del lunes (SCADA → inbox → macros → ETL) |
+| [`docs/pbi-handoff.md`](./docs/pbi-handoff.md) | Handoff Power BI (Misael): conexión, vistas `v_*_vigente`, semántica del KPI, refresh |
 | `.kiro/specs/etl-arena-availability/` | SDD revisión 2 (2026-09-24): `audit.md` (auditoría contra el VBA real), requirements, design, tasks por fases con agente asignado |

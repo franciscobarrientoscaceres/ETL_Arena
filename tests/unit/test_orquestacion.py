@@ -1,5 +1,6 @@
 """Libro base y cola de cierres entre cortes (4.9; R3.1, R19.3, R19.6, D-17)."""
 
+import hashlib
 import importlib.util
 import json
 from datetime import date
@@ -56,8 +57,11 @@ def test_libro_base_es_el_maestro_hasta_la_primera_promocion(tmp_path):
     trabajo = work / "c1" / "libro.xlsm"
     trabajo.parent.mkdir(parents=True)
     trabajo.write_bytes(b"t")
-    promover_libro_base(work, trabajo, "c1", "id1", "h")
+    promover_libro_base(work, trabajo, "c1", "id1", hashlib.sha256(b"t").hexdigest())
     assert libro_base(work, maestro) == trabajo.resolve()
+    trabajo.write_bytes(b"macros re-corridas")  # alguien editó el libro base
+    with pytest.raises(RuntimeError, match="cambió después de promoverse"):
+        libro_base(work, maestro)
     trabajo.unlink()
     with pytest.raises(FileNotFoundError, match="c1"):
         libro_base(work, maestro)
@@ -142,3 +146,32 @@ def test_cierre_rechaza_un_mes_no_cubierto(tmp_path, libro_cruza_mes, capsys):
     ]
     assert rl.main(args) == 1
     assert "no cubre 2026-09" in capsys.readouterr().err
+
+
+def test_forzar_no_repite_la_copia_de_trabajo(tmp_path, libro_cruza_mes, capsys):
+    rl = _run_lunes()
+    base = [
+        "--stage",
+        "all",
+        "--omitir-acquire",
+        "--omitir-macros",
+        "--corte",
+        "c",
+        "--work",
+        str(tmp_path),
+        "--sin-bd",
+        "--libro-preparado",
+        str(libro_cruza_mes),
+    ]
+    assert rl.main(base) == 0
+    primera = json.loads((tmp_path / "c" / "run_state.json").read_text(encoding="utf-8"))["run-etl"]
+    assert rl.main([*base, "--forzar"]) == 0  # antes: FileExistsError en prepare-workbook
+    estado = json.loads((tmp_path / "c" / "run_state.json").read_text(encoding="utf-8"))
+    assert estado["run-etl"]["artefactos"]["id_corrida"] != primera["artefactos"]["id_corrida"]
+    assert "[prepare-workbook] ok (ya ejecutada)" in capsys.readouterr().out
+
+
+def test_cierre_valida_el_formato_del_mes(tmp_path, capsys):
+    rl = _run_lunes()
+    assert rl.main(["--stage", "cierre-mensual", "--mes", "2026-13", "--work", str(tmp_path), "--sin-bd"]) == 1
+    assert "AAAA-MM" in capsys.readouterr().err

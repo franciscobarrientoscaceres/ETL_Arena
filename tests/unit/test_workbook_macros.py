@@ -95,3 +95,18 @@ def test_error_vba_lleva_el_texto_del_dialogo():
 def test_sesion_sin_excel_no_arranca_vigilante():
     s = SesionExcel(timeout_s=5)
     assert s.errores_vba == [] and not s._vigilando.is_set()
+
+
+def test_abrir_falla_si_el_libro_quedo_de_solo_lectura(tmp_path):
+    """Otro Excel tiene el libro abierto: Workbooks.Open no falla, pero Save fallaría al final."""
+    from types import SimpleNamespace
+
+    from etl_arena.workbook.com import ErrorExcel
+
+    libro = tmp_path / "libro.xlsm"
+    libro.write_bytes(b"")
+    s = SesionExcel()
+    s.app = SimpleNamespace(Workbooks=SimpleNamespace(Open=lambda *a, **k: SimpleNamespace(ReadOnly=True)))
+    with pytest.raises(ErrorExcel, match="solo lectura"):
+        s.abrir(libro)
+    assert len(s._libros) == 1  # queda registrado para cerrarlo al salir

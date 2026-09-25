@@ -50,6 +50,8 @@ from etl_arena.registro import configurar_logging  # noqa: E402
 
 ETAPAS = ("acquire-wait", "prepare-workbook", "run-macros", "run-etl", "reconcile", "notify-bi")
 ETAPAS_CIERRE = ETAPAS[1:]
+# No se repiten con --forzar: data/processed es inmutable y la copia de trabajo no se pisa.
+ETAPAS_UNA_VEZ = ("acquire-wait", "prepare-workbook")
 NOMBRE_LIBRO = "libro.xlsm"
 MAESTRO = RAIZ / "data" / "AvailabilityCalculation_PCS&Batteries_20260907_septiembre 2026.xlsm"
 
@@ -77,7 +79,9 @@ class Estado:
             "error": error,
         }
         self.ruta.parent.mkdir(parents=True, exist_ok=True)
-        self.ruta.write_text(json.dumps(self.datos, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+        tmp = self.ruta.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(self.datos, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+        tmp.replace(self.ruta)  # un corte a mitad de escritura no deja el estado ilegible
 
 
 # ------------------------------------------------------------------ período por defecto (D-07)
@@ -290,7 +294,12 @@ def cierre_mensual(args) -> int:
     if mes is None:
         print("[cierre-mensual] no hay cierres pendientes en la cola")
         return 0
-    anio, m = (int(x) for x in mes.split("-"))
+    try:
+        anio, m = (int(x) for x in mes.split("-"))
+        date(anio, m, 1)
+    except ValueError:
+        print(f"[cierre-mensual] ERROR: --mes {mes!r} no es AAAA-MM", file=sys.stderr)
+        return 1
     inicio, fin = date(anio, m, 1), ultimo_dia(anio, m)
     base = libro_base(args.work, args.maestro)
     cfg = construir_config(inicio_periodo=inicio, fin_periodo=fin)
@@ -338,7 +347,7 @@ def main(argv: list[str] | None = None) -> int:
 def ejecutar_etapas(args, etapas: list[str], dir_corte: Path) -> int:
     estado = Estado(dir_corte)
     for etapa in etapas:
-        if args.stage == "all" and estado.ok(etapa) and not args.forzar:
+        if args.stage == "all" and estado.ok(etapa) and (not args.forzar or etapa in ETAPAS_UNA_VEZ):
             print(f"[{etapa}] ok (ya ejecutada)")
             continue
         inicio = datetime.now()

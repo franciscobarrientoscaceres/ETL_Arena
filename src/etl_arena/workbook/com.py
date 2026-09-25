@@ -127,18 +127,22 @@ class SesionExcel:
         except Exception as exc:
             pythoncom.CoUninitialize()
             raise ErrorExcel(f"no se pudo iniciar Excel por COM: {exc}") from exc
-        _, self.pid = win32process.GetWindowThreadProcessId(self.app.Hwnd)
-        self.app.Visible = self.visible
-        self.app.DisplayAlerts = False
-        self.app.AskToUpdateLinks = False
-        self.app.AutomationSecurity = MSO_AUTOMATION_SECURITY_LOW  # solo esta instancia
+        try:
+            _, self.pid = win32process.GetWindowThreadProcessId(self.app.Hwnd)
+            self.app.Visible = self.visible
+            self.app.DisplayAlerts = False
+            self.app.AskToUpdateLinks = False
+            self.app.AutomationSecurity = MSO_AUTOMATION_SECURITY_LOW  # solo esta instancia
+            self.version = f"{self.app.Version} build {self.app.Build}"
+            self.build = int(self.app.Build)
+        except Exception as exc:  # sin __exit__ la instancia quedaría huérfana
+            self.__exit__(type(exc), exc, exc.__traceback__)
+            raise ErrorExcel(f"no se pudo configurar Excel por COM: {exc}") from exc
         self._watchdog = threading.Timer(self.timeout_s, self._vencer)
         self._watchdog.daemon = True
         self._watchdog.start()
         self._vigilando.set()
         threading.Thread(target=self._vigilar_dialogos, daemon=True).start()
-        self.version = f"{self.app.Version} build {self.app.Build}"
-        self.build = int(self.app.Build)
         log.info("Excel %s iniciado (PID %s)", self.version, self.pid)
         return self
 
@@ -199,6 +203,8 @@ class SesionExcel:
             raise ErrorExcel(f"no existe el libro {ruta}")
         wb = self.app.Workbooks.Open(str(ruta), UpdateLinks=0, ReadOnly=False)
         self._libros.append(wb)
+        if wb.ReadOnly:  # otro Excel lo tiene abierto: Open no falla, pero Save sí (y tarde)
+            raise ErrorExcel(f"{ruta.name} está abierto en otro Excel (quedó de solo lectura): cerrarlo y reintentar")
         return wb
 
     def ejecutar_macro(self, wb, macro: str) -> float:

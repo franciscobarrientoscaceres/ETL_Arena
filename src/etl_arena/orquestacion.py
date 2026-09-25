@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from calendar import monthrange
 from collections.abc import Callable
@@ -50,7 +51,20 @@ def libro_base(work: Path, maestro: Path) -> Path:
     ruta = Path(puntero["ruta"])
     if not ruta.exists():
         raise FileNotFoundError(f"el libro base {ruta} (corte {puntero['corte']}) ya no existe")
+    if puntero.get("sha256") and _sha256(ruta) != puntero["sha256"]:
+        raise RuntimeError(
+            f"el libro base {ruta} (corte {puntero['corte']}) cambió después de promoverse (sha256 distinto): "
+            "¿se re-corrieron macros en ese corte? Revisar antes de seguir; el libro base no debe editarse"
+        )
     return ruta
+
+
+def _sha256(ruta: Path) -> str:
+    h = hashlib.sha256()
+    with open(ruta, "rb") as fh:
+        for bloque in iter(lambda: fh.read(1 << 20), b""):
+            h.update(bloque)
+    return h.hexdigest()
 
 
 def promover_libro_base(work: Path, libro: Path, corte: str, id_corrida: str, sha256: str) -> dict:

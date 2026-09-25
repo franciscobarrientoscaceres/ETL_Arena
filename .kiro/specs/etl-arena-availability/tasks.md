@@ -261,7 +261,7 @@ Agentes disponibles en `.opencode/agent/` (OpenCode, `mode: subagent`). Son perf
 
 - [ ] 4.11 *(Opcional, P8)* Fallback RPA TeamViewer — **backend-architect** — solo si TeamViewer falla de forma recurrente; fuera del camino crítico.
 
-- [ ] **Checkpoint D — code-reviewer**: COM (cierre de instancias, rutas, no toca el maestro), orquestador reanudable, manejo de errores.
+- [ ] **Checkpoint D — code-reviewer**: COM (cierre de instancias, rutas, no toca el maestro), orquestador reanudable, manejo de errores. *(revisión parcial 2026-09-25 sobre 4.1–4.3, 4.5, 4.8, 4.9; corregido: D-1 el libro base se verifica por sha256 contra el puntero y falla si cambió tras promoverse (p. ej. `run-macros --forzar` en el corte promovido); D-2 `--stage all --forzar` ya no repite `acquire-wait` ni `prepare-workbook` (antes fallaba por la copia existente); D-3 `SesionExcel` cierra su instancia si falla la configuración tras `DispatchEx`; D-4 `abrir` falla si el libro quedó de solo lectura (abierto en otro Excel) en vez de fallar al guardar; D-5 `run_state.json` se escribe atómico; D-6 `--mes` validado. Verificado sin cambios: `DispatchEx` propio, vigilante solo sobre diálogos VBA del PID propio, cierre por PID, macros solo sobre copias con `.bak`, `data/processed` inmutable, una corrida `parity_failed` detiene la cadena y no promueve. Observaciones: si el proceso Python muere, la instancia de Excel queda viva (cerrarla a mano); el timeout cubre la sesión completa (4 macros), no cada macro; con `run-macros` fallido la cadena `all` se detiene y `run-etl` se corre aparte (queda `sin_referencia`, R3.7); `--maestro` apunta al libro de septiembre hasta que exista el maestro v1.1 (4.0). Pendiente para cerrar: 4.6/4.7, 4.10, 4.12, 4.13.)*
 
 ### Fase 5 — Documentación, shadow mode y handoff
 
@@ -271,7 +271,7 @@ Agentes disponibles en `.opencode/agent/` (OpenCode, `mode: subagent`). Son perf
 - [ ] 5.2 Sincronizar README / AGENTS / CLAUDE — **technical-writer** *(pasada post-auditoría hecha 2026-09-24: F-01, F-19, F-21, F-26, layout `src/etl_arena/`; repetir al cerrar Fase 4)*
   - Reflejar layout `src/etl_arena/`, tablas nuevas, estado de fases; eliminar menciones al límite de 167 eventos y al catálogo de 68 códigos.
 
-- [ ] 5.3 Handoff Power BI — **technical-writer**
+- [x] 5.3 Handoff Power BI — **technical-writer** *(hecha 2026-09-25: `docs/pbi-handoff.md`; quedan por acordar con Misael el canal del webhook, las cuentas `bi_reader`, el refresh desde el servicio y si se muestra el mes en curso)*
   - `docs/pbi-handoff.md` para Misael: vistas `v_*_vigente`, columnas, semántica C19 vs acumulado Annual, refresh por notificación.
 
 - [ ] 5.4 Shadow mode — **Humano** + **data-engineer**
