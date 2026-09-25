@@ -2,7 +2,7 @@
 
 Proyecto de reingeniería del cálculo de disponibilidad de unidades PCS (Power Conversion System) y racks de baterías, actualmente implementado en Excel/VBA, hacia un proceso reproducible y auditable en **Python + SQL Server**.
 
-> **Estado:** Etapa 1 completada (reverse engineering). En preparación: data contract, esquema SQL y **cadena semanal SCADA** (adquisición + macros + ETL + SQL + handoff PBI).
+> **Estado (2026-09-25):** motor Python con paridad bit a bit contra el Excel (septiembre, julio y agosto), persistencia en Azure SQL, reconciliación automática, cadena semanal y mensual (`scripts/run_lunes.py`) con macros por COM, y handoff a Power BI. Próximo paso: **shadow mode** (`docs/shadow-log.md`) y go/no-go (`docs/go-no-go.md`). Pendientes externos: muestra del export SCADA, entrega real de la `Exclusion_Matrix` y maestro Excel v1.1.
 
 ---
 
@@ -82,8 +82,8 @@ ETL_Arena/
 │   ├── inbox/          # drop zone SCADA semanal
 │   ├── processed/      # originales inmutables + sha256
 │   └── work/           # copia de trabajo .xlsm
-├── docs/runbook-lunes.md
-├── scripts/run_lunes.py
+├── docs/            # runbook, handoff Power BI, shadow log, go/no-go, data contract, ADR
+├── scripts/         # run_lunes.py, ejecutar_etl.py, shadow_log.py, crear_base.py, seeds
 ├── src/etl_arena/
 │   ├── config/
 │   ├── excel_semantics/ # reglas VBA/Excel (celdas, texto, fechas, redondeo)
@@ -106,7 +106,7 @@ ETL_Arena/
 └── README.md
 ```
 
-**Estado:** `src/etl_arena/` (solo `__init__.py`), `sql/` y `scripts/` son estructura objetivo; el motor aún no está implementado (hay goldens, `pyproject.toml` y specs). Layout detallado en `design.md §Estructura del repositorio`.
+Además: `src/etl_arena/orquestacion.py` (libro base y cola de cierres), `pipeline.py` y `ejecucion.py`. Layout detallado en `design.md §Estructura del repositorio`.
 
 ---
 
@@ -125,6 +125,7 @@ $env:ETL_ARENA_EXCEL = "1"; .venv\Scripts\python -m pytest tests\com   # macros 
 - Tests de integración SQL (`-m sql`): crean y eliminan su propia base `ETL_Arena_test`; se omiten si no hay instancia.
 - Requiere **ODBC Driver 18 for SQL Server** (instalador de Microsoft, con permisos de administrador). El driver legacy `SQL Server` no sirve (no maneja `DATETIME2` ni `fast_executemany`).
 - **Corrida del ETL** (`scripts/ejecutar_etl.py`): `--parametros-desde-libro` toma C5/C7/C21/C31/L2/L4/L14 del libro; `--referencia libro` reconcilia contra los valores que dejaron las macros en ese mismo libro; `--sin-bd` calcula sin persistir; `--oficial` marca la corrida como vigente para Power BI. Salida: 0 = success, 2 = parity_failed, 1 = failed. Ejemplo: `.venv\Scripts\python scripts\ejecutar_etl.py --libro <libro.xlsm> --parametros-desde-libro --referencia libro --sin-bd`.
+- **Shadow mode**: `.venv\Scripts\python scripts\shadow_log.py --corte <corte> --kpi-excel-oficial <KPI de Alex>` agrega la corrida a `docs/shadow-log.md`; `--resumen` evalúa el criterio de salida.
 - Golden references: `python tests/golden/extract_golden.py --excel <libro> --month N --year 2026 --label <mes>` (ver `tests/golden/data/golden_index.json`).
 - Agentes de Claude Code en `.claude/agents/` (plan de asignación en `.kiro/specs/etl-arena-availability/tasks.md`).
 
@@ -153,18 +154,18 @@ SQL es **append-only por `IdCorrida`**. No se borran resultados históricos.
 
 | Etapa | Descripción | Estado |
 |---|---|---|
-| 1 | Reverse engineering de macros VBA y fórmulas Excel | Completado |
-| **S** | **Adquisición SCADA (inbox + adapter de fechas) y orquestador del lunes** | **Diseñado — ver AGENTS §14 Fase S / tasks 15** |
-| 2 | Data contract: columnas, tipos, timestamps, tratamiento DST | Pendiente (ampliado con data contract SCADA tras muestra P0) |
-| 3 | DDL SQL Server: staging, normalized, KPI, auditoría | Pendiente |
-| 4 | ETL: extract -> validate -> stage -> normalize -> enrich | Pendiente |
-| 5 | MotorDisponibilidad (equivalente `cmdCalcAvailability`) | Pendiente |
-| 6 | MotorEventosFalla (equivalente `mcoCreateList`) | Pendiente |
-| 7 | Agregaciones: KPI diario, mensual, anual | Pendiente |
-| 8 | ModuloReconciliacion automático Excel vs Python | Pendiente (integridad de goldens: `tests/golden/test_golden_integrity.py` listo) |
+| 1 | Reverse engineering de macros VBA y fórmulas Excel | Completado (auditoría `audit.md`, F-01…F-44) |
+| **S** | **Adquisición SCADA (inbox + adapter de fechas) y orquestador del lunes** | `acquire-wait` y orquestador listos; lector del export pendiente de la muestra real (0.6/0.7) |
+| 2 | Data contract: columnas, tipos, timestamps, tratamiento DST | Libro: completado (`docs/data-contract-libro.md`); SCADA: pendiente de la muestra |
+| 3 | DDL SQL Server: staging, normalized, KPI, auditoría | Completado (`sql/`, aplicado en Azure `trina_etl`) |
+| 4 | ETL: extract -> validate -> stage -> normalize -> enrich | Completado |
+| 5 | MotorDisponibilidad (equivalente `cmdCalcAvailability`) | Completado, paridad bit a bit |
+| 6 | MotorEventosFalla (equivalente `mcoCreateList`) | Completado, paridad bit a bit |
+| 7 | Agregaciones: KPI diario, mensual, anual | Completado (agosto histórico no reproducible: D-11) |
+| 8 | ModuloReconciliacion automático Excel vs Python | Completado (5 niveles + invariantes) |
 | 8b | Runner COM de macros (sustituye trabajo manual de Alex) | En curso: `workbook.com`/`macros` y `run_lunes.py --stage run-macros` validados contra septiembre, julio y agosto; cierre mensual y carga de la `Exclusion_Matrix` (`--stage cierre-mensual`, `--stage load-exclusion-matrix`) listos salvo el formato real de la entrega de Alex |
-| 9 | Shadow mode: Excel oficial, Python en paralelo | Pendiente |
-| 10 | Producción: origen → orquestador lunes → Python/SQL → refresh PBI | Pendiente |
+| 9 | Shadow mode: Excel oficial, Python en paralelo | Listo para empezar (`docs/shadow-log.md`, `scripts/shadow_log.py`) |
+| 10 | Producción: origen → orquestador lunes → Python/SQL → refresh PBI | Go/no-go preparado (`docs/go-no-go.md`); decisión tras el shadow mode |
 
 El detalle de cada etapa, las fórmulas exactas y las reglas de negocio están en [`AGENTS.md`](./AGENTS.md).
 
@@ -246,4 +247,6 @@ unzip -p "data/..." xl/worksheets/sheet10.xml | grep "termino"
 | [`CLAUDE.md`](./CLAUDE.md) | Contexto técnico para agentes de IA: arquitectura del Excel, módulos VBA, reglas para agentes |
 | [`docs/runbook-lunes.md`](./docs/runbook-lunes.md) | Checklist operativa del lunes (SCADA → inbox → macros → ETL) |
 | [`docs/pbi-handoff.md`](./docs/pbi-handoff.md) | Handoff Power BI (Misael): conexión, vistas `v_*_vigente`, semántica del KPI, refresh |
+| [`docs/shadow-log.md`](./docs/shadow-log.md) | Registro del shadow mode (Excel oficial vs Python) y criterio de salida |
+| [`docs/go-no-go.md`](./docs/go-no-go.md) | Criterios de aceptación con evidencia, condiciones para retirar el Excel y backlog `availability-v2` |
 | `.kiro/specs/etl-arena-availability/` | SDD revisión 2 (2026-09-24): `audit.md` (auditoría contra el VBA real), requirements, design, tasks por fases con agente asignado |

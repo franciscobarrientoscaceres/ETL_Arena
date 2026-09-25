@@ -265,19 +265,19 @@ Agentes disponibles en `.opencode/agent/` (OpenCode, `mode: subagent`). Son perf
 
 ### Fase 5 — Documentación, shadow mode y handoff
 
-- [ ] 5.1 Runbook — **technical-writer**
+- [x] 5.1 Runbook — **technical-writer** *(hecha 2026-09-25: `docs/runbook-lunes.md` reescrito con los comandos reales, preparación manual del libro hasta 0.6/0.7, reanudación y `--forzar`, lectura de reconciliación y calidad, cierre mensual y carga de la matriz, shadow log y tabla de recuperación; *Trusted Location* no es necesaria salvo política de TI)*
   - Actualizar `docs/runbook-lunes.md`: *Trusted Location*, Excel visible, etapas y reanudación, lectura del reporte de reconciliación y de calidad, PlantActivity desactualizada (F-31), recuperación ante fallos.
 
-- [ ] 5.2 Sincronizar README / AGENTS / CLAUDE — **technical-writer** *(pasada post-auditoría hecha 2026-09-24: F-01, F-19, F-21, F-26, layout `src/etl_arena/`; repetir al cerrar Fase 4; pasada intermedia 2026-09-25: orquestación mensual, `load-exclusion-matrix`, F-44 y `pbi-handoff.md` en README/AGENTS/CLAUDE/runbook)*
+- [x] 5.2 Sincronizar README / AGENTS / CLAUDE — **technical-writer** *(cerrada 2026-09-25: estado y plan del README al día, estructura de `docs/` y `scripts/`, sin menciones al límite de 167 eventos ni a 68 códigos; repetir si cambian 4.6/4.7)* *(pasada post-auditoría hecha 2026-09-24: F-01, F-19, F-21, F-26, layout `src/etl_arena/`; repetir al cerrar Fase 4; pasada intermedia 2026-09-25: orquestación mensual, `load-exclusion-matrix`, F-44 y `pbi-handoff.md` en README/AGENTS/CLAUDE/runbook)*
   - Reflejar layout `src/etl_arena/`, tablas nuevas, estado de fases; eliminar menciones al límite de 167 eventos y al catálogo de 68 códigos.
 
 - [x] 5.3 Handoff Power BI — **technical-writer** *(hecha 2026-09-25: `docs/pbi-handoff.md`; quedan por acordar con Misael el canal del webhook, las cuentas `bi_reader`, el refresh desde el servicio y si se muestra el mes en curso)*
   - `docs/pbi-handoff.md` para Misael: vistas `v_*_vigente`, columnas, semántica C19 vs acumulado Annual, refresh por notificación.
 
-- [ ] 5.4 Shadow mode — **Humano** + **data-engineer**
+- [ ] 5.4 Shadow mode — **Humano** + **data-engineer** *(preparado 2026-09-25: `docs/shadow-log.md` con el criterio de salida y `scripts/shadow_log.py` para registrar cada corrida y evaluar el avance; falta correrlo 4 lunes + 1 cierre)*
   - Mínimo 4 lunes consecutivos + 1 cierre mensual con reconciliación `pass` (o discrepancias explicadas por flags de Excel). Registro en `docs/shadow-log.md`.
 
-- [ ] 5.5 Go/no-go — **software-architect** + **code-reviewer**
+- [ ] 5.5 Go/no-go — **software-architect** + **code-reviewer** *(preparado 2026-09-25: `docs/go-no-go.md` con los 11 criterios de `AGENTS.md §22` (10 ✅, anual ⚠️ por D-11), criterios operativos, riesgos y backlog `availability-v2`; recomendación actual: no-go hasta cumplir el shadow mode y los pendientes externos)*
   - Verificar criterios de aceptación de `AGENTS.md §22`; decidir retiro del Excel como fuente oficial y abrir `availability-v2` (corrección de F-06, F-08, D-06).
 
 ---

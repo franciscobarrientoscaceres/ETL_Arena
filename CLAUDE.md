@@ -210,11 +210,11 @@ src/etl_arena/
   reconciliation/   <- niveles, invariantes, servicio, reporte
   reporting/        <- calidad, notificacion
   pipeline.py
-scripts/  ejecutar_etl.py  run_lunes.py  generar_seed_tipo_detencion.py
+scripts/  ejecutar_etl.py  run_lunes.py  shadow_log.py  crear_base.py  generar_seed_tipo_detencion.py
 sql/      00_database.sql … 07_audit_queries.sql
 tests/    unit/ property/ golden/ integration/ com/ fixtures/
 data/     inbox/ processed/ work/
-docs/     runbook-lunes.md  data-contract-*.md  adr/
+docs/     runbook-lunes.md  pbi-handoff.md  shadow-log.md  go-no-go.md  data-contract-*.md  adr/
 ```
 
 Scripts principales: `scripts/run_lunes.py` (orquestador semanal) y `scripts/ejecutar_etl.py` (pipeline de corrida).

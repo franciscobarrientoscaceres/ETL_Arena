@@ -228,6 +228,8 @@ def etapa_etl(args, estado: Estado, dir_corte: Path) -> dict:
     return {
         "id_corrida": res.id_corrida,
         "estado": res.estado,
+        "tipo": cfg.tipo_corrida,
+        "oficial": cfg.es_oficial,
         "periodo": [str(cfg.inicio_periodo), str(cfg.fin_periodo)],
         "estado_exclusiones": res.estado_exclusiones,
         "kpi": {"C12": d.bloques_muestreo, "C14": d.bloques_racks_indisponibles, "C16": d.disponibilidad_periodo},
