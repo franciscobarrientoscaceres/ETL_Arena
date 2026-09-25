@@ -251,6 +251,11 @@ Detectados al emular el VBA línea por línea y comparar contra el golden de sep
 - RawData-PCS de agosto es idéntico en ambos libros (mismo C14 sin ponderar); lo que difiere es `PlantActivity!D`. Conclusión: 305.182,968 se calculó con datos (probablemente `PlantActivity!D`, y quizá RawData) que ya no están en ningún libro disponible. Solo el libro de cierre de agosto o Alex pueden explicarlo.
 - Además, en el libro de agosto el resultado de agosto con la matriz (264.731,768) quedó en la fila de **septiembre** de `Annual_AVA` (la fila enlazada a C14 es la del mes en curso); la fila de agosto conserva el 305.182,968 pegado como valor, igual que en el libro de septiembre.
 
+### F-44 🔴 Con C31/L14 = "Yes", las macros de septiembre excusan con `PlantActivity!D`
+- `cmdCalcAvailability` pondera `(C3 − M) × PlantActivity!D` y `mcoCreateList` hace lo mismo: escribir los parámetros oficiales (D-03) en el libro de septiembre haría que Excel excuse con `PlantActivity`, que no se usa para exclusiones (solo `Exclusion_Matrix`, hasta que Alex confirme). No se notó en el ensayo porque `PlantActivity!D` = 1 en todo sep 1–21.
+- Corrección (2026-09-25): `workbook.vba.macros_aplican_matriz` lee el VBA (oletools) y solo devuelve `True` si `cmdCalcAvailability` y `mcoCreateList` leen la hoja (maestro v1.1). Si no, `escribir_parametros` escribe C31/L14 = "No"; el orquestador omite la referencia Excel cuando el período tiene 1/2 en la matriz (`sin_referencia`), y la reconciliación trata "Yes" ≡ "No" en el nivel 1 cuando el período no tiene exclusiones.
+- Efecto medido (sep 1–21 vía COM): KPI, tabla y Daily idénticos; eventos con Δ ≤ 5,7e-14 (el VBA calcula H por otro camino con L14 = "No"), dentro de la tolerancia.
+
 ### Decisiones asociadas
 - **D-16** (resuelta 2026-09-24, confirmada por negocio): los eventos (`mcoCreateList`, L14 = "Yes") usan la misma regla de la matriz que el KPI, para que `C14 = 4·L10` siga valiendo sin arrastre. La macro de agosto no lo hace (usa `PlantActivity!D`).
 - **D-17** (resuelta 2026-09-24): Alex entrega la `Exclusion_Matrix` una vez al mes, al final. Corridas semanales = oficiales "Sin Exclusiones"; cierre mensual = oficial "Con Exclusiones" (vigente).

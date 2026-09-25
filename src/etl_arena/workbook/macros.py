@@ -14,6 +14,7 @@ from etl_arena.config import ConfiguracionCalculo
 from etl_arena.config.models import MAX_DIAS_DIARIO
 from etl_arena.excel_semantics import datetime_a_serial
 from etl_arena.workbook.com import ErrorVBA, SesionExcel
+from etl_arena.workbook.vba import macros_aplican_matriz
 
 log = logging.getLogger("etl_arena.excel")
 
@@ -35,22 +36,26 @@ def _si_no(valor: bool) -> str:
     return "Yes" if valor else "No"
 
 
-def escribir_parametros(wb, cfg: ConfiguracionCalculo) -> None:
+def escribir_parametros(wb, cfg: ConfiguracionCalculo, excel_aplica_matriz: bool = False) -> None:
     """C5/C7/C21/C31, L2/L4/L14, Daily!D5 y las filas Daily!B/C/E/F/G hasta ``fin_diario``.
 
     Fechas como serial (``Value2``), nunca texto (F-21). C21 se escribe "No" / "Yes" (el VBA
     aplica el factor operacional si C21 <> "No"); C31/L14 "Yes" / "No" (F-12).
+
+    C31/L14 = "Yes" solo si las macros del libro aplican la ``Exclusion_Matrix`` (maestro v1.1,
+    ``workbook.vba``): las de septiembre excusarían con ``PlantActivity!D``, que no se usa para
+    exclusiones (F-44). Con "No" la referencia vale para períodos sin exclusiones en la matriz.
     """
     calc = wb.Worksheets("Calculation-Availability")
     calc.Range("C5").Value2 = datetime_a_serial(cfg.inicio_periodo)
     calc.Range("C7").Value2 = datetime_a_serial(cfg.fin_periodo)
     calc.Range("C21").Value2 = _si_no(cfg.solo_tiempo_operacional)
-    calc.Range("C31").Value2 = _si_no(cfg.aplicar_evento_excusable)
+    calc.Range("C31").Value2 = _si_no(cfg.aplicar_evento_excusable and excel_aplica_matriz)
 
     lof = wb.Worksheets("ListOfFaults")
     lof.Range("L2").Value2 = datetime_a_serial(cfg.inicio_periodo_eventos)
     lof.Range("L4").Value2 = datetime_a_serial(cfg.fin_periodo_eventos)
-    lof.Range("L14").Value2 = _si_no(cfg.aplicar_evento_excusable_eventos)
+    lof.Range("L14").Value2 = _si_no(cfg.aplicar_evento_excusable_eventos and excel_aplica_matriz)
 
     # Daily: la macro corta en la primera C vacía (F-33) y solo escribe D; B (n° de día), C, E, F
     # y G son de la plantilla, que se recorta a mano cada mes (septiembre trae solo 21 filas). Se
@@ -79,7 +84,11 @@ def escribir_parametros(wb, cfg: ConfiguracionCalculo) -> None:
 
 
 def ejecutar_macros(
-    libro: str | Path, cfg: ConfiguracionCalculo, timeout_s: float = 900, visible: bool = True
+    libro: str | Path,
+    cfg: ConfiguracionCalculo,
+    timeout_s: float = 900,
+    visible: bool = True,
+    excel_aplica_matriz: bool | None = None,
 ) -> dict[str, float]:
     """Parámetros + 4 macros + guardar. Devuelve los segundos por macro.
 
@@ -89,14 +98,24 @@ def ejecutar_macros(
     libro = Path(libro)
     if not libro.with_suffix(libro.suffix + ".bak").exists():
         raise ValueError(f"{libro} no es una copia de trabajo (falta {libro.name}.bak): usar copiar_libro_trabajo")
+    if excel_aplica_matriz is None:
+        excel_aplica_matriz = macros_aplican_matriz(libro)
+    if not excel_aplica_matriz and (cfg.aplicar_evento_excusable or cfg.aplicar_evento_excusable_eventos):
+        log.warning(
+            "las macros de %s no aplican Exclusion_Matrix: C31/L14 se escriben 'No' (no excusar con PlantActivity)",
+            libro.name,
+            extra={"id_corrida": cfg.id_corrida},
+        )
     with SesionExcel(visible=visible, timeout_s=timeout_s) as sesion:
-        return _correr(sesion, libro, cfg)  # el proxy del libro muere antes de cerrar Excel
+        return _correr(sesion, libro, cfg, excel_aplica_matriz)  # el proxy del libro muere antes de cerrar Excel
 
 
-def _correr(sesion: SesionExcel, libro: str | Path, cfg: ConfiguracionCalculo) -> dict[str, float]:
+def _correr(
+    sesion: SesionExcel, libro: str | Path, cfg: ConfiguracionCalculo, excel_aplica_matriz: bool
+) -> dict[str, float]:
     tiempos: dict[str, float] = {}
     wb = sesion.abrir(libro)
-    escribir_parametros(wb, cfg)
+    escribir_parametros(wb, cfg, excel_aplica_matriz)
     for macro in MACROS:
         try:
             tiempos[macro] = sesion.ejecutar_macro(wb, macro)

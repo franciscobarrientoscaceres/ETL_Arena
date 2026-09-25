@@ -51,8 +51,8 @@ def copia(tmp_path):
 
 def _correr(monkeypatch, cfg, sesion, libro):
     monkeypatch.setattr(macros, "SesionExcel", lambda **k: sesion)
-    monkeypatch.setattr(macros, "escribir_parametros", lambda wb, c: None)
-    return macros.ejecutar_macros(libro, cfg)
+    monkeypatch.setattr(macros, "escribir_parametros", lambda wb, c, matriz: None)
+    return macros.ejecutar_macros(libro, cfg, excel_aplica_matriz=False)
 
 
 def test_438_de_add2_se_tolera_en_excel_2016(monkeypatch, cfg, copia, caplog):
@@ -110,3 +110,57 @@ def test_abrir_falla_si_el_libro_quedo_de_solo_lectura(tmp_path):
     with pytest.raises(ErrorExcel, match="solo lectura"):
         s.abrir(libro)
     assert len(s._libros) == 1  # queda registrado para cerrarlo al salir
+
+
+class _Rango:
+    def __init__(self):
+        self.Value2 = None
+        self.Formula = None
+
+    def ClearContents(self):
+        self.Value2 = self.Formula = None
+
+
+class _Hoja:
+    def __init__(self):
+        self.celdas = {}
+
+    def Range(self, ref):
+        return self.celdas.setdefault(ref, _Rango())
+
+
+class _LibroFalso:
+    def __init__(self):
+        self.hojas = {}
+
+    def Worksheets(self, nombre):
+        return self.hojas.setdefault(nombre, _Hoja())
+
+
+@pytest.mark.parametrize(("aplica", "esperado"), [(False, "No"), (True, "Yes")])
+def test_c31_l14_yes_solo_si_las_macros_aplican_la_matriz(aplica, esperado):
+    """Las macros de septiembre excusarían con PlantActivity!D: nunca se les escribe "Yes" (F-44)."""
+    from datetime import date
+
+    cfg = construir_config(inicio_periodo=date(2026, 9, 1), fin_periodo=date(2026, 9, 7))  # oficial: Yes/Yes
+    wb = _LibroFalso()
+    macros.escribir_parametros(wb, cfg, excel_aplica_matriz=aplica)
+    assert wb.hojas["Calculation-Availability"].celdas["C31"].Value2 == esperado
+    assert wb.hojas["ListOfFaults"].celdas["L14"].Value2 == esperado
+    assert wb.hojas["Calculation-Availability"].celdas["C21"].Value2 == "No"
+
+
+def test_deteccion_de_la_regla_de_la_matriz_en_el_vba():
+    from etl_arena.workbook.vba import _procedimiento
+
+    v11 = """Sub cmdCalcAvailability()
+ Set EM = Worksheets("Exclusion_Matrix")
+End Sub
+Sub mcoCreateList()
+ x = Worksheets("Exclusion_Matrix").Cells(1, 1)
+End Sub
+"""
+    assert "Exclusion_Matrix" in _procedimiento(v11, "cmdCalcAvailability")
+    assert "Exclusion_Matrix" in _procedimiento(v11, "mcoCreateList")
+    solo_kpi = v11.replace('x = Worksheets("Exclusion_Matrix").Cells(1, 1)', "x = 1")
+    assert "Exclusion_Matrix" not in _procedimiento(solo_kpi, "mcoCreateList")

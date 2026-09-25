@@ -382,6 +382,38 @@ def test_mes_cerrado_para_la_cola_de_cierres(repo, libro_sintetico):  # R19.3
     assert repo.mes_cerrado(2, 2026, 9) and not repo.mes_cerrado(2, 2026, 10)
 
 
+def test_correcciones_de_la_matriz_quedan_ligadas_a_la_corrida(engine, repo, libro_sintetico):  # 4.12, D-13
+    cfg, _, _ = _corrida(repo, libro_sintetico, exclusiones="con_exclusiones", tipo="cierre_mensual")
+    ts = datetime(2026, 9, 1, 0, 15)
+    filas = [
+        ("exclusion_matrix", "Exclusion_Matrix", 2, 46266.0104166667, ts, 1, "PCS01", 0.0, 1.0, "em.xlsx", "c" * 64),
+        (
+            "exclusion_matrix",
+            "Exclusion_Matrix",
+            2,
+            46266.0104166667,
+            ts,
+            None,
+            "Comments",
+            None,
+            "x" * 300,
+            "em.xlsx",
+            "c" * 64,
+        ),
+    ]
+    assert repo.guardar_correcciones(cfg.id_corrida, filas) == 2
+    vista = _consulta(
+        engine,
+        "SELECT Campo, ValorAnterior, ValorNuevo, NumeroPCS, TipoCorrida FROM dbo.v_correccion_dato "
+        "WHERE IdCorrida = ? ORDER BY IdCorreccion",
+        cfg.id_corrida,
+    )
+    assert [tuple(f) for f in vista] == [
+        ("PCS01", "0.0", "1.0", 1, "cierre_mensual"),
+        ("Comments", None, "x" * 255, None, "cierre_mensual"),
+    ]
+
+
 def test_consultas_de_auditoria_compilan(engine):
     assert aplicar_script(engine, DIR_SQL / "07_audit_queries.sql") == 1
 

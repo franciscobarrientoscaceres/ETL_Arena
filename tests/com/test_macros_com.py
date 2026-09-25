@@ -6,7 +6,9 @@ mientras tanto. Siempre sobre una copia en ``tmp``; el libro de ``data/`` no se 
 
 from __future__ import annotations
 
+import dataclasses
 import json
+import math
 import os
 import sys
 from pathlib import Path
@@ -46,12 +48,29 @@ def test_macros_corren_en_orden(corrida_com):
     assert list(corrida_com[2]) == list(MACROS)
 
 
+def _cerca(a, b) -> bool:
+    if isinstance(a, float) and isinstance(b, float):
+        return math.isclose(a, b, rel_tol=1e-12, abs_tol=1e-9)
+    if isinstance(a, (tuple, list)) and isinstance(b, (tuple, list)):
+        return len(a) == len(b) and all(_cerca(x, y) for x, y in zip(a, b, strict=True))
+    return a == b
+
+
 def test_referencia_com_iguala_al_libro_original(corrida_com):
+    """KPI, tabla y Daily idénticos. Eventos y N:Q al último bit: el libro original se corrió con
+    L14 = "Yes" y ahora se escribe "No" para no excusar con PlantActivity!D (F-44); el VBA calcula H
+    por otro camino aritmético (Δ ≈ 1e-16 en H)."""
     _, _, _, ref, original = corrida_com
     assert (ref.c12, ref.c14, ref.c16, ref.c19) == (original.c12, original.c14, original.c16, original.c19)
     assert ref.tabla == original.tabla and ref.bo == original.bo
-    assert ref.diario == original.diario and ref.eventos == original.eventos
-    assert _mapa(ref.resumen_codigos) == _mapa(original.resumen_codigos)  # sin Add2 (Excel 2016) no se ordena
+    assert ref.diario == original.diario
+    assert len(ref.eventos) == len(original.eventos)
+    assert all(
+        _cerca(dataclasses.astuple(a), dataclasses.astuple(b))
+        for a, b in zip(ref.eventos, original.eventos, strict=True)
+    )
+    esperado, obtenido = _mapa(original.resumen_codigos), _mapa(ref.resumen_codigos)  # sin Add2 no se ordena
+    assert esperado.keys() == obtenido.keys() and all(_cerca(esperado[k], obtenido[k]) for k in esperado)
 
 
 def test_referencia_com_iguala_al_golden(corrida_com):
@@ -66,4 +85,6 @@ def test_python_reconcilia_con_la_referencia_com(corrida_com, ruta_libro_real):
 
     _, cfg, _, ref, _ = corrida_com
     rep = reconciliar(calcular_libro(ruta_libro_real, cfg), ref)
-    assert all(n.aprobado and not n.max_delta for n in rep.niveles), [n for n in rep.niveles if not n.aprobado]
+    assert all(n.aprobado for n in rep.niveles), [n for n in rep.niveles if not n.aprobado]
+    assert all(not n.max_delta for n in rep.niveles if n.nivel <= 4)  # KPI, tabla y Daily: bit a bit
+    assert max(n.max_delta or 0.0 for n in rep.niveles) < 1e-9  # eventos: último bit (L14 = "No", F-44)

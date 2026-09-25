@@ -162,7 +162,7 @@ SQL es **append-only por `IdCorrida`**. No se borran resultados históricos.
 | 6 | MotorEventosFalla (equivalente `mcoCreateList`) | Pendiente |
 | 7 | Agregaciones: KPI diario, mensual, anual | Pendiente |
 | 8 | ModuloReconciliacion automático Excel vs Python | Pendiente (integridad de goldens: `tests/golden/test_golden_integrity.py` listo) |
-| 8b | Runner COM de macros (sustituye trabajo manual de Alex) | En curso: `workbook.com`/`macros` y `run_lunes.py --stage run-macros` validados contra septiembre, julio y agosto |
+| 8b | Runner COM de macros (sustituye trabajo manual de Alex) | En curso: `workbook.com`/`macros` y `run_lunes.py --stage run-macros` validados contra septiembre, julio y agosto; cierre mensual y carga de la `Exclusion_Matrix` (`--stage cierre-mensual`, `--stage load-exclusion-matrix`) listos salvo el formato real de la entrega de Alex |
 | 9 | Shadow mode: Excel oficial, Python en paralelo | Pendiente |
 | 10 | Producción: origen → orquestador lunes → Python/SQL → refresh PBI | Pendiente |
 

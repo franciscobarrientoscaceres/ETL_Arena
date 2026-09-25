@@ -251,7 +251,7 @@ Agentes disponibles en `.opencode/agent/` (OpenCode, `mode: subagent`). Son perf
 - [ ] 4.10 Ensayo del lunes completo — **Humano (Francisco / Alex)** + **backend-architect**
   - `run_lunes.py --stage all` con un export real; registrar tiempos y problemas en `docs/shadow-log.md`.
 
-- [ ] 4.12 `workbook.exclusion` + `--stage load-exclusion-matrix` — **backend-architect** *(requiere 0.8, 4.1)*
+- [ ] 4.12 `workbook.exclusion` + `--stage load-exclusion-matrix` — **backend-architect** *(requiere 0.8, 4.1)* *(avance 2026-09-25: hecho salvo el lector definitivo de la entrega. `workbook/exclusion.py`: `leer_entrega` asume el formato de la hoja del libro de agosto (`Date/time`, `PCS01…PCS61`, `Excused Event`, `Comments`; solo filas del mes) hasta tener la muestra 0.8; `planificar` ubica por timestamp → fila de RawData-PCS, rechaza timestamps inexistentes y valores fuera de 0/1/2 y calcula el diff (vacío ≡ 0); `aplicar_plan` escribe por COM en la copia (crea la hoja si falta); `cambios.csv` + `correccion_dato` (`RepositorioCorridas.guardar_correcciones`, ligado al cierre); `exclusion_matrix_carga`. `run_lunes.py --stage load-exclusion-matrix --mes --archivo-matriz` corre el cierre oficial "Con Exclusiones" y promueve la copia a libro base. **No carga PlantActivity** (exclusiones solo desde la matriz hasta que Alex confirme). Validado con Excel: la matriz de agosto cargada en una copia del libro de septiembre da C14 = 264.731,7679999999, igual al libro de agosto. Pendiente: `IdCorridaCierre` en `exclusion_matrix_carga` no se completa (append-only) y ajustar `leer_entrega` a la muestra real.)*
   - Escritura por timestamp → fila de `Exclusion_Matrix` (columnas por PCS, Excused Event, Comments; crea la hoja si el libro base no la tiene) y opcionalmente PlantActivity B/C/D/E:I, rechazo de timestamps inexistentes, diff celda a celda a `correccion_dato` + `cambios.csv`, registro en `exclusion_matrix_carga` y encolado del `cierre_mensual` `con_exclusiones`; `EstadoExclusiones = sin_exclusiones` (oficial) en corridas semanales (D-17). Test COM con una copia del libro: borrar B/C/D de un tramo, recargarlo y verificar el diff y el C14.
   - _R3.8, R19.5, D-12_
 
@@ -268,7 +268,7 @@ Agentes disponibles en `.opencode/agent/` (OpenCode, `mode: subagent`). Son perf
 - [ ] 5.1 Runbook — **technical-writer**
   - Actualizar `docs/runbook-lunes.md`: *Trusted Location*, Excel visible, etapas y reanudación, lectura del reporte de reconciliación y de calidad, PlantActivity desactualizada (F-31), recuperación ante fallos.
 
-- [ ] 5.2 Sincronizar README / AGENTS / CLAUDE — **technical-writer** *(pasada post-auditoría hecha 2026-09-24: F-01, F-19, F-21, F-26, layout `src/etl_arena/`; repetir al cerrar Fase 4)*
+- [ ] 5.2 Sincronizar README / AGENTS / CLAUDE — **technical-writer** *(pasada post-auditoría hecha 2026-09-24: F-01, F-19, F-21, F-26, layout `src/etl_arena/`; repetir al cerrar Fase 4; pasada intermedia 2026-09-25: orquestación mensual, `load-exclusion-matrix`, F-44 y `pbi-handoff.md` en README/AGENTS/CLAUDE/runbook)*
   - Reflejar layout `src/etl_arena/`, tablas nuevas, estado de fases; eliminar menciones al límite de 167 eventos y al catálogo de 68 códigos.
 
 - [x] 5.3 Handoff Power BI — **technical-writer** *(hecha 2026-09-25: `docs/pbi-handoff.md`; quedan por acordar con Misael el canal del webhook, las cuentas `bi_reader`, el refresh desde el servicio y si se muestra el mes en curso)*

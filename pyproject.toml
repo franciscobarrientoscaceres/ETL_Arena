@@ -23,6 +23,7 @@ sql = [
 ]
 com = [
     "pywin32>=308; sys_platform == 'win32'",
+    "oletools>=0.60",  # lectura del VBA: ¿las macros aplican Exclusion_Matrix? (F-44)
 ]
 dev = [
     "etl-arena[sql,com]",

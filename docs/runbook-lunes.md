@@ -81,16 +81,23 @@ python scripts/run_lunes.py --stage cierre-mensual --mes 2026-09 --sin-exclusion
 - Corre sobre una copia del **libro base** (el libro de trabajo de la última corrida oficial exitosa, `data/work/libro_base.json`; en la primera corrida, el maestro) en `data/work/cierre-AAAA-MM/`.
 - Sin `--mes` toma el primer pendiente de la cola; al terminar en `success` lo marca como ejecutado.
 
-### Carga de la `Exclusion_Matrix` (cuando Alex la entrega, a fin de mes — D-17, F-37; tarea 4.12, pendiente)
+### Carga de la `Exclusion_Matrix` (cuando Alex la entrega, a fin de mes — D-17, F-37; tarea 4.12)
 
 ```powershell
-# carga B/C/D por timestamp, registra cada celda cambiada y encola el cierre del mes
-python scripts/run_lunes.py --stage load-exclusion-matrix --inbox data/inbox --work data/work --oficial
+# escribe la matriz del mes en una copia del libro base, registra la carga y corre el cierre "Con Exclusiones"
+python scripts/run_lunes.py --stage load-exclusion-matrix --mes 2026-09 --archivo-matriz data/inbox/<entrega>.xlsx
 ```
 
-- [ ] `Exclusion_Matrix` alineada por fila con `RawData-PCS!A` y sin valores fuera de 0/1/2.
-- [ ] Revisar `data/work/<corte>/cambios.csv` (qué celdas de la matriz cambiaron).
-- [ ] `cierre_mensual` oficial con reconciliación `pass`.
+- Formato esperado de la entrega (hasta confirmar con la muestra de Alex): hoja `Exclusion_Matrix` con
+  `Date/time` (fecha de Excel, no texto), `PCS01…PCS61` (0, 1, 2 o vacío), `Excused Event`, `Comments`. Solo se
+  toman las filas del mes; cada timestamp debe existir en `RawData-PCS` (si no, la etapa falla y lo lista).
+- Solo se carga la matriz: **`PlantActivity` no se usa para exclusiones** hasta que Alex lo confirme.
+- Trabaja en `data/work/matriz-AAAA-MM/`; el libro con la matriz pasa a ser el libro base de las semanas siguientes.
+- Mientras el maestro no sea v1.1 (4.0), las macros no aplican la matriz: `run-macros` se omite solo y la corrida
+  queda `sin_referencia` (no falla).
+
+- [ ] Revisar `data/work/matriz-AAAA-MM/cambios.csv` (qué celdas de la matriz cambiaron; abre en Excel).
+- [ ] `run-etl` en `success`, etiqueta **Con Exclusiones**; el mes sale de la cola de cierres.
 
 ### Corrección de datos ya cargados (D-13)
 

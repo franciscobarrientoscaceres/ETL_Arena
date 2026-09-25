@@ -284,6 +284,41 @@ class RepositorioCorridas:
         finally:
             conn.close()
 
+    COLUMNAS_CORRECCION = (
+        "TipoCorreccion",
+        "Hoja",
+        "NumeroFilaOrigen",
+        "SerialFechaExcelOrigen",
+        "MarcaTiempoLocalOrigen",
+        "NumeroPCS",
+        "Campo",
+        "ValorAnterior",
+        "ValorNuevo",
+        "ArchivoOrigen",
+        "Sha256Archivo",
+    )
+
+    def guardar_correcciones(self, id_corrida: str, filas: Iterable[tuple]) -> int:
+        """Celdas cambiadas por una carga o reproceso (D-13, D-17), ligadas a la corrida que las aplicó.
+
+        Cada fila sigue ``COLUMNAS_CORRECCION``; los valores se guardan como texto (≤ 255). Una sola
+        transacción; devuelve cuántas filas insertó."""
+        tabla = Tabla("correccion_dato", ("IdCorrida", *self.COLUMNAS_CORRECCION))
+        for f in filas:
+            *inicio, anterior, nuevo, archivo, sha = f
+            texto = [None if v is None else str(v)[:255] for v in (anterior, nuevo)]
+            tabla.filas.append((id_corrida, *inicio, *texto, str(archivo)[:260], sha))
+        conn = self._conexion()
+        try:
+            self._insertar(conn.cursor(), tabla)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+        return len(tabla.filas)
+
     def exclusiones_cargadas(self, id_proyecto: int, anio: int, mes: int) -> bool:
         """``EstadoExclusiones`` de una corrida del mes: ¿ya se cargó la matriz de Alex? (R19.5)."""
         conn = self._conexion()

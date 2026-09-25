@@ -10,6 +10,14 @@ los meses que los datos ya cubren completos (R19.3). ``--stage cierre-mensual [-
 la cadena para el mes completo sobre una copia del libro base; exige la ``Exclusion_Matrix`` del mes
 cargada o ``--sin-exclusiones`` explícito (R19.6, D-17).
 
+``--stage load-exclusion-matrix --archivo-matriz <entrega> --mes AAAA-MM`` (4.12): copia el libro
+base, escribe la ``Exclusion_Matrix`` del mes por timestamp → fila (``cambios.csv``), registra la carga
+y corre el ``cierre_mensual`` oficial "Con Exclusiones" con esa copia, que pasa a ser el libro base.
+
+Las exclusiones salen solo de ``Exclusion_Matrix`` (``PlantActivity`` no, hasta que Alex confirme).
+Con las macros de septiembre (sin la regla de la matriz) C31/L14 se escriben "No" en Excel, y si el
+período tiene exclusiones la referencia Excel se omite (la corrida queda ``sin_referencia``; F-44).
+
 Mientras no exista el contrato SCADA (0.6/0.7), ``prepare-workbook`` usa ``--libro-preparado``:
 el libro al que se le pegaron a mano las filas nuevas de RawData-PCS (proceso actual).
 
@@ -17,6 +25,8 @@ Ejemplo (lunes 2026-09-28, libro preparado a mano):
     python scripts/run_lunes.py --stage all --corte 2026-09-28 --libro-preparado C:/ruta/libro.xlsm --oficial
 Cierre de septiembre sin esperar la matriz (queda oficial "Sin Exclusiones"):
     python scripts/run_lunes.py --stage cierre-mensual --mes 2026-09 --sin-exclusiones
+Cierre de septiembre con la matriz de Alex:
+    python scripts/run_lunes.py --stage load-exclusion-matrix --mes 2026-09 --archivo-matriz data/inbox/em_2026-09.xlsx
 
 Código de salida: 0 = ok · 2 = parity_failed · 1 = error.
 """
@@ -144,10 +154,29 @@ def _libro(estado: Estado) -> Path:
 
 def etapa_macros(args, estado: Estado, dir_corte: Path) -> dict:
     from etl_arena.workbook import ejecutar_macros, extraer_referencia
+    from etl_arena.workbook.exclusion import exclusiones_en_periodo
+    from etl_arena.workbook.vba import macros_aplican_matriz
 
     libro = _libro(estado)
     cfg = configuracion(args, libro)
-    tiempos = ejecutar_macros(libro, cfg, timeout_s=args.timeout_macros)
+    aplica = macros_aplican_matriz(libro)
+    if not aplica and (
+        (
+            cfg.aplicar_evento_excusable
+            and exclusiones_en_periodo(libro, cfg.inicio_periodo, cfg.fin_periodo, cfg.total_pcs)
+        )
+        or (
+            cfg.aplicar_evento_excusable_eventos
+            and exclusiones_en_periodo(libro, cfg.inicio_periodo_eventos, cfg.fin_periodo_eventos, cfg.total_pcs)
+        )
+    ):
+        # Las macros de septiembre excusarían con PlantActivity!D, no con la matriz: sin referencia (F-44).
+        return {
+            "referencia": False,
+            "motivo": "el período tiene Exclusion_Matrix y las macros del libro no la aplican (falta el maestro "
+            "v1.1, tarea 4.0): la corrida queda sin_referencia",
+        }
+    tiempos = ejecutar_macros(libro, cfg, timeout_s=args.timeout_macros, excel_aplica_matriz=aplica)
     ref = extraer_referencia(libro, args.corte)
     (dir_corte / "referencia_excel.json").write_text(
         json.dumps(dataclasses.asdict(ref), ensure_ascii=False, default=str), encoding="utf-8"
@@ -158,6 +187,8 @@ def etapa_macros(args, estado: Estado, dir_corte: Path) -> dict:
         "C12": ref.c12,
         "C14": ref.c14,
         "C16": ref.c16,
+        "referencia": True,
+        "macros_aplican_matriz": aplica,
     }
 
 
@@ -168,7 +199,8 @@ def etapa_etl(args, estado: Estado, dir_corte: Path) -> dict:
 
     libro = _libro(estado)
     cfg = configuracion(args, libro)
-    referencia = extraer_referencia(libro, args.corte) if estado.ok("run-macros") else None
+    con_ref = estado.ok("run-macros") and estado.artefacto("run-macros", "referencia") is not False
+    referencia = extraer_referencia(libro, args.corte) if con_ref else None
     repo = None if args.sin_bd else RepositorioCorridas(crear_engine())
     res = ejecutar_corrida(
         libro,
@@ -176,7 +208,9 @@ def etapa_etl(args, estado: Estado, dir_corte: Path) -> dict:
         repo,
         hash_archivo=sha256_archivo(libro),
         referencia=referencia,
-        estado_exclusiones="sin_exclusiones" if args.sin_exclusiones else None,
+        estado_exclusiones="sin_exclusiones"
+        if args.sin_exclusiones
+        else ("con_exclusiones" if getattr(args, "con_exclusiones", False) else None),
     )
     d = res.resultado.disponibilidad
     encolados = []
@@ -244,7 +278,84 @@ def etapa_notify(args, estado: Estado, dir_corte: Path) -> dict:
     return {"destino": enviar(mensaje, dir_corte)}
 
 
+# ------------------------------------------------------------------ carga de la Exclusion_Matrix (4.12)
+def _mes(args) -> tuple[int, int]:
+    anio, m = (int(x) for x in args.mes.split("-"))
+    date(anio, m, 1)
+    return anio, m
+
+
+def etapa_escribir_matriz(args, estado: Estado, dir_corte: Path) -> dict:
+    from etl_arena.workbook import exclusion as em
+
+    libro = _libro(estado)
+    anio, m = _mes(args)
+    p = construir_config(inicio_periodo=date(anio, m, 1), fin_periodo=date(anio, m, 1)).total_pcs
+    entrega = em.leer_entrega(args.archivo_matriz, anio, m, p)
+    plan = em.planificar(libro, entrega, p)
+    csv = em.escribir_cambios_csv(plan, dir_corte / "cambios.csv")
+    (dir_corte / "cambios.json").write_text(
+        json.dumps([dataclasses.asdict(c) for c in plan.cambios], ensure_ascii=False, default=str), encoding="utf-8"
+    )
+    em.aplicar_plan(libro, plan, p, timeout_s=args.timeout_macros)
+    return {
+        "archivo": str(entrega.archivo),
+        "sha256": entrega.sha256,
+        "filas": len(plan.filas),
+        "filas_fuera_del_mes": entrega.filas_fuera_del_mes,
+        "cambios": len(plan.cambios),
+        "hoja_creada": not plan.hoja_existe,
+        "cambios_csv": str(csv),
+    }
+
+
+def etapa_registrar_matriz(args, estado: Estado, dir_corte: Path) -> dict:
+    if args.sin_bd:
+        return {"registrada": False, "motivo": "--sin-bd"}
+    from etl_arena.persistence import RepositorioCorridas, crear_engine
+
+    anio, m = _mes(args)
+    esc = estado.datos["write-exclusion-matrix"]["artefactos"]
+    cfg = construir_config(inicio_periodo=date(anio, m, 1), fin_periodo=date(anio, m, 1))
+    id_carga = RepositorioCorridas(crear_engine()).registrar_carga_exclusion(
+        cfg.id_proyecto, anio, m, Path(esc["archivo"]).name, esc["sha256"]
+    )
+    return {"registrada": True, "id_carga": id_carga}
+
+
+def etapa_correcciones(args, estado: Estado, dir_corte: Path) -> dict:
+    etl = estado.datos.get("run-etl", {}).get("artefactos", {})
+    cambios = json.loads((dir_corte / "cambios.json").read_text(encoding="utf-8"))
+    if args.sin_bd or etl.get("estado") != "success":
+        return {"guardadas": 0, "motivo": "--sin-bd" if args.sin_bd else f"run-etl {etl.get('estado')}"}
+    from etl_arena.persistence import RepositorioCorridas, crear_engine
+    from etl_arena.workbook.exclusion import HOJA
+
+    esc = estado.datos["write-exclusion-matrix"]["artefactos"]
+    filas = [
+        (
+            "exclusion_matrix",
+            HOJA,
+            c["fila"],
+            c["serial"],
+            serial_a_datetime(c["serial"]),
+            c["numero_pcs"],
+            c["campo"],
+            c["anterior"],
+            c["nuevo"],
+            Path(esc["archivo"]).name,
+            esc["sha256"],
+        )
+        for c in cambios
+    ]
+    n = RepositorioCorridas(crear_engine()).guardar_correcciones(etl["id_corrida"], filas)
+    return {"guardadas": n, "id_corrida": etl["id_corrida"]}
+
+
 FUNCIONES = {
+    "write-exclusion-matrix": etapa_escribir_matriz,
+    "register-exclusion-matrix": etapa_registrar_matriz,
+    "record-corrections": etapa_correcciones,
     "acquire-wait": etapa_acquire,
     "prepare-workbook": etapa_prepare,
     "run-macros": etapa_macros,
@@ -257,7 +368,8 @@ FUNCIONES = {
 # ------------------------------------------------------------------ CLI
 def construir_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--stage", choices=(*ETAPAS, "all", "cierre-mensual"), required=True)
+    ap.add_argument("--stage", choices=(*ETAPAS, "all", "cierre-mensual", "load-exclusion-matrix"), required=True)
+    ap.add_argument("--archivo-matriz", type=Path, help="load-exclusion-matrix: entrega de Alex del mes (--mes)")
     ap.add_argument("--corte", default=date.today().isoformat(), help="identificador del corte (por defecto, hoy)")
     ap.add_argument("--inbox", type=Path, default=RAIZ / "data" / "inbox")
     ap.add_argument("--processed", type=Path, default=RAIZ / "data" / "processed")
@@ -331,11 +443,59 @@ def cierre_mensual(args) -> int:
     return codigo
 
 
+def cargar_matriz(args) -> int:
+    """Entrega mensual de Alex → copia del libro base con la matriz → cierre oficial "Con Exclusiones"."""
+    if not args.archivo_matriz or not args.mes:
+        print("[load-exclusion-matrix] ERROR: faltan --archivo-matriz y --mes AAAA-MM", file=sys.stderr)
+        return 1
+    try:
+        anio, m = _mes(args)
+    except ValueError:
+        print(f"[load-exclusion-matrix] ERROR: --mes {args.mes!r} no es AAAA-MM", file=sys.stderr)
+        return 1
+    if not Path(args.archivo_matriz).exists():
+        print(f"[load-exclusion-matrix] ERROR: no existe {args.archivo_matriz}", file=sys.stderr)
+        return 1
+    mes = f"{anio}-{m:02d}"
+    base = libro_base(args.work, args.maestro)
+    cfg = construir_config(inicio_periodo=date(anio, m, 1), fin_periodo=ultimo_dia(anio, m))
+    if not mes_cubierto(ultimo_serial(base), anio, m, cfg.minutos_muestreo):
+        print(f"[load-exclusion-matrix] ERROR: el libro base {base.name} no cubre {mes} completo", file=sys.stderr)
+        return 1
+    sub = copy.copy(args)
+    sub.stage, sub.corte, sub.libro_preparado = "all", f"matriz-{mes}", base
+    sub.periodo_inicio, sub.periodo_fin, sub.tipo, sub.oficial = (
+        date(anio, m, 1),
+        ultimo_dia(anio, m),
+        "cierre_mensual",
+        True,
+    )
+    sub.con_exclusiones, sub.sin_exclusiones = True, False
+    etapas = [
+        "prepare-workbook",
+        "write-exclusion-matrix",
+        "register-exclusion-matrix",
+        *([] if args.omitir_macros else ["run-macros"]),
+        "run-etl",
+        "record-corrections",
+        "reconcile",
+        "notify-bi",
+    ]
+    dir_corte = args.work / sub.corte
+    codigo = ejecutar_etapas(sub, etapas, dir_corte)
+    etl = Estado(dir_corte).datos.get("run-etl", {}).get("artefactos", {})
+    if codigo == 0 and etl.get("estado") == "success":
+        ColaCierres(args.work).marcar_ejecutado(mes, etl["id_corrida"], etl["estado_exclusiones"])
+    return codigo
+
+
 def main(argv: list[str] | None = None) -> int:
     args = construir_parser().parse_args(argv)
     configurar_logging(json_=True)
     if args.stage == "cierre-mensual":
         return cierre_mensual(args)
+    if args.stage == "load-exclusion-matrix":
+        return cargar_matriz(args)
     etapas = list(ETAPAS) if args.stage == "all" else [args.stage]
     if args.stage == "all" and args.omitir_acquire:
         etapas.remove("acquire-wait")

@@ -1010,6 +1010,7 @@ La fuente cruda de `RawData-PCS` es el **server SCADA**. Cada lunes se exporta u
 6. **`run-etl`** (etapa 4): pipeline Python completo → SQL Server (`IdCorrida` nuevo por lunes).
 7. **`reconcile`** (etapa 5): Python vs referencia del paso 5.
 8. **`notify-bi`** (etapa 6): notificar a Misael / webhook → refresh Power BI (sin service principal aún).
+9. **Mensual** (`etl_arena.orquestacion`, 2026-09-25): tras cada corrida oficial exitosa su libro de trabajo pasa a ser el libro base; `run-etl` encola el `cierre_mensual` de los meses completos. `--stage load-exclusion-matrix --mes --archivo-matriz` escribe la `Exclusion_Matrix` de Alex por timestamp → fila (`cambios.csv` + `correccion_dato`) y corre el cierre "Con Exclusiones"; `--stage cierre-mensual --sin-exclusiones` cierra sin matriz (R19.6). Con las macros de septiembre, C31/L14 se escriben "No" en Excel para no excusar con `PlantActivity!D` (F-44); PlantActivity no se usa para exclusiones. Handoff Power BI: `docs/pbi-handoff.md`.
 
 ### Reglas
 
@@ -1034,7 +1035,7 @@ data/
 
 ### Componentes (ver design.md / tasks 15)
 
-- `scripts/run_lunes.py` — orquestador único con etapas: `acquire-wait`, `prepare-workbook`, `run-macros`, `run-etl`, `reconcile`, `notify-bi`.
+- `scripts/run_lunes.py` — orquestador único con etapas: `acquire-wait`, `prepare-workbook`, `run-macros`, `run-etl`, `reconcile`, `notify-bi`; mensuales: `cierre-mensual`, `load-exclusion-matrix`.
 - `src/etl_arena/acquisition/` — `acquire_wait`, `contrato_scada`, `lector_scada` (validación de rango, transformador de fechas, mapping de columnas).
 - `src/etl_arena/workbook/` — sesión COM, `preparar` (escritura en la copia de trabajo), `macros` (las 4 macros) y `referencia` (extracción); solo PC local con Windows + Excel.
 

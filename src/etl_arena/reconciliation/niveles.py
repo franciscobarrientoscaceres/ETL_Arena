@@ -13,11 +13,18 @@ from __future__ import annotations
 
 import numpy as np
 
-from etl_arena.excel_semantics import texto_excel
+from etl_arena.excel_semantics import datetime_a_serial, texto_excel
 from etl_arena.model import ReferenciaExcel
 from etl_arena.pipeline import ResultadoCalculo
 from etl_arena.reconciliation.modelo import ResultadoNivel
 from etl_arena.reconciliation.tolerancias import Tolerancias
+
+
+def _hay_exclusiones(r: ResultadoCalculo, desde, hasta) -> bool:
+    """¿La ``Exclusion_Matrix`` marca algún 1/2 en las filas del rango [desde, hasta + 1)?"""
+    s = r.matriz.serial
+    filas = (s >= datetime_a_serial(desde)) & (s < datetime_a_serial(hasta) + 1)
+    return bool(np.any(r.exclusion.valor[filas] != 0))
 
 
 def nivel_1(r: ResultadoCalculo, ref: ReferenciaExcel, tol: Tolerancias) -> ResultadoNivel:
@@ -31,10 +38,18 @@ def nivel_1(r: ResultadoCalculo, ref: ReferenciaExcel, tol: Tolerancias) -> Resu
     n.comparar("parametro", "C5", cfg.inicio_periodo, ref.c5, 0)
     n.comparar("parametro", "C7", cfg.fin_periodo, ref.c7, 0)
     n.comparar("parametro", "C21 (<> No)", cfg.solo_tiempo_operacional, ref.c21 != "No", 0)
-    n.comparar("parametro", "C31 (= Yes)", cfg.aplicar_evento_excusable, ref.c31 == "Yes", 0)
+    # Sin exclusiones en la matriz para el período, "Yes" ≡ "No": con las macros de septiembre
+    # se escribe "No" para no excusar con PlantActivity!D (F-44).
+    if _hay_exclusiones(r, cfg.inicio_periodo, cfg.fin_periodo):
+        n.comparar("parametro", "C31 (= Yes)", cfg.aplicar_evento_excusable, ref.c31 == "Yes", 0)
+    else:
+        n.comparar("parametro", "C31 (sin exclusiones en el período: Yes ≡ No)", True, ref.c31 in ("Yes", "No"), 0)
     n.comparar("parametro", "L2", cfg.inicio_periodo_eventos, ref.l2, 0)
     n.comparar("parametro", "L4", cfg.fin_periodo_eventos, ref.l4, 0)
-    n.comparar("parametro", "L14 (= Yes)", cfg.aplicar_evento_excusable_eventos, ref.l14 == "Yes", 0)
+    if _hay_exclusiones(r, cfg.inicio_periodo_eventos, cfg.fin_periodo_eventos):
+        n.comparar("parametro", "L14 (= Yes)", cfg.aplicar_evento_excusable_eventos, ref.l14 == "Yes", 0)
+    else:
+        n.comparar("parametro", "L14 (sin exclusiones en el período: Yes ≡ No)", True, ref.l14 in ("Yes", "No"), 0)
     if ref.diario:
         n.comparar("parametro", "fin_diario vs ultima Daily!C (F-33)", cfg.fin_diario, ref.diario[-1].dia, 0)
     return n
