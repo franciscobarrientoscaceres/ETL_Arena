@@ -230,8 +230,26 @@ Detectados al emular el VBA línea por línea y comparar contra el golden de sep
 - `workbook.macros.escribir_parametros` escribe B/C/E/F/G para los n días del período con las fórmulas de la plantilla (`F = IFERROR(1-E/(Total_Racks*24*60*B/Frecuencia_de_muestreo__min),"")`, `G9 = 0`, `G = IFERROR(F-F(ant),"")`) y limpia C/E/F/G hasta la fila 39 (una F sobrante con E vacía mostraría 1).
 
 ### F-42 🟢 El KPI oficial de julio se reproduce con la regla histórica
+> **Solo diagnóstico histórico.** Las reglas con `PlantActivity` de esta sección se usan únicamente para explicar cómo se obtuvieron los números que ya estaban en el Excel. **No** son una alternativa de cálculo: las exclusiones oficiales salen solo de `Exclusion_Matrix` (F-37); `PlantActivity` no se usa para exclusiones hasta que Alex confirme su uso (conversación con Alex, 2026-09-24).
 - Macros de septiembre vía COM con C31 = L14 = "Yes" (pondera con `PlantActivity!D`) para julio completo: C14 = 350.972,3 = `Annual_AVA!F13`. Con "No": 432.611,212 (golden v2).
 - Agosto con la misma regla: 256.223,356, que no calza con `Annual_AVA` (305.182,968) ni con la matriz (264.731,768): D-11 sigue abierta.
+
+### F-43 🟡 El KPI oficial de agosto no se reproduce con los datos actuales (investigación D-11, 2026-09-25)
+> **Solo diagnóstico histórico.** Las reglas con `PlantActivity` de esta sección se usan únicamente para explicar cómo se obtuvieron los números que ya estaban en el Excel. **No** son una alternativa de cálculo: las exclusiones oficiales salen solo de `Exclusion_Matrix` (F-37); `PlantActivity` no se usa para exclusiones hasta que Alex confirme su uso (conversación con Alex, 2026-09-24).
+- La regla de septiembre en "Yes" es `(C3 − M) × PlantActivity!D` (factor, no marca), y con C21 ≠ "No" además `× PlantActivity!C`. Emulada en Python sobre ambos libros (verificada contra COM: 256.223,356).
+- Agosto completo, objetivo 305.182,968:
+
+  | Regla | Libro septiembre | Libro agosto |
+  |---|---:|---:|
+  | Sin ponderar (C21 = C31 = "No") | 527.396,044 | 527.396,044 |
+  | × `PlantActivity!D` (C31 = "Yes") | 256.223,356 | 580.817,176 (D trae 0/1/2) |
+  | × `PlantActivity!C` (C21 = "Yes") | 398.439,556 | 398.439,556 |
+  | × D × C | 212.014,980 | 401.794,824 |
+  | `Exclusion_Matrix` (F-37) | — | 264.731,768 |
+
+- Tampoco calza aplicando las excusas de `PlantActivity!D` solo antes o solo después de una fecha (mejor |Δ| = 169), ni con ningún subconjunto de sus 4 tramos excusados de agosto, ni con ninguna ventana de días enteros entre el 01-07 y el 21-09 bajo ninguna de esas reglas (sin coincidencia exacta; las más cercanas son tramos arbitrarios).
+- RawData-PCS de agosto es idéntico en ambos libros (mismo C14 sin ponderar); lo que difiere es `PlantActivity!D`. Conclusión: 305.182,968 se calculó con datos (probablemente `PlantActivity!D`, y quizá RawData) que ya no están en ningún libro disponible. Solo el libro de cierre de agosto o Alex pueden explicarlo.
+- Además, en el libro de agosto el resultado de agosto con la matriz (264.731,768) quedó en la fila de **septiembre** de `Annual_AVA` (la fila enlazada a C14 es la del mes en curso); la fila de agosto conserva el 305.182,968 pegado como valor, igual que en el libro de septiembre.
 
 ### Decisiones asociadas
 - **D-16** (resuelta 2026-09-24, confirmada por negocio): los eventos (`mcoCreateList`, L14 = "Yes") usan la misma regla de la matriz que el KPI, para que `C14 = 4·L10` siga valiendo sin arrastre. La macro de agosto no lo hace (usa `PlantActivity!D`).
