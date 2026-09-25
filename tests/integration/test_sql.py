@@ -363,6 +363,25 @@ def test_carga_mensual_exclusion(repo):
     assert repo.exclusiones_cargadas(1, 2026, 8)
 
 
+def test_mes_cerrado_para_la_cola_de_cierres(repo, libro_sintetico):  # R19.3
+    assert repo.mes_cerrado(1, 2026, 7) and repo.mes_cerrado(1, 2026, 8)  # excel_manual (jul/ago)
+    _corrida(repo, libro_sintetico, tipo="cierre_mensual", proyecto=2)  # cierre de un solo día: no cierra el mes
+    assert not repo.mes_cerrado(2, 2026, 9)
+    cfg = config_prueba(
+        fin_periodo=date(2026, 9, 30),
+        es_oficial=True,
+        tipo_corrida="cierre_mensual",
+        id_proyecto=2,
+        archivo_origen=libro_sintetico.name,
+    )
+    r = calcular_libro(libro_sintetico, cfg, codigos_resumen=[("F55", "EXTERNAL")])
+    meta = MetadatosCorrida("0" * 64, estado_exclusiones="sin_exclusiones")
+    repo.iniciar(cfg, meta)
+    repo.guardar_corrida(construir_paquete(r, meta, repo.cargar_catalogo()))
+    repo.finalizar(cfg.id_corrida, "success", {}, minutos_muestreo_derivado=15.0)
+    assert repo.mes_cerrado(2, 2026, 9) and not repo.mes_cerrado(2, 2026, 10)
+
+
 def test_consultas_de_auditoria_compilan(engine):
     assert aplicar_script(engine, DIR_SQL / "07_audit_queries.sql") == 1
 

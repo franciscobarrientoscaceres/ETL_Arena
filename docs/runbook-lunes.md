@@ -67,7 +67,21 @@ python scripts/run_lunes.py --stage all --inbox data/inbox --work data/work
 
 > El KPI semanal es **oficial "Sin Exclusiones"** (`EstadoExclusiones = sin_exclusiones`): la `Exclusion_Matrix` la entrega Alex a fin de mes (D-17). La notificación lleva la etiqueta.
 
-### Cierre mensual "Con Exclusiones" (cuando Alex entrega la `Exclusion_Matrix` del mes, a fin de mes — D-17, F-37)
+### Cierre mensual (D-07, D-17, R19.3)
+
+Cuando los datos cargados llegan al último bloque de un mes (último día 23:45) y ese mes no tiene cierre oficial, `run-etl` lo agrega a `data/work/cola_cierres.json` y la notificación lo muestra como **cierre pendiente**.
+
+```powershell
+# con la Exclusion_Matrix del mes ya cargada (load-exclusion-matrix): oficial "Con Exclusiones"
+python scripts/run_lunes.py --stage cierre-mensual --mes 2026-09
+# sin esperar la matriz (decisión explícita, R19.6): oficial "Sin Exclusiones"
+python scripts/run_lunes.py --stage cierre-mensual --mes 2026-09 --sin-exclusiones
+```
+
+- Corre sobre una copia del **libro base** (el libro de trabajo de la última corrida oficial exitosa, `data/work/libro_base.json`; en la primera corrida, el maestro) en `data/work/cierre-AAAA-MM/`.
+- Sin `--mes` toma el primer pendiente de la cola; al terminar en `success` lo marca como ejecutado.
+
+### Carga de la `Exclusion_Matrix` (cuando Alex la entrega, a fin de mes — D-17, F-37; tarea 4.12, pendiente)
 
 ```powershell
 # carga B/C/D por timestamp, registra cada celda cambiada y encola el cierre del mes

@@ -26,6 +26,7 @@ def construir_mensaje(
     kpi: dict,
     reconciliacion: dict | None,
     calidad: dict | None,
+    cierres_pendientes: list[str] | None = None,
 ) -> dict:
     etiqueta = "Con Exclusiones" if estado_exclusiones == "con_exclusiones" else "Sin Exclusiones"
     anomalias = (calidad or {}).get("anomalias", {})
@@ -38,6 +39,7 @@ def construir_mensaje(
         "kpi": kpi,
         "reconciliacion": (reconciliacion or {}).get("estado", "sin_referencia"),
         "anomalias": {"total": anomalias.get("total", 0), "por_severidad": anomalias.get("por_severidad", {})},
+        "cierres_pendientes": list(cierres_pendientes or []),
         "accion": (
             "Actualizar el dataset de Power BI (vistas v_*_vigente)."
             if estado == "success"
@@ -55,6 +57,13 @@ def a_markdown(m: dict) -> str:
         f"- **Estado:** {m['estado']} · **Reconciliación:** {m['reconciliacion']} · **{m['exclusiones']}**",
         f"- **KPI:** C12 = {k.get('C12')}, C14 = {k.get('C14')}, disponibilidad del período (C16) = {k.get('C16')}",
         f"- **Anomalías:** {m['anomalias']['total']} {m['anomalias']['por_severidad']}",
+    ]
+    if m.get("cierres_pendientes"):
+        lineas.append(
+            f"- **Cierres mensuales pendientes:** {', '.join(m['cierres_pendientes'])} "
+            "(esperan la Exclusion_Matrix de Alex; `run_lunes.py --stage cierre-mensual`)"
+        )
+    lineas += [
         "",
         f"**Acción:** {m['accion']}",
         "",

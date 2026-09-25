@@ -244,7 +244,7 @@ Agentes disponibles en `.opencode/agent/` (OpenCode, `mode: subagent`). Son perf
   - Webhook configurable o `notificacion.md`; contenido R18.1; sin datos sensibles.
   - _R18_
 
-- [ ] 4.9 `scripts/run_lunes.py` — **backend-architect** *(avance 2026-09-24: etapas acquire-wait → notify-bi, `run_state.json` reanudable, período por defecto = mes en curso hasta el último dato, `--oficial`, `--sin-bd`; `prepare-workbook` usa `--libro-preparado` hasta 4.6/4.7. Falta: encolar `cierre_mensual` al completar un mes y promover el libro de trabajo a libro base)*
+- [x] 4.9 `scripts/run_lunes.py` — **backend-architect** *(hecha 2026-09-25: etapas acquire-wait → notify-bi, `run_state.json` reanudable, período por defecto = mes en curso hasta el último dato, `--oficial`, `--sin-bd`, `--omitir-macros` (R3.7). `etl_arena.orquestacion`: una corrida oficial `success` persistida promueve su libro de trabajo a libro base (`data/work/libro_base.json`; sin puntero, `--maestro`); `run-etl` semanal encola en `data/work/cola_cierres.json` los meses cubiertos hasta su último bloque sin cierre oficial ni `excel_manual` (`RepositorioCorridas.mes_cerrado`), y la notificación los lista; `--stage cierre-mensual [--mes AAAA-MM]` corre prepare → macros → ETL → reconcile → notify del mes completo sobre una copia del libro base, exige la matriz cargada o `--sin-exclusiones` (R19.6) y marca el mes como ejecutado. `prepare-workbook` semanal sigue usando `--libro-preparado` hasta 4.6/4.7)*
   - Etapas, `run_state.json` reanudable, período por defecto D-07 (mes en curso hasta el último dato + `cierre_mensual` encolado al completar un mes), promoción del libro de trabajo oficial a libro base, `--oficial`, logs por etapa.
   - _R19_
 

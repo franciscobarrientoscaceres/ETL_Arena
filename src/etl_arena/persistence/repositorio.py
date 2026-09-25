@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import time
+from calendar import monthrange
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
@@ -295,6 +296,30 @@ class RepositorioCorridas:
                 mes,
             )
             return cur.fetchone()[0] > 0
+        finally:
+            conn.close()
+
+    def mes_cerrado(self, id_proyecto: int, anio: int, mes: int) -> bool:
+        """¿El mes ya tiene cierre oficial (``cierre_mensual`` success del mes completo) o KPI
+        ``excel_manual``? Si no, el orquestador lo encola (R19.3)."""
+        inicio = datetime(anio, mes, 1)
+        fin = datetime(anio, mes, monthrange(anio, mes)[1])
+        conn = self._conexion()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT CASE WHEN EXISTS (SELECT 1 FROM dbo.etl_run WHERE IdProyecto = ? "
+                "AND TipoCorrida = N'cierre_mensual' AND EsOficial = 1 AND Estado = N'success' "
+                "AND InicioPeriodo = ? AND FinPeriodo = ?) OR EXISTS (SELECT 1 FROM dbo.monthly_official_kpi "
+                "WHERE IdProyecto = ? AND Anio = ? AND Mes = ? AND Origen = N'excel_manual') THEN 1 ELSE 0 END",
+                id_proyecto,
+                inicio,
+                fin,
+                id_proyecto,
+                anio,
+                mes,
+            )
+            return cur.fetchone()[0] == 1
         finally:
             conn.close()
 
