@@ -4,15 +4,21 @@ Etapas (``--stage``): acquire-wait → prepare-workbook → run-macros → run-e
 o ``all``. El estado de cada etapa queda en ``data/work/<corte>/run_state.json``; ``--stage all``
 salta las etapas ya ``ok`` (reanudable). Solo en la PC local (nunca en el server SCADA).
 
-Entre cortes (``etl_arena.orquestacion``): una corrida ``--oficial`` exitosa y persistida promueve su
-libro de trabajo a **libro base** de la siguiente (R3.1); ``run-etl`` encola el ``cierre_mensual`` de
+Estado vigente por mes (ADR-12): cada corrida exitosa **reemplaza** los datos del mes en SQL (no se
+acumulan copias). El período se procesa mes a mes: si ``--desde`` no es día 1 se ajusta al día 1 (D-20) y
+si abarca varios meses cada mes corre su propia cadena macros → ETL → reconcile en ``<corte>/AAAA-MM``.
+Solo se publica una corrida ``success`` (o con ``--publicar-aunque-no-cuadre``; D-22). Protecciones
+(D-21, D-23): ``--permitir-recorte``, ``--reemplazar-manual``, ``--forzar-sin-exclusiones``.
+
+Entre cortes (``etl_arena.orquestacion``): una corrida publicada promueve su libro de trabajo a
+**libro base** de la siguiente (R3.1); ``run-etl`` encola el ``cierre_mensual`` de
 los meses que los datos ya cubren completos (R19.3). ``--stage cierre-mensual [--mes AAAA-MM]`` corre
 la cadena para el mes completo sobre una copia del libro base; exige la ``Exclusion_Matrix`` del mes
 cargada o ``--sin-exclusiones`` explícito (R19.6, D-17).
 
 ``--stage load-exclusion-matrix --archivo-matriz <entrega> --mes AAAA-MM`` (4.12): copia el libro
 base, escribe la ``Exclusion_Matrix`` del mes por timestamp → fila (``cambios.csv``), registra la carga
-y corre el ``cierre_mensual`` oficial "Con Exclusiones" con esa copia, que pasa a ser el libro base.
+y corre el ``cierre_mensual`` "Con Exclusiones" con esa copia, que pasa a ser el libro base.
 
 Las exclusiones salen solo de ``Exclusion_Matrix`` (``PlantActivity`` no, hasta que Alex confirme).
 Con las macros de septiembre (sin la regla de la matriz) C31/L14 se escriben "No" en Excel, y si el
@@ -22,13 +28,16 @@ Mientras no exista el contrato SCADA (0.6/0.7), ``prepare-workbook`` usa ``--lib
 el libro al que se le pegaron a mano las filas nuevas de RawData-PCS (proceso actual).
 
 Ejemplo (lunes 2026-09-28, libro preparado a mano):
-    python scripts/run_lunes.py --stage all --corte 2026-09-28 --libro-preparado C:/ruta/libro.xlsm --oficial
-Cierre de septiembre sin esperar la matriz (queda oficial "Sin Exclusiones"):
+    python scripts/run_lunes.py --stage all --corte 2026-09-28 --libro-preparado C:/ruta/libro.xlsm
+Recargar agosto y septiembre completos (reemplaza lo vigente de ambos meses):
+    python scripts/run_lunes.py --stage all --corte 2026-09-28 --libro-preparado C:/ruta/libro.xlsm \
+        --desde 2026-08-01 --hasta 2026-09-27
+Cierre de septiembre sin esperar la matriz (queda "Sin Exclusiones"):
     python scripts/run_lunes.py --stage cierre-mensual --mes 2026-09 --sin-exclusiones
 Cierre de septiembre con la matriz de Alex:
     python scripts/run_lunes.py --stage load-exclusion-matrix --mes 2026-09 --archivo-matriz data/inbox/em_2026-09.xlsx
 
-Código de salida: 0 = ok · 2 = parity_failed · 1 = error.
+Código de salida: 0 = ok · 2 = parity_failed (el mes no se publicó) · 1 = error.
 """
 
 from __future__ import annotations
@@ -121,9 +130,35 @@ def configuracion(args, libro: Path):
         inicio_periodo=inicio,
         fin_periodo=fin,
         tipo_corrida=args.tipo,
-        es_oficial=args.oficial,
         archivo_origen=libro.name,
     )
+
+
+def meses_del_periodo(inicio: date, fin: date) -> list[tuple[date, date]]:
+    """Tramos mensuales de ``inicio..fin`` (D-20): el primero desde el día 1, el último hasta ``fin``."""
+    if fin < inicio:
+        raise ValueError(f"--hasta {fin} es anterior a --desde {inicio}")
+    tramos = []
+    a, m = inicio.year, inicio.month
+    while (a, m) <= (fin.year, fin.month):
+        tramos.append((date(a, m, 1), min(ultimo_dia(a, m), fin)))
+        a, m = (a + 1, 1) if m == 12 else (a, m + 1)
+    return tramos
+
+
+def opciones_publicacion(args):
+    from etl_arena.persistence import OpcionesPublicacion
+
+    return OpcionesPublicacion(
+        permitir_recorte=args.permitir_recorte,
+        reemplazar_manual=args.reemplazar_manual,
+        forzar_sin_exclusiones=args.forzar_sin_exclusiones,
+    )
+
+
+def mes_vigente(etl: dict, sin_bd: bool) -> bool:
+    """La corrida dejó el mes vigente: publicada en SQL, o ``success`` en seco (``--sin-bd``, ensayos)."""
+    return bool(etl.get("publicada") or (sin_bd and etl.get("estado") == "success"))
 
 
 # ------------------------------------------------------------------ etapas
@@ -216,10 +251,12 @@ def etapa_etl(args, estado: Estado, dir_corte: Path) -> dict:
         estado_exclusiones="sin_exclusiones"
         if args.sin_exclusiones
         else ("con_exclusiones" if getattr(args, "con_exclusiones", False) else None),
+        opciones=opciones_publicacion(args),
+        publicar_aunque_no_cuadre=args.publicar_aunque_no_cuadre,
     )
     d = res.resultado.disponibilidad
     encolados = []
-    if args.tipo == "semanal" and res.estado == "success":
+    if args.tipo == "semanal" and mes_vigente({"publicada": res.publicada, "estado": res.estado}, args.sin_bd):
         serial = ultimo_serial(libro)
         encolados = encolar_cierres(
             ColaCierres(args.work),
@@ -236,9 +273,10 @@ def etapa_etl(args, estado: Estado, dir_corte: Path) -> dict:
         "entorno": args.entorno,
         "estado": res.estado,
         "tipo": cfg.tipo_corrida,
-        "oficial": cfg.es_oficial,
         "periodo": [str(cfg.inicio_periodo), str(cfg.fin_periodo)],
         "estado_exclusiones": res.estado_exclusiones,
+        "publicada": res.publicada,
+        "publicacion": res.publicacion.a_dict() if res.publicacion else {"motivo": res.motivo_no_publicada},
         "kpi": {"C12": d.bloques_muestreo, "C14": d.bloques_racks_indisponibles, "C16": d.disponibilidad_periodo},
         "reconciliacion": res.resumen_calidad.get("reconciliacion"),
         "anomalias": res.resumen_calidad.get("anomalias"),
@@ -252,13 +290,13 @@ def etapa_reconcile(args, estado: Estado, dir_corte: Path) -> dict:
     if not etl:
         raise RuntimeError("no hay resultado de run-etl")
     rec = (etl.get("reconciliacion") or {}).get("estado", "sin_referencia")
-    if etl.get("estado") == "parity_failed":
+    if etl.get("estado") == "parity_failed" and not etl.get("publicada"):
         raise RuntimeError(
-            "parity_failed: Python y Excel no cuadran; revisar reconciliation_result de "
-            f"{etl['id_corrida']} (no se publica en Power BI)"
+            f"parity_failed: Python y Excel no cuadran; revisar reconciliation_result de la corrida N° "
+            f"{etl.get('num_corrida')} (el mes vigente en SQL no se tocó; ver --publicar-aunque-no-cuadre)"
         )
-    salida = {"reconciliacion": rec, "id_corrida": etl.get("id_corrida")}
-    if args.oficial and not args.sin_bd and etl.get("estado") == "success":
+    salida = {"reconciliacion": rec, "id_corrida": etl.get("id_corrida"), "publicada": etl.get("publicada")}
+    if etl.get("publicada"):
         from etl_arena.workbook import sha256_archivo
 
         libro = _libro(estado)
@@ -284,6 +322,7 @@ def etapa_notify(args, estado: Estado, dir_corte: Path) -> dict:
         {"anomalias": etl.get("anomalias") or {}},
         ColaCierres(args.work).pendientes(),
         num_corrida=etl.get("num_corrida"),
+        publicacion=etl.get("publicacion"),
     )
     if args.entorno == "prueba":  # nunca avisar a Misael de una carga de prueba
         mensaje["titulo"] = f"[PRUEBA] {mensaje['titulo']}"
@@ -339,8 +378,8 @@ def etapa_registrar_matriz(args, estado: Estado, dir_corte: Path) -> dict:
 def etapa_correcciones(args, estado: Estado, dir_corte: Path) -> dict:
     etl = estado.datos.get("run-etl", {}).get("artefactos", {})
     cambios = json.loads((dir_corte / "cambios.json").read_text(encoding="utf-8"))
-    if args.sin_bd or etl.get("estado") != "success":
-        return {"guardadas": 0, "motivo": "--sin-bd" if args.sin_bd else f"run-etl {etl.get('estado')}"}
+    if args.sin_bd or not etl.get("publicada"):
+        return {"guardadas": 0, "motivo": "--sin-bd" if args.sin_bd else f"run-etl {etl.get('estado')} sin publicar"}
     from etl_arena.persistence import RepositorioCorridas, crear_engine
     from etl_arena.workbook.exclusion import HOJA
 
@@ -415,10 +454,44 @@ def construir_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="correr las macros con recálculo automático (modo antiguo, ~2 veces más lento; solo para diagnóstico)",
     )
-    ap.add_argument("--periodo-inicio", type=date.fromisoformat)
-    ap.add_argument("--periodo-fin", type=date.fromisoformat)
+    ap.add_argument(
+        "--desde",
+        dest="periodo_inicio",
+        metavar="AAAA-MM-DD",
+        type=date.fromisoformat,
+        help="primer día del período (AAAA-MM-DD)",
+    )
+    ap.add_argument(
+        "--hasta",
+        dest="periodo_fin",
+        metavar="AAAA-MM-DD",
+        type=date.fromisoformat,
+        help="último día del período (AAAA-MM-DD)",
+    )
     ap.add_argument("--tipo", choices=("semanal", "cierre_mensual", "reproceso"), default="semanal")
-    ap.add_argument("--oficial", action="store_true")
+    ap.add_argument(
+        "--oficial", action="store_true", help="sin efecto desde ADR-12: toda corrida exitosa publica el mes"
+    )
+    ap.add_argument(
+        "--permitir-recorte",
+        action="store_true",
+        help="publicar aunque la carga llegue a una fecha anterior a lo vigente del mes (borra datos; D-21)",
+    )
+    ap.add_argument(
+        "--reemplazar-manual",
+        action="store_true",
+        help="reemplazar un mes cargado a mano desde el Excel (julio/agosto de Annual_AVA; D-23)",
+    )
+    ap.add_argument(
+        "--forzar-sin-exclusiones",
+        action="store_true",
+        help="reemplazar un mes publicado 'Con Exclusiones' por una carga 'Sin Exclusiones' (D-23)",
+    )
+    ap.add_argument(
+        "--publicar-aunque-no-cuadre",
+        action="store_true",
+        help="publicar el mes aunque Python y Excel no cuadren (parity_failed; D-22). Solo con motivo conocido",
+    )
     ap.add_argument("--sin-bd", action="store_true")
     ap.add_argument("--timeout-espera", type=float, default=3600)
     ap.add_argument("--timeout-macros", type=float, default=2400)
@@ -460,12 +533,12 @@ def cierre_mensual(args) -> int:
             return 1
     sub = copy.copy(args)
     sub.stage, sub.corte, sub.libro_preparado = "all", f"cierre-{mes}", base
-    sub.periodo_inicio, sub.periodo_fin, sub.tipo, sub.oficial = inicio, fin, "cierre_mensual", True
+    sub.periodo_inicio, sub.periodo_fin, sub.tipo = inicio, fin, "cierre_mensual"
     dir_corte = args.work / sub.corte
     etapas = [e for e in ETAPAS_CIERRE if not (args.omitir_macros and e == "run-macros")]
     codigo = ejecutar_etapas(sub, etapas, dir_corte)
     etl = Estado(dir_corte).datos.get("run-etl", {}).get("artefactos", {})
-    if codigo == 0 and etl.get("estado") == "success":
+    if codigo == 0 and mes_vigente(etl, args.sin_bd):
         cola.marcar_ejecutado(mes, etl["id_corrida"], etl["estado_exclusiones"])
     return codigo
 
@@ -491,12 +564,7 @@ def cargar_matriz(args) -> int:
         return 1
     sub = copy.copy(args)
     sub.stage, sub.corte, sub.libro_preparado = "all", f"matriz-{mes}", base
-    sub.periodo_inicio, sub.periodo_fin, sub.tipo, sub.oficial = (
-        date(anio, m, 1),
-        ultimo_dia(anio, m),
-        "cierre_mensual",
-        True,
-    )
+    sub.periodo_inicio, sub.periodo_fin, sub.tipo = date(anio, m, 1), ultimo_dia(anio, m), "cierre_mensual"
     sub.con_exclusiones, sub.sin_exclusiones = True, False
     etapas = [
         "prepare-workbook",
@@ -511,7 +579,7 @@ def cargar_matriz(args) -> int:
     dir_corte = args.work / sub.corte
     codigo = ejecutar_etapas(sub, etapas, dir_corte)
     etl = Estado(dir_corte).datos.get("run-etl", {}).get("artefactos", {})
-    if codigo == 0 and etl.get("estado") == "success":
+    if codigo == 0 and mes_vigente(etl, args.sin_bd):
         ColaCierres(args.work).marcar_ejecutado(mes, etl["id_corrida"], etl["estado_exclusiones"])
     return codigo
 
@@ -536,10 +604,55 @@ def aplicar_entorno(args) -> None:
     print(f"[entorno] {ambiente['etiqueta']}: {base}, carpeta {args.work}")
 
 
+def ajustar_periodo(args) -> None:
+    """``--desde`` al día 1 de su mes (D-20): el estado vigente se reemplaza por meses completos."""
+    if args.oficial:
+        print("[aviso] --oficial ya no tiene efecto: toda corrida exitosa publica su mes (ADR-12)")
+    if args.periodo_inicio and args.periodo_inicio.day != 1:
+        dia1 = args.periodo_inicio.replace(day=1)
+        print(f"[aviso] --desde {args.periodo_inicio} se ajusta a {dia1}: se recarga el mes completo (D-20)")
+        args.periodo_inicio = dia1
+
+
+def ejecutar_por_meses(args, etapas: list[str], dir_corte: Path) -> int:
+    """Etapas previas una vez; macros → ETL → reconcile → aviso por cada mes del período (D-20)."""
+    estado = Estado(dir_corte)
+    previas = [e for e in etapas if e in ETAPAS_UNA_VEZ]
+    por_mes = [e for e in etapas if e not in ETAPAS_UNA_VEZ]
+    if previas and (codigo := ejecutar_etapas(args, previas, dir_corte)):
+        return codigo
+    if not por_mes:
+        return 0
+    estado = Estado(dir_corte)
+    if "prepare-workbook" not in estado.datos:
+        return ejecutar_etapas(args, por_mes, dir_corte)
+    libro = _libro(estado)
+    fin = args.periodo_fin or ultimo_dato(libro)
+    tramos = meses_del_periodo(args.periodo_inicio or fin.replace(day=1), fin)
+    if len(tramos) == 1:
+        return ejecutar_etapas(args, por_mes, dir_corte)
+    print(f"[período] {len(tramos)} meses: " + ", ".join(f"{i:%Y-%m}" for i, _ in tramos))
+    for inicio, fin_mes in tramos:
+        sub = copy.copy(args)
+        sub.periodo_inicio, sub.periodo_fin = inicio, fin_mes
+        dir_mes = dir_corte / f"{inicio:%Y-%m}"
+        estado_mes = Estado(dir_mes)
+        if not estado_mes.ok("prepare-workbook"):  # mismo libro de trabajo para todos los meses
+            estado_mes.registrar(
+                "prepare-workbook", "ok", datetime.now(), estado.datos["prepare-workbook"]["artefactos"]
+            )
+        print(f"[{inicio:%Y-%m}] {inicio}..{fin_mes}")
+        if codigo := ejecutar_etapas(sub, por_mes, dir_mes):
+            print(f"[{inicio:%Y-%m}] se detiene la recarga: los meses siguientes no se procesaron", file=sys.stderr)
+            return codigo
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = construir_parser().parse_args(argv)
     configurar_logging(json_=True)
     aplicar_entorno(args)
+    ajustar_periodo(args)
     if args.stage == "cierre-mensual":
         return cierre_mensual(args)
     if args.stage == "load-exclusion-matrix":
@@ -549,7 +662,7 @@ def main(argv: list[str] | None = None) -> int:
         etapas.remove("acquire-wait")
     if args.stage == "all" and args.omitir_macros:
         etapas.remove("run-macros")
-    return ejecutar_etapas(args, etapas, args.work / args.corte)
+    return ejecutar_por_meses(args, etapas, args.work / args.corte)
 
 
 def ejecutar_etapas(args, etapas: list[str], dir_corte: Path) -> int:
@@ -565,7 +678,8 @@ def ejecutar_etapas(args, etapas: list[str], dir_corte: Path) -> int:
         except Exception as exc:
             estado.registrar(etapa, "error", inicio, error=f"{type(exc).__name__}: {exc}")
             print(f"[{etapa}] ERROR: {exc}", file=sys.stderr)
-            traceback.print_exc()
+            if type(exc).__name__ not in ("ErrorPublicacion", "ErrorPeriodoMensual"):  # protecciones: basta el mensaje
+                traceback.print_exc()
             return 2 if "parity_failed" in str(exc) else 1
         estado.registrar(etapa, "ok", inicio, artefactos)
         print(f"[{etapa}] ok {json.dumps(artefactos, ensure_ascii=False, default=str)[:300]}")

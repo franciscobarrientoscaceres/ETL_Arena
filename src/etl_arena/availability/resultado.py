@@ -33,7 +33,7 @@ class ResultadoDisponibilidad:
         return np.nan_to_num(self.ponderadas, nan=0.0)
 
     def muestras(self) -> Iterator[MuestraDisponibilidad]:
-        """Filas de ``availability_sample_result`` (una por fila en rango × PCS)."""
+        """Filas de ``muestra_pcs`` (una por fila en rango × PCS)."""
         for k in range(len(self.filas_procesadas)):
             for j, pcs in enumerate(self.pcs):
                 b = self.baterias[k, j]

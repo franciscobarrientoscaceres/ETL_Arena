@@ -1,4 +1,4 @@
-"""Filas por tabla de una corrida, listas para insertar (R11, R12.4, R15; design.md §Data Models).
+"""Filas de las tablas de estado de un mes, listas para publicar (R11 rev. 3, ADR-12; design.md §Revisión 3).
 
 Funciones puras (sin base de datos): convierten ``ResultadoCalculo`` en tuplas en el orden de
 columnas del DDL. ``NaN`` → ``NULL`` (SQL Server no admite NaN en FLOAT); marcas de tiempo al
@@ -14,10 +14,8 @@ from typing import Literal
 
 import numpy as np
 
-from etl_arena.aggregation.mensual_anual import FilaAnual
-from etl_arena.excel_semantics import datetime_a_serial, serial_a_datetime, texto_excel
+from etl_arena.excel_semantics import serial_a_datetime, texto_excel
 from etl_arena.model import Anomalia, KpiMensual
-from etl_arena.normalization.esquema import ORDEN_CAMPOS, columna
 from etl_arena.pipeline import ResultadoCalculo
 
 EstadoExclusiones = Literal["sin_exclusiones", "con_exclusiones"]
@@ -45,19 +43,6 @@ class Tabla:
         cols = ", ".join(self.columnas)
         marcas = ", ".join("?" for _ in self.columnas)
         return f"INSERT INTO dbo.{self.nombre} ({cols}) VALUES ({marcas})"
-
-
-@dataclass
-class PaqueteCorrida:
-    id_corrida: str
-    tablas: list[Tabla]
-    anomalias_persistencia: list[Anomalia] = field(default_factory=list)
-
-    def tabla(self, nombre: str) -> Tabla:
-        return next(t for t in self.tablas if t.nombre == nombre)
-
-    def total_filas(self) -> int:
-        return sum(len(t.filas) for t in self.tablas)
 
 
 # ------------------------------------------------------------------ conversiones
@@ -93,277 +78,225 @@ def _dt_serial(s: float) -> datetime | None:
     return None if s == 0.0 or math.isnan(s) else serial_a_datetime(float(s))
 
 
-# ------------------------------------------------------------------ selección de filas de staging
-def filas_staging(r: ResultadoCalculo) -> np.ndarray:
-    """Índices de la matriz a persistir en raw/plant_activity/exclusion (D-09): filas del período
-    KPI o de eventos, más la fila anterior (la usa el fallback de descripción, F-04)."""
-    cfg, s = r.cfg, r.matriz.serial
-    ini = min(datetime_a_serial(cfg.inicio_periodo), datetime_a_serial(cfg.inicio_periodo_eventos))
-    fin1 = max(datetime_a_serial(cfg.fin_periodo), datetime_a_serial(cfg.fin_periodo_eventos)) + 1
-    idx = np.flatnonzero((s >= ini) & (s < fin1))
-    if len(idx) and idx[0] > 0:
-        idx = np.concatenate(([idx[0] - 1], idx))
-    return idx
+# ------------------------------------------------------------------ paquete de un mes (estado vigente, ADR-12)
+@dataclass
+class PaqueteMes:
+    """Todo lo que se publica de un mes: filas de las tablas de estado + crudos para detectar correcciones.
+
+    Las filas no llevan ``NumCorrida`` (se agrega al publicar). ``detenciones`` va por clave de negocio
+    ``(NumeroPCS, FechaInicio, Ocurrencia)`` dentro del mes."""
+
+    id_proyecto: int
+    anio: int
+    mes: int
+    ultimo_dato: datetime | None
+    mes_completo: bool
+    estado_exclusiones: EstadoExclusiones
+    muestras_pcs: Tabla
+    muestras_planta: Tabla
+    detenciones: Tabla
+    diario: Tabla
+    calidad: Tabla
+    mensual: dict
+    crudos_pcs: dict  # (SerialFecha, Ocurrencia, PCS) -> (fila, marca, MODULES, FAULT, STATUS, WARNING)
+    crudos_planta: dict  # (SerialFecha, Ocurrencia) -> (fila, marca, C)
+    anomalias_persistencia: list[Anomalia] = field(default_factory=list)
+
+    @property
+    def tablas(self) -> list[Tabla]:
+        return [self.muestras_pcs, self.muestras_planta, self.detenciones, self.diario, self.calidad]
+
+    def tabla(self, nombre: str) -> Tabla:
+        return next(t for t in self.tablas if t.nombre == nombre)
 
 
-# ------------------------------------------------------------------ constructores por tabla
-def construir_paquete(
+COLUMNAS_MUESTRA_PCS = (
+    "IdProyecto",
+    "SerialFecha",
+    "Ocurrencia",
+    "NumeroPCS",
+    "Anio",
+    "Mes",
+    "MarcaTiempo",
+    "NumeroFilaOrigen",
+    "FallaRaw",
+    "FallaRawEsNumero",
+    "EstadoRaw",
+    "AdvertenciaRaw",
+    "ModulosRaw",
+    "ModulosDisponibles",
+    "ModulosDisponiblesNulo",
+    "ValorExclusion",
+    "BateriasPrevias",
+    "BateriasIndisponibles",
+    "FactorOperacional",
+    "BateriasIndisponiblesPonderadas",
+    "ImpactoRackPonderado",
+    "EsFilaNuevaDelExport",
+)
+COLUMNAS_MUESTRA_PLANTA = (
+    "IdProyecto",
+    "SerialFecha",
+    "Ocurrencia",
+    "Anio",
+    "Mes",
+    "MarcaTiempo",
+    "NumeroFilaOrigen",
+    "FactorOperacionalRaw",
+    "EventoExcusadoRaw",
+    "SetpointPotenciaActivaKW",
+    "DroopSobrefrecuenciaHabilitado",
+    "DroopBajafrecuenciaHabilitado",
+    "PotenciaActivaPOIKW",
+    "PorcentajeSOC",
+    "EventoExcusadoFila",
+    "ComentarioExclusion",
+)
+COLUMNAS_DETENCION = (
+    "IdProyecto",
+    "Anio",
+    "Mes",
+    "NumeroPCS",
+    "FechaInicio",
+    "Ocurrencia",
+    "FechaTermino",
+    "DuracionSegundos",
+    "DuracionHoras",
+    "IdTipoDetencion",
+    "CodigoFalla",
+    "DescripcionFalla",
+    "DescripcionFallaFallback",
+    "SerialInicio",
+    "SerialFin",
+    "NumeroBloques",
+    "SumaBloques",
+    "PromedioBateriasInvolucradas",
+    "HorasRackIndisponibles",
+    "EventoArrastradoExcel",
+    "ExcelHabriaFallado",
+    "CerradoPorModulosNulo",
+    "EsExcusable",
+    "OrdenExcel",
+)
+COLUMNAS_DIARIO = (
+    "IdProyecto",
+    "Dia",
+    "Anio",
+    "Mes",
+    "DiaN",
+    "BloquesRacksIndisponiblesDiarios",
+    "BloquesRacksIndisponiblesAcumulados",
+    "Disponibilidad",
+    "Variacion",
+    "EstadoExclusiones",
+)
+COLUMNAS_CALIDAD = (
+    "IdProyecto",
+    "Anio",
+    "Mes",
+    "Tipo",
+    "Severidad",
+    "NumeroFilaOrigen",
+    "NumeroPCS",
+    "SerialFecha",
+    "Detalle",
+)
+
+
+class ErrorPeriodoMensual(ValueError):
+    """El período no es publicable: debe empezar el día 1 y no salir del mes (D-20)."""
+
+
+def validar_periodo_mensual(cfg) -> None:
+    ini, fin = cfg.inicio_periodo, cfg.fin_periodo
+    if ini.day != 1 or (fin.year, fin.month) != (ini.year, ini.month) or fin < ini:
+        raise ErrorPeriodoMensual(
+            f"período {ini}..{fin}: para publicar debe empezar el día 1 y terminar dentro del mismo mes (D-20)"
+        )
+
+
+def _ocurrencias(claves) -> list[int]:
+    """1, 2… para claves repetidas en orden (timestamps repetidos por el cambio de hora, F-32)."""
+    vistas: dict = {}
+    salida = []
+    for c in claves:
+        vistas[c] = vistas.get(c, 0) + 1
+        salida.append(vistas[c])
+    return salida
+
+
+def construir_paquete_mes(
     r: ResultadoCalculo,
     meta: MetadatosCorrida,
     catalogo: dict[str, int],
     kpi_mensual: KpiMensual | None = None,
-    anual: list[FilaAnual] | None = None,
-) -> PaqueteCorrida:
-    """Todas las filas de la corrida excepto ``etl_run`` (que se inserta al iniciar)."""
+) -> PaqueteMes:
+    """Filas de las tablas de estado para el mes del período (que debe ser mensual, D-20)."""
+    from calendar import monthrange
+
+    from etl_arena.orquestacion import mes_cubierto
+
     cfg, m, disp, ev = r.cfg, r.matriz, r.disponibilidad, r.eventos
-    idc = cfg.id_corrida
-    p = cfg.total_pcs
+    validar_periodo_mensual(cfg)
+    p, idp = cfg.total_pcs, cfg.id_proyecto
+    anio, mes = cfg.inicio_periodo.year, cfg.inicio_periodo.month
     anomalias_extra: list[Anomalia] = []
-
-    colmap = Tabla("raw_pcs_column_map", ("IdCorrida", "NumeroPCS", "Campo", "NumeroColumna", "NombreColumna"))
-    for pcs in m.pcs[:p]:
-        for campo in ORDEN_CAMPOS:
-            col = columna(pcs, campo)
-            colmap.filas.append((idc, pcs, campo, col, _txt(r.libro.encabezado.get(col, ""), 200) or ""))
-
-    sel = filas_staging(r)
     modulos_disp = m.modulos_disponibles(cfg.baterias_por_pcs)
-    raw = Tabla(
-        "raw_pcs_sample",
-        (
-            "IdCorrida",
-            "NumeroFilaOrigen",
-            "NumeroPCS",
-            "SerialFechaExcelOrigen",
-            "MarcaTiempoLocalOrigen",
-            "FallaRaw",
-            "FallaRawEsNumero",
-            "EstadoRaw",
-            "AdvertenciaRaw",
-            "ModulosRaw",
-            "ModulosDisponibles",
-            "ModulosDisponiblesNulo",
-            "EsFilaNuevaDelExport",
-        ),
-    )
-    for i in sel.tolist():
+    exc = r.exclusion
+
+    filas = disp.filas_procesadas.tolist()
+    occ = _ocurrencias(float(disp.serial[k]) for k in range(len(filas)))
+    mp = Tabla("muestra_pcs", COLUMNAS_MUESTRA_PCS)
+    mpl = Tabla("muestra_planta", COLUMNAS_MUESTRA_PLANTA)
+    crudos_pcs: dict = {}
+    crudos_planta: dict = {}
+    for k, i in enumerate(filas):
+        serial, o = float(disp.serial[k]), occ[k]
         fila = int(m.numero_fila[i])
         marca = _dt(m.marca_tiempo[i])
         nueva = fila in meta.filas_nuevas_export
         for j in range(p):
             falla = m.falla[i, j]
-            raw.filas.append(
-                (
-                    idc,
-                    fila,
-                    m.pcs[j],
-                    float(m.serial[i]),
-                    marca,
-                    _txt(falla),
-                    isinstance(falla, float),
-                    _txt(m.estado[i, j]),
-                    _txt(m.advertencia[i, j]),
-                    _f(m.modulos[i, j]),
-                    float(modulos_disp[i, j]),
-                    bool(m.modulos_nulo[i, j]),
-                    nueva,
-                )
-            )
-
-    pa = Tabla(
-        "plant_activity_sample",
-        (
-            "IdCorrida",
-            "NumeroFilaOrigen",
-            "SerialFecha",
-            "MarcaTiempoMuestra",
-            "FactorOperacionalRaw",
-            "EventoExcusadoRaw",
-            "SetpointPotenciaActivaKW",
-            "DroopSobrefrecuenciaHabilitado",
-            "DroopBajafrecuenciaHabilitado",
-            "PotenciaActivaPOIKW",
-            "PorcentajeSOC",
-        ),
-    )
-    for i in sel.tolist():
-        fila = int(m.numero_fila[i])
-        c = r.libro.actividad.get(fila, {})
-        num = [c.get(k) if isinstance(c.get(k), float) else None for k in range(2, 10)]
-        pa.filas.append((idc, fila, num[0], _dt_serial(num[0]) if num[0] is not None else None, *num[1:]))
-
-    exc = r.exclusion
-    ems = Tabla(
-        "exclusion_matrix_sample",
-        (
-            "IdCorrida",
-            "NumeroFilaOrigen",
-            "NumeroPCS",
-            "SerialFecha",
-            "MarcaTiempoMuestra",
-            "ValorExclusion",
-            "BateriasPrevias",
-            "EventoExcusadoFila",
-            "Comentario",
-        ),
-    )
-    for i in sel.tolist():
-        for j in np.flatnonzero(exc.valor[i, :p]).tolist():
-            s_em = _f(exc.serial_em[i])
-            ems.filas.append(
-                (
-                    idc,
-                    int(m.numero_fila[i]),
-                    m.pcs[j],
-                    s_em,
-                    _dt_serial(s_em) if s_em is not None else None,
-                    int(exc.valor[i, j]),
-                    _f(exc.baterias_previas[i, j]),
-                    _f(exc.evento_excusado[i]),
-                    _txt(exc.comentario[i], 500),
-                )
-            )
-
-    asr = Tabla(
-        "availability_sample_result",
-        (
-            "IdCorrida",
-            "NumeroFilaOrigen",
-            "NumeroPCS",
-            "SerialFecha",
-            "MarcaTiempoMuestra",
-            "ModulosDisponibles",
-            "ModulosDisponiblesNulo",
-            "BateriasIndisponibles",
-            "ValorExclusion",
-            "FactorOperacional",
-            "BateriasIndisponiblesPonderadas",
-            "ImpactoRackPonderado",
-        ),
-    )
-    for k, i in enumerate(disp.filas_procesadas.tolist()):
-        marca = _dt(m.marca_tiempo[i])
-        fila = int(disp.numero_fila[k])
-        for j in range(p):
             b = disp.baterias[k, j]
-            asr.filas.append(
+            crudo = (_f(m.modulos[i, j]), _txt(falla), _txt(m.estado[i, j]), _txt(m.advertencia[i, j]))
+            crudos_pcs[(serial, o, m.pcs[j])] = (fila, marca, *crudo)
+            mp.filas.append(
                 (
-                    idc,
-                    fila,
-                    disp.pcs[j],
-                    float(disp.serial[k]),
+                    idp,
+                    serial,
+                    o,
+                    m.pcs[j],
+                    anio,
+                    mes,
                     marca,
+                    fila,
+                    crudo[1],
+                    isinstance(falla, float),
+                    crudo[2],
+                    crudo[3],
+                    crudo[0],
                     float(modulos_disp[i, j]),
                     bool(m.modulos_nulo[i, j]),
-                    0.0 if np.isnan(b) else float(b),
                     int(disp.exclusion[k, j]),
+                    _f(exc.baterias_previas[i, j]),
+                    0.0 if np.isnan(b) else float(b),
                     float(disp.factor_operacional[k]),
                     0.0 if np.isnan(b) else float(disp.ponderadas[k, j]),
                     float(disp.impacto[k, j]),
+                    nueva,
                 )
             )
-
-    c23 = disp.minutos_muestreo_derivado
-    dias_periodo = (cfg.fin_periodo - cfg.inicio_periodo).days + 1
-    arr = Tabla(
-        "availability_run_result",
-        (
-            "IdCorrida",
-            "BloquesMuestreo",
-            "TotalRacks",
-            "BloquesRacksIndisponibles",
-            "DisponibilidadPeriodo",
-            "DisponibilidadAnualAcumulada",
-            "MinutosMuestreoDerivado",
-            "HorasRackEventos",
-            "BloquesMuestreoCalendario",
-        ),
-        [
-            (
-                idc,
-                disp.bloques_muestreo,
-                cfg.total_racks,
-                float(disp.bloques_racks_indisponibles),
-                _f(disp.disponibilidad_periodo),
-                _f(disp.disponibilidad_anual_acumulada),
-                _f(c23),
-                float(ev.horas_rack_totales),
-                dias_periodo * 24 * 60 / c23 if c23 else None,
-            )
-        ],
-    )
+        c = r.libro.actividad.get(fila, {})
+        num = [c.get(col) if isinstance(c.get(col), float) else None for col in range(3, 10)]
+        crudos_planta[(serial, o)] = (fila, marca, num[0])
+        mpl.filas.append(
+            (idp, serial, o, anio, mes, marca, fila, *num, _f(exc.evento_excusado[i]), _txt(exc.comentario[i], 500))
+        )
 
     eventos = ev.eventos()
-    fe = Tabla(
-        "fault_event",
-        (
-            "IdCorrida",
-            "OrdenExcel",
-            "NumeroPCS",
-            "SerialInicio",
-            "SerialFin",
-            "MarcaTiempoInicio",
-            "MarcaTiempoFin",
-            "DuracionHoras",
-            "CodigoFalla",
-            "DescripcionFalla",
-            "DescripcionFallaFallback",
-            "NumeroBloques",
-            "SumaBloques",
-            "PromedioBateriasInvolucradas",
-            "HorasRackIndisponibles",
-            "EventoArrastradoExcel",
-            "ExcelHabriaFallado",
-            "CerradoPorModulosNulo",
-            "TieneExclusion",
-        ),
-    )
-    det = Tabla(
-        "detencion",
-        (
-            "IdProyecto",
-            "IdCorrida",
-            "OrdenExcel",
-            "NumeroPCS",
-            "FechaInicio",
-            "FechaTermino",
-            "DuracionSegundos",
-            "DuracionHoras",
-            "IdTipoDetencion",
-            "CodigoFalla",
-            "DescripcionFalla",
-            "DescripcionFallaFallback",
-            "PromedioBateriasInvolucradas",
-            "HorasRackIndisponibles",
-            "CerradoPorModulosNulo",
-            "EsExcusable",
-            "EventoArrastradoExcel",
-        ),
-    )
-    for e in eventos:
-        fe.filas.append(
-            (
-                idc,
-                e.orden_excel,
-                e.numero_pcs,
-                e.serial_inicio,
-                e.serial_fin,
-                _dt(e.marca_tiempo_inicio),
-                _dt(e.marca_tiempo_fin),
-                e.duracion_horas,
-                e.codigo_falla[:300],
-                e.descripcion_falla[:255],
-                e.descripcion_falla_fallback,
-                e.numero_bloques,
-                e.suma_bloques,
-                e.promedio_baterias,
-                e.horas_rack_indisponibles,
-                e.arrastrado_excel,
-                e.excel_habria_fallado,
-                e.cerrado_por_nulo,
-                e.tiene_exclusion,
-            )
-        )
+    occ_ev = _ocurrencias((e.numero_pcs, _dt(e.marca_tiempo_inicio)) for e in eventos)
+    det = Tabla("detencion", COLUMNAS_DETENCION)
+    for e, o in zip(eventos, occ_ev, strict=True):
         id_tipo = catalogo.get(e.codigo_falla)
         if id_tipo is None:
             anomalias_extra.append(
@@ -377,126 +310,114 @@ def construir_paquete(
             )
         det.filas.append(
             (
-                cfg.id_proyecto,
-                idc,
-                e.orden_excel,
+                idp,
+                anio,
+                mes,
                 e.numero_pcs,
                 _dt(e.marca_tiempo_inicio),
+                o,
                 _dt(e.marca_tiempo_fin),
                 round(e.duracion_horas * 3600),
-                e.duracion_horas,  # mismo valor que fault_event.DuracionHoras (ListOfFaults!E)
+                e.duracion_horas,  # ListOfFaults!E
                 id_tipo,
                 e.codigo_falla[:300],
                 e.descripcion_falla[:255],
                 e.descripcion_falla_fallback,
+                e.serial_inicio,
+                e.serial_fin,
+                e.numero_bloques,
+                e.suma_bloques,
                 e.promedio_baterias,
                 e.horas_rack_indisponibles,
+                e.arrastrado_excel,
+                e.excel_habria_fallado,
                 e.cerrado_por_nulo,
                 e.tiene_exclusion,
-                e.arrastrado_excel,
+                e.orden_excel,
             )
         )
 
-    fcs = Tabla(
-        "fault_code_summary",
-        ("IdCorrida", "Ranking", "CodigoFalla", "DescripcionFallaPE", "HorasRackIndisponibles", "Porcentaje"),
+    diario = Tabla(
+        "disponibilidad_diaria",
+        COLUMNAS_DIARIO,
         [
-            (idc, k, f.codigo[:10], f.descripcion_pe[:150] or None, f.horas_rack, _f(f.porcentaje))
-            for k, f in enumerate(ev.resumen, start=1)
-        ],
-    )
-
-    daily = Tabla(
-        "daily_availability",
-        (
-            "IdCorrida",
-            "DiaN",
-            "Dia",
-            "BloquesRacksIndisponiblesDiarios",
-            "BloquesRacksIndisponiblesAcumulados",
-            "Disponibilidad",
-            "Variacion",
-        ),
-        [
-            (idc, d.numero_dia, _dt(d.dia), d.diario, d.acumulado, _f(d.disponibilidad), _f(d.variacion))
+            (
+                idp,
+                _dt(d.dia),
+                d.dia.year,
+                d.dia.month,
+                d.numero_dia,
+                d.diario,
+                d.acumulado,
+                _f(d.disponibilidad),
+                _f(d.variacion),
+                meta.estado_exclusiones,
+            )
             for d in r.diario
         ],
     )
 
-    mensual = Tabla(
-        "monthly_official_kpi",
-        (
-            "IdProyecto",
-            "Anio",
-            "Mes",
-            "DiasMes",
-            "BloquesMuestreo",
-            "BloquesRacksIndisponibles",
-            "DisponibilidadContractual",
-            "Origen",
-            "IdCorrida",
-        ),
-    )
-    if kpi_mensual is not None:
-        k = kpi_mensual
-        mensual.filas.append(
-            (
-                cfg.id_proyecto,
-                k.anio,
-                k.mes,
-                k.dias_mes,
-                k.bloques_muestreo,
-                k.bloques_racks_indisponibles,
-                k.disponibilidad_contractual,
-                k.origen,
-                idc,
-            )
-        )
-
-    anual_t = Tabla(
-        "annual_availability",
-        (
-            "IdCorrida",
-            "Anio",
-            "Mes",
-            "DiasMes",
-            "BloquesMuestreo",
-            "BloquesRacksIndisponibles",
-            "DisponibilidadMensual",
-            "BloquesMuestreoAcumulados",
-            "BloquesIndisponiblesAcumulados",
-            "DisponibilidadAcumulada",
-            "DisponibilidadContractual",
-        ),
-        [
-            (
-                idc,
-                a.anio,
-                a.mes,
-                a.dias_mes,
-                a.bloques_muestreo,
-                _f(a.bloques_racks_indisponibles),
-                _f(a.disponibilidad_mensual),
-                a.bloques_muestreo_acumulados,
-                a.bloques_indisponibles_acumulados,
-                _f(a.disponibilidad_acumulada),
-                _f(a.disponibilidad_contractual),
-            )
-            for a in (anual or [])
-        ],
-    )
-
-    dqi = Tabla(
-        "data_quality_issue",
-        ("IdCorrida", "Tipo", "Severidad", "NumeroFilaOrigen", "NumeroPCS", "SerialFecha", "Detalle"),
-    )
+    calidad = Tabla("calidad_dato", COLUMNAS_CALIDAD)
     for a in [*r.anomalias, *anomalias_extra]:
-        dqi.filas.append(
-            (idc, a.tipo[:50], a.severidad, a.numero_fila, a.numero_pcs, _f(a.serial), (a.detalle or "")[:1000] or None)
+        calidad.filas.append(
+            (
+                idp,
+                anio,
+                mes,
+                a.tipo[:50],
+                a.severidad,
+                a.numero_fila,
+                a.numero_pcs,
+                _f(a.serial),
+                (a.detalle or "")[:1000] or None,
+            )
         )
 
-    tablas = [colmap, raw, pa, ems, asr, arr, fe, fcs, daily, mensual, anual_t, det, dqi]
-    return PaqueteCorrida(idc, tablas, anomalias_extra)
+    c23 = disp.minutos_muestreo_derivado
+    dias_periodo = (cfg.fin_periodo - cfg.inicio_periodo).days + 1
+    ultimo_serial = float(disp.serial[-1]) if filas else None
+    completo = bool(
+        cfg.fin_periodo.day == monthrange(anio, mes)[1]
+        and ultimo_serial is not None
+        and mes_cubierto(ultimo_serial, anio, mes, cfg.minutos_muestreo)
+    )
+    mensual = {
+        "InicioPeriodo": _dt(cfg.inicio_periodo),
+        "UltimoDato": _dt_serial(ultimo_serial) if ultimo_serial is not None else None,
+        "MesCompleto": completo,
+        "DiasMes": kpi_mensual.dias_mes if kpi_mensual is not None else float(dias_periodo),
+        "BloquesMuestreo": float(disp.bloques_muestreo),
+        "BloquesMuestreoCalendario": dias_periodo * 24 * 60 / c23 if c23 else None,
+        "TotalRacks": cfg.total_racks,
+        "BloquesRacksIndisponibles": float(disp.bloques_racks_indisponibles),
+        "DisponibilidadMensual": _f(disp.disponibilidad_periodo),
+        "DisponibilidadAnualAcumulada": _f(disp.disponibilidad_anual_acumulada),
+        "HorasRackEventos": float(ev.horas_rack_totales),
+        "MinutosMuestreoDerivado": _f(c23),
+        "DisponibilidadContractual": kpi_mensual.disponibilidad_contractual if kpi_mensual is not None else 0.98,
+        "AcumulaEnAnual": mes >= cfg.mes_inicio_acumulado(anio),
+        "EstadoExclusiones": meta.estado_exclusiones,
+        "TipoCorrida": cfg.tipo_corrida,
+        "Origen": "corrida",
+        "VersionAlgoritmo": cfg.version_algoritmo,
+    }
+    return PaqueteMes(
+        idp,
+        anio,
+        mes,
+        mensual["UltimoDato"],
+        completo,
+        meta.estado_exclusiones,
+        mp,
+        mpl,
+        det,
+        diario,
+        calidad,
+        mensual,
+        crudos_pcs,
+        crudos_planta,
+        anomalias_extra,
+    )
 
 
 def fila_etl_run(r_cfg, meta: MetadatosCorrida) -> tuple[tuple[str, ...], tuple]:
@@ -506,7 +427,6 @@ def fila_etl_run(r_cfg, meta: MetadatosCorrida) -> tuple[tuple[str, ...], tuple]
         "IdCorrida",
         "IdProyecto",
         "TipoCorrida",
-        "EsOficial",
         "EstadoExclusiones",
         "ArchivoOrigen",
         "HashArchivoOrigen",
@@ -533,7 +453,6 @@ def fila_etl_run(r_cfg, meta: MetadatosCorrida) -> tuple[tuple[str, ...], tuple]
         c.id_corrida,
         c.id_proyecto,
         c.tipo_corrida,
-        c.es_oficial,
         meta.estado_exclusiones,
         c.archivo_origen[:500],
         meta.hash_archivo_origen,

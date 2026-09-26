@@ -1,6 +1,6 @@
 """Resumen de calidad de una corrida (R15.2, R15.3) → ``etl_run.ResumenCalidad``.
 
-Las anomalías individuales van a ``data_quality_issue`` (``persistence.paquete``); aquí solo se
+Las anomalías individuales van a ``calidad_dato`` (``persistence.paquete``); aquí solo se
 resume lo que un revisor necesita ver de un vistazo.
 """
 

@@ -271,6 +271,10 @@ git pull
 .venv\Scripts\python -m pip install -e ".[dev]"
 ```
 
+Si la revisión automática (paso 7) dice **"tiene el esquema antiguo (una copia por corrida)"**, la base todavía no
+se actualizó al modelo de "una versión por mes" ([ADR-12](./adr/ADR-12-estado-vigente.md)). Eso lo hace Francisco
+una sola vez por base con `scripts\crear_base.py`; no lo corras por tu cuenta en PROD.
+
 ## Importante: un solo computador oficial
 
 Cada computador guarda su propia memoria de trabajo en `data/work/` (qué libro es la base de la próxima semana y

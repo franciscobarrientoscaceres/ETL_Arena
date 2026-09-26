@@ -130,9 +130,9 @@ def url_configurada(base_datos: str | None = None) -> URL:
 
 
 def descripcion_ambiente() -> str:
-    """Texto para mostrar al operador, p. ej. ``PROD → trina-etl.database.windows.net/trina_etl``."""
+    """Texto para mostrar al operador, p. ej. ``PROD: trina-etl.database.windows.net/trina_etl``."""
     url = url_configurada()
-    return f"{AMBIENTES[entorno()]['etiqueta']} → {url.host}/{url.database}"
+    return f"{AMBIENTES[entorno()]['etiqueta']}: {url.host}/{url.database}"
 
 
 def es_azure(url: URL) -> bool:

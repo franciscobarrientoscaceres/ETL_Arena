@@ -174,20 +174,20 @@ SCADA ~03:00 AM (solo extract)
   → copia de trabajo del .xlsm (backup)
   → macros COM: cmdCalcAvailability → mcoCreateList → mcoDailyAvailability → Graphupdate
   → extrae C12/C14/C16/C19 (referencia Excel)
-  → pipeline Python → SQL Server (IdCorrida nuevo)
-  → reconcile Python vs referencia
+  → pipeline Python + reconcile Python vs referencia
+  → si success: publicar_mes reemplaza el mes en SQL Server (registro en etl_run)
   → notificar a Misael: refresh Power BI
 ```
 
 Base de datos (ADR-10, 2026-09-24): **Azure SQL Database serverless, oferta gratuita** — servidor `trina-etl.database.windows.net` (Brazil South), autenticación Microsoft Entra ID (`ETL_ARENA_DB_AUTH=entra`, por defecto). **Dos ambientes fijos en `src/etl_arena/ambientes.py`:** **PROD** = `trina_etl` (por defecto) y **TEST/QA** = `trina_etl_prueba` (`--entorno prueba|qa|test` o `ETL_ARENA_ENTORNO`; usa además `data/work/_prueba`). Sin `.env` se usan esas direcciones; `ETL_ARENA_DB_URL` / `ETL_ARENA_DB_URL_PRUEBA` solo las reemplazan. El código nunca crea ni borra bases en Azure. Los tests de integración usan su propia base (`ETL_ARENA_TEST_DB_URL`, con "test" en el nombre); `reiniciar_esquema` se niega a tocar `trina_etl` y `trina_etl_prueba` (incidente 2026-09-25: los tests vaciaron TEST/QA).
 
-Orquestador: `scripts/run_lunes.py` con etapas `acquire-wait`, `prepare-workbook`, `run-macros`, `run-etl`, `reconcile`, `notify-bi`, más `cierre-mensual` y `load-exclusion-matrix` (mensuales). Entre cortes (`etl_arena.orquestacion`): libro base promovido tras cada corrida oficial exitosa y cola de cierres mensuales. Fases P0–P9 y detalle en `AGENTS.md` §14 Fase S. Runbook: `docs/runbook-lunes.md`. Power BI: `docs/pbi-handoff.md`.
+Orquestador: `scripts/run_lunes.py` con etapas `acquire-wait`, `prepare-workbook`, `run-macros`, `run-etl`, `reconcile`, `notify-bi`, más `cierre-mensual` y `load-exclusion-matrix` (mensuales). Entre cortes (`etl_arena.orquestacion`): libro base promovido tras cada corrida publicada y cola de cierres mensuales. Fases P0–P9 y detalle en `AGENTS.md` §14 Fase S. Runbook: `docs/runbook-lunes.md`. Power BI: `docs/pbi-handoff.md`.
 
 **Macros y exclusiones (F-44):** las macros de septiembre con C31/L14 = "Yes" excusan con `PlantActivity!D`; por eso `workbook.macros` escribe "No" salvo que el VBA lea `Exclusion_Matrix` (maestro v1.1, detectado con `workbook.vba`), y si el período tiene exclusiones la referencia Excel se omite.
 
 **Velocidad de las macros (F-45):** `workbook.macros` corre por defecto en modo rápido: pantalla sin refrescar y recálculo manual, con `Calculate` antes de cada macro y al final (resultado idéntico, ~2× más rápido; el VBA no se toca). `run_lunes.py --macros-sin-optimizar` vuelve al modo antiguo.
 
-**Reglas:** export **incremental** (desde el dato siguiente al último cargado hasta el último dato del lunes; continuidad validada al recibir; D-07); KPI semanal = mes en curso hasta el último dato; cierre mensual = mes completo; KPI oficial con `C31 = L14 = "Yes"` (D-03); transporte hoy solo TeamViewer (sin UNC/API); solo `RawData-PCS` desde SCADA; `Exclusion_Matrix` la entrega Alex a fin de mes: KPI semanal oficial "Sin Exclusiones", cierre mensual oficial "Con Exclusiones" (D-17, F-37); PlantActivity solo para C21 (D-12); correcciones solo por `reproceso` con registro de celdas cambiadas (D-13); macros y ETL solo en PC local; Power BI modo notificación (owner Misael) hasta service principal.
+**Reglas:** export **incremental** (desde el dato siguiente al último cargado hasta el último dato del lunes; continuidad validada al recibir; D-07); KPI semanal = mes en curso hasta el último dato; cierre mensual = mes completo; KPI oficial con `C31 = L14 = "Yes"` (D-03); transporte hoy solo TeamViewer (sin UNC/API); solo `RawData-PCS` desde SCADA; `Exclusion_Matrix` la entrega Alex a fin de mes: KPI semanal oficial "Sin Exclusiones", cierre mensual oficial "Con Exclusiones" (D-17, F-37); PlantActivity solo para C21 (D-12); correcciones = recargar el mes; cada dato cambiado queda en `correccion_dato` (D-13, D-27); macros y ETL solo en PC local; Power BI modo notificación (owner Misael) hasta service principal.
 
 ---
 
@@ -223,22 +223,33 @@ Scripts principales: `scripts/run_lunes.py` (orquestador semanal) y `scripts/eje
 
 ---
 
-## Tablas SQL Server (ver AGENTS.md §13)
+## Tablas SQL Server (esquema v2, ADR-12; ver `docs/modelo-datos.md`)
+
+**Estado vigente** — una versión por mes; `publicar_mes` la reemplaza en una transacción (clave de negocio, no `IdCorrida`; `NumCorrida` = última carga que escribió la fila):
 
 | Tabla | Columnas clave |
 |---|---|
-| `etl_run` | `IdCorrida` (llave UUID), `NumCorrida` (correlativo 1, 2, 3… para personas; `IDENTITY_CACHE = OFF`), `IdProyecto`, parámetros de corrida (período, flags, `TotalPCS`…), `Status`, `MensajeError`, `VersionAlgoritmo`. Los KPI C12/C14 viven en `availability_run_result`, no aquí |
+| `muestra_pcs` | PK (`IdProyecto`, `SerialFecha`, `Ocurrencia`, `NumeroPCS`); `Anio`, `Mes`, `NumeroFilaOrigen`, `ModulosRaw`, `ModulosDisponibles`, `ModulosDisponiblesNulo`, `FallaRaw`, `ValorExclusion`, `BateriasIndisponibles`, `FactorOperacional`, `ImpactoRackPonderado` |
+| `muestra_planta` | PK (`IdProyecto`, `SerialFecha`, `Ocurrencia`); columnas de PlantActivity, `EventoExcusadoFila`, `ComentarioExclusion` |
+| `detencion` | `IdDetencion` (estable entre recargas, D-25); UQ (`IdProyecto`, `Anio`, `Mes`, `NumeroPCS`, `FechaInicio`, `Ocurrencia`); `FechaTermino`, `DuracionSegundos`, `DuracionHoras`, `IdTipoDetencion`, `CodigoFalla`, `DescripcionFallaFallback`, `HorasRackIndisponibles`, `EsExcusable` |
+| `disponibilidad_diaria` | PK (`IdProyecto`, `Dia`); `BloquesRacksIndisponiblesDiarios`, `…Acumulados`, `Disponibilidad`, `Variacion` |
+| `disponibilidad_mensual` | PK (`IdProyecto`, `Anio`, `Mes`); `UltimoDato`, `MesCompleto`, `BloquesMuestreo` (C12), `BloquesRacksIndisponibles` (C14), `DisponibilidadMensual` (C16), `DisponibilidadAnualAcumulada` (C19), `HorasRackEventos` (L10), `EstadoExclusiones`, `Origen` (`corrida`/`excel_manual`), `AcumulaEnAnual` |
+| `calidad_dato` | `IdProyecto`, `Anio`, `Mes`, `Tipo`, `Severidad`, `Detalle` |
+
+**Maestros y registro** (append-only):
+
+| Tabla | Columnas clave |
+|---|---|
 | `proyecto` | `IdProyecto`, `NumPCS`, `NumBateriasPorPCS`, `NumRacksPorBAC`, `TotalRacks`, `MinutosMuestreo`, `ZonaHoraria` |
-| `tipo_detencion` | `IdTipoDetencion`, `CodigoFalla`, `DescripcionFallaPE`, `CodigoDescripcion`, `Significado`, `Operativo` (167 códigos de `PCS-Fault`) |
-| `raw_pcs_sample` | `IdCorrida`, `MarcaTiempoMuestra`, `NumeroPCS`, `ModulosDisponibles`, `ModulosDisponiblesNulo`, `SerialFechaExcelOrigen` |
-| `plant_activity_sample` | `IdCorrida`, `MarcaTiempoMuestra`, `EsOperacional`, `PorcentajeSOC` |
-| `exclusion_matrix_sample` | `IdCorrida`, `NumeroFilaOrigen`, `NumeroPCS`, `ValorExclusion` (1/2), `BateriasPrevias`, `Comentario` (F-37) |
-| `availability_sample_result` | `IdCorrida`, `MarcaTiempoMuestra`, `NumeroPCS`, `BateriasIndisponibles`, `ValorExclusion`, `FactorOperacional`, `ImpactoRackPonderado` |
-| `availability_run_result` | `IdCorrida`, `BloquesMuestreo`, `BloquesRacksIndisponibles`, `DisponibilidadPeriodo`, `DisponibilidadAnualAcumulada` |
-| `fault_event` | `IdCorrida`, `NumeroPCS`, `MarcaTiempoInicio`, `MarcaTiempoFin`, `DuracionHoras`, `CodigoFalla`, `DescripcionFallaFallback`, `HorasRackIndisponibles` |
-| `detencion` | `IdDetencion`, `IdProyecto`, `IdCorrida`, `FechaInicio`, `FechaTermino`, `DuracionSegundos`, `DuracionHoras`, `IdTipoDetencion`, `EstadoRevision`, `Observacion` |
-| `daily_availability` | `IdCorrida`, `Dia`, `BloquesRacksIndisponiblesDiarios`, `BloquesRacksIndisponiblesAcumulados`, `Disponibilidad`, `Variacion` |
-| `annual_availability` | `IdCorrida`, `Anio`, `Mes`, `BloquesMuestreo`, `DisponibilidadMensual`, `DisponibilidadAcumulada` |
+| `tipo_detencion` | `IdTipoDetencion`, `CodigoFalla`, `DescripcionFallaPE`, `CodigoDescripcion`, `Significado`, `Operativo` (163 códigos únicos de las 167 filas de `PCS-Fault`, D-14) |
+| `etl_run` | `IdCorrida` (llave UUID), `NumCorrida` (correlativo; `IDENTITY_CACHE = OFF`), período, flags, `Estado`, `Publicada`, `MesesPublicados`, `MensajeError`, `VersionAlgoritmo` |
+| `correccion_dato` | `IdCorrida`, `TipoCorreccion` (`recarga`, `exclusion_matrix`, `plant_activity`, `reproceso_raw`), fila, PCS, `Campo`, `ValorAnterior`, `ValorNuevo` |
+| `excel_reference_run` | `IdReferencia`, parámetros y KPI del Excel (C12, C14, C16, C19, L10); detalle en `referencia_excel.json` |
+| `reconciliation_result` | `IdCorrida`, `Nivel`, `Metrica`, `Delta`, `Aprobado` (resumen por nivel + diferencias fuera de tolerancia) |
+| `exclusion_matrix_carga` | `IdCarga`, `Anio`, `Mes`, `ArchivoOrigen`, `IdCorridaCierre` |
+| `detencion_revision` | `IdProyecto`, `NumeroPCS`, `FechaInicio`, `EstadoRevision`, `Observacion`, `RevisadoPor` |
+
+Vistas: `v_disponibilidad_anual`, `v_resumen_codigo_mensual`, `v_detencion`, `v_modulos_nulos`, `v_correccion_dato`, `v_ejecuciones`. `sql/02a_migracion_v2.sql` elimina las tablas v1 solo si `etl_run` está vacía.
 
 ---
 
@@ -246,7 +257,7 @@ Scripts principales: `scripts/run_lunes.py` (orquestador semanal) y `scripts/eje
 
 1. **No modificar el algoritmo de disponibilidad** durante la fase de paridad — reproducirlo exactamente.
 2. **No hardcodear** `61`, `4`, `12`, `15` — provienen de `ConfiguracionCalculo`.
-3. **No destruir resultados históricos en SQL** — usar `IdCorrida` como clave; SQL es append-only.
+3. **Estado vigente por mes (ADR-12, aceptada 2026-09-26)** — las tablas de estado guardan una versión por mes y solo `publicar_mes` las reemplaza (una transacción, con `sp_getapplock`, solo corridas `success`; protecciones D-21/D-23: `--permitir-recorte`, `--reemplazar-manual`, `--forzar-sin-exclusiones`, `--publicar-aunque-no-cuadre`). El **registro** (`etl_run`, `correccion_dato`, `excel_reference_run`, `reconciliation_result`, `exclusion_matrix_carga`, `detencion_revision`) es append-only y nunca se borra. Un período de varios meses se procesa mes a mes (D-20).
 4. **El campo que gobierna la indisponibilidad es `NUMBER_OF_MODULES`** (`ModulosDisponibles`), no el código de falla.
 5. **Conservar timestamps originales** (`SerialFechaExcelOrigen` + `MarcaTiempoLocalOrigen`) — no convertir a UTC sin documentar.
 6. **`ModulosDisponiblesNulo`**: intervalos con `NUMBER_OF_MODULES` vacío se tratan como disponibles (= 4) pero se marcan para auditoría.

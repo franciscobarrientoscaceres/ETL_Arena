@@ -25,7 +25,7 @@ semanas (shadow mode) y las piezas que dependen de insumos externos. Condiciones
 4. Checkpoint D cerrado.
 5. Decisiones abiertas cerradas o aceptadas explícitamente como riesgo: D-11 (agosto), D-14 (códigos duplicados),
    D-18 (marca PCS61) y el uso de `PlantActivity` para exclusiones (hoy **no** se usa; espera confirmación de Alex).
-6. Power BI conectado a las vistas `v_*_vigente` y acordado con Misael (`docs/pbi-handoff.md` §8).
+6. Power BI conectado a las tablas de estado y vistas `v_*` y acordado con Misael (`docs/pbi-handoff.md` §7).
 
 ## 2. Criterios de aceptación (`AGENTS.md §22`)
 
@@ -41,7 +41,7 @@ semanas (shadow mode) y las piezas que dependen de insumos externos. Condiciones
 | 8 | Acumulado anual reconciliable | ⚠️ | Cálculo de `Annual_AVA` reproducido con los meses vigentes. Julio se explica con la regla histórica (F-42); **agosto no se reproduce** (D-11, F-43) y queda importado como `excel_manual` |
 | 9 | Períodos con cambio de hora validados | ✅ | Septiembre 2026 (salto del 06-09 00:00 → 01:00): C12 = 1.975. El cambio de abril es anterior al inicio de operación |
 | 10 | Auditoría KPI → acumulado → muestra → input raw | ✅ | `sql/07_audit_queries.sql`, `tests/integration/test_sql.py` (C14 = Σ muestras, trazabilidad a archivo, hash, fila y columna) |
-| 11 | Intervalos con `ModulosDisponiblesNulo` identificados en la BD | ✅ | `raw_pcs_sample.ModulosDisponiblesNulo`, vista `v_modulos_nulos_historico`, resumen de calidad |
+| 11 | Intervalos con `ModulosDisponiblesNulo` identificados en la BD | ✅ | `muestra_pcs.ModulosDisponiblesNulo`, vista `v_modulos_nulos`, resumen de calidad |
 
 ## 3. Criterios operativos (spec revisión 2)
 

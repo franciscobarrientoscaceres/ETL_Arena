@@ -25,7 +25,10 @@ flowchart LR
 
 1. **En el server SCADA solo se exporta.** Nunca se corre nada allí.
 2. **Los originales no se tocan.** El programa siempre trabaja sobre **copias** (carpeta `data/work/`).
-3. **Nada se borra de la base de datos.** Cada cálculo queda guardado como una corrida con su número (`NumCorrida`: 1, 2, 3…) y su código interno (`IdCorrida`).
+3. **La base tiene una sola versión de cada mes.** Cada lunes el mes en curso se **reemplaza** con la versión nueva
+   (más días). Cada carga queda anotada en el registro con su número (`NumCorrida`: 1, 2, 3…), y los datos que
+   cambiaron respecto de la carga anterior quedan en `correccion_dato`. Si Python y Excel no coinciden, **no se
+   reemplaza nada**.
 4. **Las exclusiones salen solo de la `Exclusion_Matrix`** que entrega Alex a fin de mes. `PlantActivity` no se
    usa para exclusiones mientras Alex no lo confirme.
 5. **Mientras el programa usa Excel, no uses Excel** (se abre una ventana sola por menos de 1 minuto y se cierra sola).
@@ -70,7 +73,7 @@ Mientras no tengamos la muestra real del export de SCADA (tarea 0.6), las filas 
 Cambia la fecha (dos veces) y ejecuta:
 
 ```powershell
-.venv\Scripts\python scripts\run_lunes.py --stage all --corte 2026-09-28 --libro-preparado "data\work\2026-09-28-preparado.xlsm" --oficial
+.venv\Scripts\python scripts\run_lunes.py --stage all --corte 2026-09-28 --libro-preparado "data\work\2026-09-28-preparado.xlsm"
 ```
 
 Qué significa cada parte:
@@ -80,7 +83,9 @@ Qué significa cada parte:
 | `--stage all` | Hacer todas las etapas, una tras otra |
 | `--corte 2026-09-28` | El nombre de esta corrida (usa la fecha de hoy). Crea la carpeta `data\work\2026-09-28\` |
 | `--libro-preparado "…"` | El libro que preparaste en el paso 2 |
-| `--oficial` | El resultado es oficial y lo podrá ver Power BI |
+
+> Antes existía `--oficial`. Ya no hace falta: **toda** carga que cuadra con el Excel reemplaza su mes en la base.
+> Si lo escribes igual, el programa solo muestra un aviso.
 
 El programa va mostrando cada etapa. Esto es lo que hace cada una:
 
@@ -89,13 +94,32 @@ El programa va mostrando cada etapa. Esto es lo que hace cada una:
 | `acquire-wait` | Busca el export en `data\inbox\`, revisa que no esté vacío, le saca una "huella" (sha256) y lo guarda para siempre en `data\processed\` |
 | `prepare-workbook` | Hace una copia del libro preparado para trabajar sobre ella (y otra copia de respaldo `.bak`) |
 | `run-macros` | Abre Excel, escribe las fechas, corre las macros y anota los resultados de Excel |
-| `run-etl` | Python calcula todo por su cuenta, lo compara con Excel y lo guarda en la base de datos |
-| `reconcile` | Decide si se puede publicar: si Python y Excel no coinciden, se detiene |
-| `notify-bi` | Prepara el aviso para Misael |
+| `run-etl` | Python calcula todo por su cuenta y lo compara con Excel. **Si coinciden, reemplaza el mes en la base** (todo o nada) |
+| `reconcile` | Si Python y Excel no coincidieron, se detiene (el mes en la base quedó como estaba) |
+| `notify-bi` | Prepara el aviso para Misael, con qué mes se reemplazó |
 
 **Qué período calcula:** desde el **día 1 del mes** hasta el **último dato** (así lo pide el contrato).
 Los resultados semanales salen con la etiqueta **"Sin Exclusiones"**, porque la matriz de exclusiones de Alex llega
 a fin de mes. Igual son oficiales.
+
+**Recargar varios meses de una vez.** Con `--desde` y `--hasta` se puede recalcular un período más largo, por ejemplo
+todo agosto y septiembre. El programa lo trabaja **mes por mes** (cada mes con sus macros, su cálculo y su
+comparación, en `data\work\<corte>\AAAA-MM\`) y reemplaza cada mes que cuadre. Si `--desde` no es un día 1, se
+corre al día 1 de ese mes (un mes siempre se reemplaza entero):
+
+```powershell
+.venv\Scripts\python scripts\run_lunes.py --stage all --corte 2026-09-28 --libro-preparado "data\work\2026-09-28-preparado.xlsm" --desde 2026-08-01 --hasta 2026-09-27
+```
+
+**Protecciones.** Para no perder datos por error, el programa **no reemplaza** un mes en estos casos, salvo que se
+agregue la opción que lo autoriza:
+
+| Caso | Por qué se detiene | Opción para hacerlo igual |
+|---|---|---|
+| La carga nueva llega a una fecha **anterior** a la que ya está en la base | Se borrarían días ya cargados | `--permitir-recorte` |
+| El mes vino importado del Excel (julio y agosto 2026, `excel_manual`) | Es el valor oficial reportado | `--reemplazar-manual` |
+| El mes ya está "Con Exclusiones" y la carga nueva es "Sin Exclusiones" | Se perdería la matriz de Alex | `--forzar-sin-exclusiones` |
+| Python y Excel no coinciden (`parity_failed`) | El resultado no es confiable | `--publicar-aunque-no-cuadre` (solo con un motivo conocido y anotado) |
 
 ## Paso 4 — ¿Salió bien?
 
@@ -105,8 +129,10 @@ Para saber más, abre `data\work\<corte>\run_state.json` con el Bloc de notas. E
 
 | Dato | Qué debe decir | Qué significa |
 |---|---|---|
-| `"num_corrida"` | un número, por ejemplo `12` | El número de esta corrida en la base (úsalo al hablar de ella) |
+| `"num_corrida"` | un número, por ejemplo `12` | El número de esta carga en la base (úsalo al hablar de ella) |
 | `"estado"` | `success` | El cálculo terminó bien |
+| `"publicada"` | `true` | El mes se reemplazó en la base |
+| `"publicacion"` | `"mes": "2026-09"`, filas borradas e insertadas, detenciones nuevas / actualizadas / eliminadas, `"correcciones"` | Qué cambió. `correcciones` = cuántos datos de SCADA cambiaron respecto de la carga anterior (normalmente 0) |
 | `"reconciliacion" → "estado"` | `pass` | Python y Excel dan **exactamente** lo mismo |
 | `"kpi" → "C16"` | un número como `0.98` | La disponibilidad del período (0,98 = 98 %) |
 | `"cierres_encolados"` | vacío, o un mes como `["2026-09"]` | Si aparece un mes, ese mes ya terminó y hay que cerrarlo (ver "Fin de mes") |
@@ -117,7 +143,8 @@ Para saber más, abre `data\work\<corte>\run_state.json` con el Bloc de notas. E
 - `pass` → todo igual. ✅
 - `sin_referencia` → no hubo Excel para comparar (por ejemplo, porque el período tiene exclusiones y el libro aún no
   sabe aplicarlas). **No es un error**: el resultado se publica igual.
-- `fail` / `parity_failed` → Python y Excel no coinciden. **No se publica.** Ver "Si algo falla".
+- `fail` / `parity_failed` → Python y Excel no coinciden. **No se reemplaza el mes**: la base sigue con la versión
+  anterior. Ver "Si algo falla".
 
 **Cosas raras en los datos (anomalías) que vale la pena mirar:**
 
@@ -174,11 +201,15 @@ hay un valor distinto de 0, 1 o 2, el programa se detiene y dice cuáles son, pa
 
 Sin `--sin-exclusiones`, el programa **no deja** cerrar un mes que no tenga su matriz cargada.
 
+Si más tarde llega la matriz de un mes que se cerró "Sin Exclusiones", `load-exclusion-matrix` lo reemplaza por la
+versión "Con Exclusiones" sin pedir nada más. Al revés (volver de "Con" a "Sin") exige `--forzar-sin-exclusiones`.
+
 ## Corregir datos que ya se cargaron
 
-La herramienta automática de corrección (`--reproceso`, tarea 4.13) aún no existe: depende del formato real del
-export de SCADA. Mientras tanto: corregir en una **copia nueva** del libro base, correr como un corte nuevo agregando
-`--tipo reproceso --oficial`, y anotar en el registro del shadow mode qué se corrigió y por qué.
+Corregir = **volver a cargar el mes**. Si SCADA corrigió datos de un mes, se preparan en una **copia nueva** del libro
+base, se corre como un corte nuevo (con `--desde`/`--hasta` del mes si no es el mes en curso) y el mes se reemplaza.
+El programa anota solo cada dato que cambió (valor anterior y nuevo) en `correccion_dato`; se ven con la vista
+`v_correccion_dato`. Anotar igual en el registro del shadow mode por qué se corrigió.
 
 ---
 
@@ -200,7 +231,7 @@ cargarlo de verdad en PROD. Al empezar, el programa siempre muestra en qué ambi
 Ejemplo:
 
 ```powershell
-.venv\Scripts\python scripts\run_lunes.py --entorno prueba --stage all --omitir-acquire --corte 2026-09-21 --libro-preparado "data\AvailabilityCalculation_PCS&Batteries_20260907_septiembre 2026.xlsm" --oficial
+.venv\Scripts\python scripts\run_lunes.py --entorno prueba --stage all --omitir-acquire --corte 2026-09-21 --libro-preparado "data\AvailabilityCalculation_PCS&Batteries_20260907_septiembre 2026.xlsm"
 ```
 
 **Preparación:** ya está hecha. La base `trina_etl_prueba` existe en Azure con todas sus tablas, y el código ya
@@ -213,7 +244,7 @@ conoce su dirección (no hace falta tocar el `.env`). Si alguna vez hubiera que 
 **Para empezar la práctica de cero:**
 
 1. Mover o borrar la carpeta `data\work\_prueba\` (lo más seguro: renombrarla, por ejemplo a `_prueba_respaldo`).
-2. Vaciar la base TEST/QA. Borra **todas** sus corridas, recrea las tablas, reinicia los identificadores en 1 y
+2. Vaciar la base TEST/QA. Borra **todos** sus meses y ejecuciones, recrea las tablas, reinicia los identificadores en 1 y
    vuelve a cargar los datos maestros (proyectos, catálogo de fallas, julio y agosto manuales). Hay que escribir el
    nombre de la base para confirmar; con PROD el programa se niega siempre:
    ```powershell
@@ -240,7 +271,12 @@ que dice `"error"`.
 | Quedó una ventana de Excel abierta después de cortar el programa | Cerrarla a mano **sin guardar** |
 | No conecta a la base / "Client with IP address" | La red no está autorizada: [instalación, paso 6](./instalacion.md#paso-6--abrir-la-puerta-de-azure-firewall) |
 | "not currently available (40613)" | La base estaba dormida: el programa reintenta solo ~1 minuto |
-| `parity_failed` en `reconcile` | Python y Excel no coinciden y **no se publica**. Avisar a Francisco con la carpeta del corte |
+| `parity_failed` en `reconcile` | Python y Excel no coinciden y **el mes no se reemplazó**. Avisar a Francisco con la carpeta del corte |
+| "se borrarían datos: usar --permitir-recorte" | La carga llega a una fecha anterior a la que ya está en la base. Revisar `--hasta` o el libro; si es a propósito, repetir con `--permitir-recorte` |
+| "excel_manual: … --reemplazar-manual" | Se intentó reemplazar julio o agosto 2026 (valores del Excel). Solo con acuerdo de Alex |
+| "está publicado 'Con Exclusiones'" | Ese mes ya tiene la matriz de Alex. Para volver a "Sin Exclusiones": `--forzar-sin-exclusiones` |
+| "otra carga está publicando el proyecto" | Hay otro computador o proceso cargando al mismo tiempo. Esperar unos minutos y repetir |
+| "para publicar debe empezar el día 1" (`ejecutar_etl.py`) | Con base de datos, `ejecutar_etl.py` necesita un período de un solo mes desde el día 1. Usar `run_lunes.py` para varios meses |
 | "el libro base cambió después de promoverse" | Alguien abrió y guardó un libro de un corte anterior. Restaurar desde su `libro.xlsm.bak` o avisar a Francisco |
 | La matriz de Alex tiene fechas que no existen o valores raros | Devolver a Alex la lista que muestra el programa, corregir y repetir |
 | TeamViewer no conecta | Reintentar más tarde (hoy no hay otro camino) |
@@ -254,7 +290,8 @@ Opciones útiles para casos especiales:
 | `--sin-bd` | Calcular sin guardar nada en la base (ensayos) |
 | `--macros-sin-optimizar` | Correr las macros como antes (más lento). Solo si se sospecha que el modo rápido da algo distinto |
 | `--forzar` | Repetir las etapas desde `run-macros` aunque ya hayan salido bien |
-| `--periodo-inicio 2026-09-01 --periodo-fin 2026-09-21` | Calcular otro período distinto al normal |
+| `--desde 2026-08-01 --hasta 2026-09-21` | Calcular otro período distinto al normal (mes por mes; ver Paso 3) |
+| `--permitir-recorte`, `--reemplazar-manual`, `--forzar-sin-exclusiones`, `--publicar-aunque-no-cuadre` | Saltarse una protección a propósito (ver Paso 3) |
 
 Códigos de salida (lo que devuelve el programa al terminar): `0` = bien · `2` = Python y Excel no coinciden · `1` = otro error.
 
@@ -262,7 +299,7 @@ Códigos de salida (lo que devuelve el programa al terminar): `0` = bien · `2` 
 
 ## Lista final del lunes
 
-- [ ] El comando terminó sin `ERROR` y `run-etl` dice `success`.
+- [ ] El comando terminó sin `ERROR` y `run-etl` dice `success` y `"publicada": true`.
 - [ ] La comparación con Excel dio `pass` (o `sin_referencia` por un motivo conocido).
 - [ ] Revisé las anomalías: nada nuevo sin explicación.
 - [ ] Misael recibió el aviso.

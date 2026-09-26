@@ -748,6 +748,14 @@ La fórmula anual contiene un supuesto de `365` días y `4` bloques/hora. En la 
 
 # 13. Diseño de datos propuesto para SQL Server
 
+> **Superado en parte por el esquema v2 (ADR-12, 2026-09-26).** Las tablas por corrida de §13.2–§13.8
+> (`raw_pcs_sample`, `plant_activity_sample`, `exclusion_matrix_sample`, `availability_sample_result`,
+> `availability_run_result`, `fault_event`, `daily_availability`, `annual_availability`) se reemplazaron por
+> **tablas de estado vigente por mes** (`muestra_pcs`, `muestra_planta`, `detencion`, `disponibilidad_diaria`,
+> `disponibilidad_mensual`, `calidad_dato`) que se reemplazan al recargar un mes, más un registro append-only
+> (`etl_run`, `correccion_dato`, `excel_reference_run`, `reconciliation_result`). Lo vigente: `sql/02_corrida.sql`,
+> `docs/modelo-datos.md` y `design.md §Revisión 3`. El resto de esta sección se conserva como contexto de campos.
+
 La base de datos debe separar:
 
 1. datos crudos;

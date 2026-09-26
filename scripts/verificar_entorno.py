@@ -192,8 +192,19 @@ def revisar_bd() -> None:
         with engine.connect() as c:
             base = c.execute(sa.text("SELECT DB_NAME()")).scalar()
             corridas = c.execute(sa.text("SELECT COUNT(*) FROM dbo.etl_run")).scalar()
+            v2 = c.execute(sa.text("SELECT OBJECT_ID('dbo.muestra_pcs')")).scalar() is not None
         engine.dispose()
-        informar("OK", "Base de datos", f"conectado a {base}; {corridas} corridas guardadas")
+        if not v2:
+            informar(
+                "FALTA",
+                "Base de datos",
+                f"{base} tiene el esquema antiguo (una copia por corrida)",
+                "actualizar al estado vigente por mes: scripts\\crear_base.py (ADR-12; docs/instalacion.md)",
+            )
+            return
+        informar(
+            "OK", "Base de datos", f"conectado a {base}; esquema v2 (estado vigente por mes); {corridas} ejecuciones"
+        )
     except Exception as exc:
         texto = str(exc)
         if "Client with IP address" in texto or "40615" in texto:

@@ -1,6 +1,8 @@
 # Requirements Document
 
 > Revisión 2 — 2026-09-24. Corregida contra el VBA y las fórmulas reales del libro. Ver `audit.md` para la evidencia (hallazgos `F-xx`) y las decisiones abiertas (`D-xx`).
+>
+> **Revisión 3 (aceptada 2026-09-26, ADR-12, D-20…D-27):** la persistencia pasa de copias por `IdCorrida` a un **estado vigente por mes** que se reemplaza al recargar. Cambian R10, R11, R12, R15, R18 y R19 (marcados *rev. 3*). Los motores y la paridad no cambian. Plan: `docs/plan-estado-vigente.md`; tareas: Fase 6 de `tasks.md`.
 
 ## Introduction
 
@@ -8,7 +10,7 @@ Este proyecto reemplaza progresivamente el cálculo de disponibilidad del activo
 
 La primera versión (`availability-v1-excel-parity`) buscó **paridad exacta**; desde 2026-09-24 la versión vigente es `availability-v1.1-exclusion-matrix` (F-37): igual a v1 salvo que la exclusión viene de `Exclusion_Matrix`. Sin esa hoja (libros hasta septiembre 2026) ambas dan resultados idénticos. La paridad busca con el Excel: mismos `BloquesMuestreo` (C12), `BloquesRacksIndisponibles` (C14), `DisponibilidadPeriodo` (C16), `DisponibilidadAnualAcumulada` (C19), misma lista de `ListOfFaults` y mismos KPI diarios, con el mismo input. **Paridad significa reproducir también los defectos del VBA** (marcados con flags de auditoría); corregirlos es una versión posterior.
 
-**Flujo semanal (Fase S):** cada lunes se exporta `RawData-PCS` desde el server SCADA a `data/inbox/` (TeamViewer hoy), se carga en una copia de trabajo del `.xlsm`, se ejecutan las macros de referencia vía COM en la PC local, el pipeline Python escribe en SQL Server con un `IdCorrida` nuevo, se reconcilia contra la referencia Excel y se notifica a Power BI (owner Misael).
+**Flujo semanal (Fase S):** cada lunes se exporta `RawData-PCS` desde el server SCADA a `data/inbox/` (TeamViewer hoy), se carga en una copia de trabajo del `.xlsm`, se ejecutan las macros de referencia vía COM en la PC local, el pipeline Python calcula y se reconcilia contra la referencia Excel, **reemplaza en SQL Server los datos vigentes del mes** (rev. 3; cada ejecución queda registrada en `etl_run` con su `NumCorrida`) y se notifica a Power BI (owner Misael).
 
 | Parámetro del activo | Valor |
 |---|---|
@@ -233,27 +235,31 @@ La primera versión (`availability-v1-excel-parity`) buscó **paridad exacta**; 
 
 #### Acceptance Criteria
 
-1. THE ModuloAgregacion SHALL mantener una tabla `monthly_official_kpi` con una fila vigente por `(IdProyecto, Anio, Mes)`: `DiasMes`, `BloquesMuestreo`, `BloquesRacksIndisponibles`, `Origen` (`corrida` | `excel_manual`) e `IdCorrida` (nullable).
+1. *(rev. 3)* THE ModuloAgregacion SHALL mantener `disponibilidad_mensual` con **una sola fila** por `(IdProyecto, Anio, Mes)`: `BloquesMuestreo` (C12), `BloquesRacksIndisponibles` (C14), `DisponibilidadMensual` (C16), `DisponibilidadAnualAcumulada` (C19), `HorasRackEventos` (L10), `DiasMes`, `UltimoDato`, `MesCompleto`, `EstadoExclusiones`, `TipoCorrida`, `Origen` (`corrida` | `excel_manual`), `DisponibilidadContractual` y `NumCorrida` (NULL si `excel_manual`), reemplazada en cada carga del mes.
 2. WHEN una corrida marcada como oficial cubre un mes, THE ModuloAgregacion SHALL registrar para ese mes `BloquesRacksIndisponibles = C14` y `BloquesMuestreo = C12` (**intervalos existentes**, D-07); `DiasMes` (informativo) = `serial(última fila en rango) − serial(primer día del mes)` si el mes está incompleto, o los días calendario si está completo. Esto se aparta a propósito de `Annual_AVA!E` (bloques de calendario: 1977 vs `C12` = 1975 en sep-2026) y hace que `DisponibilidadMensual` coincida con `C16`.
-3. THE ModuloAgregacion SHALL calcular por mes `DisponibilidadMensual = 1 − Indisp / (TotalRacks × Bloques)` y los acumulados `BloquesMuestreoAcumulados`, `BloquesIndisponiblesAcumulados` y `DisponibilidadAcumulada = 1 − IndispAcum / (TotalRacks × BloquesAcum)` desde `mes_inicio_acumulado` (D-06).
+3. THE ModuloAgregacion SHALL calcular por mes `DisponibilidadMensual = 1 − Indisp / (TotalRacks × Bloques)` y los acumulados `BloquesMuestreoAcumulados`, `BloquesIndisponiblesAcumulados` y `DisponibilidadAcumulada = 1 − IndispAcum / (TotalRacks × BloquesAcum)` desde `mes_inicio_acumulado` (D-06). *(rev. 3)* En SQL el acumulado se expone como la vista `v_disponibilidad_anual` sobre `disponibilidad_mensual` (sin tabla por corrida); el motor Python lo sigue calculando para reconciliar con `Annual_AVA`.
 4. THE ModuloAgregacion SHALL permitir importar como `Origen = excel_manual` las filas históricas de `Annual_AVA` que no se pueden reproducir (jul/ago 2026) (F-20).
 5. THE ModuloAgregacion SHALL registrar `DisponibilidadContractual` (0,98 por defecto) por mes.
 6. THE MotorETL SHALL documentar que C19 (fórmula 365 días sobre el período) y `DisponibilidadAcumulada` (Annual_AVA!J) son métricas distintas y persistir ambas.
 
 ---
 
-### Requirement 11: Persistencia SQL Server
+### Requirement 11: Persistencia SQL Server — estado vigente por mes *(rev. 3, ADR-12)*
 
-**User Story:** Como administrador, quiero que resultados e intermedios se guarden append-only por `IdCorrida`.
+**User Story:** Como administrador y como consumidor de Power BI, quiero que cada mes exista **una sola vez** en la base: al volver a cargarlo, sus datos se reemplazan en vez de duplicarse, y cada ejecución queda registrada.
 
 #### Acceptance Criteria
 
-1. THE ModuloPersistencia SHALL operar append-only sobre las tablas de corrida: nunca `DELETE` ni `UPDATE` de filas de corridas anteriores (excepto la transición de estado de su propio `etl_run`).
-2. THE ModuloPersistencia SHALL crear `etl_run` con `Estado="running"` al inicio y terminar en `success`, `failed` o `parity_failed`.
-3. THE ModuloPersistencia SHALL insertar todos los datos de la corrida en **una transacción**; IF falla, THEN SHALL hacer rollback completo y registrar `failed` en una transacción separada.
-4. THE ModuloPersistencia SHALL persistir en `etl_run` los parámetros efectivos (KPI, eventos, `fin_diario`, `modo_huecos`), `ArchivoOrigen`, `HashArchivoOrigen` (sha256), `MinutosMuestreoDerivado`, `TipoCorrida`, `EsOficial`, `VersionAlgoritmo` e `IdProyecto`.
-5. THE ModuloPersistencia SHALL usar inserción masiva (`fast_executemany` con ODBC Driver 18 o `BULK INSERT`) para las tablas de muestras.
-6. THE ModuloPersistencia SHALL almacenar módulos, baterías y factores como `FLOAT`.
+1. THE ModuloPersistencia SHALL guardar el estado vigente en `muestra_pcs`, `muestra_planta`, `detencion`, `disponibilidad_diaria`, `disponibilidad_mensual` y `calidad_dato`, sin `IdCorrida` en sus claves; cada fila SHALL guardar `NumCorrida` de la carga que la escribió (D-26).
+2. WHEN se carga un período, THE ModuloPersistencia SHALL procesarlo **por mes calendario**: el inicio SHALL ajustarse al día 1 (con aviso) y un rango de varios meses SHALL cargarse mes a mes (D-20).
+3. WHEN se carga un mes, THE ModuloPersistencia SHALL reemplazar, en **una transacción** por mes y con bloqueo por proyecto, todo lo vigente de ese mes: SHALL comparar con lo vigente y registrar en `correccion_dato` cada dato crudo (SCADA o `Exclusion_Matrix`) que cambió, SHALL borrar las filas del mes y SHALL insertar las nuevas; IF algo falla, THEN SHALL hacer rollback completo y el estado anterior SHALL quedar intacto.
+4. THE ModuloPersistencia SHALL actualizar `detencion` por su clave de negocio `(IdProyecto, NumeroPCS, FechaInicio, Ocurrencia)`: SHALL conservar `IdDetencion` de las detenciones que siguen existiendo, insertar las nuevas y eliminar las del mes que ya no aparecen (D-25).
+5. THE ModuloPersistencia SHALL publicar (reemplazar el estado) solo cargas que terminen `success` (incluye `sin_referencia`); una carga `parity_failed` SHALL quedar registrada en `etl_run` y `reconciliation_result` sin tocar el estado, salvo `--publicar-aunque-no-cuadre`; las corridas `golden` y `--sin-bd` SHALL NOT publicar (D-22).
+6. IF el último dato de la carga es anterior al último dato vigente del mes, THEN THE ModuloPersistencia SHALL detenerse salvo `--permitir-recorte` (D-21); IF el mes es `excel_manual`, THEN SHALL detenerse salvo `--reemplazar-manual`; IF el mes está vigente "Con Exclusiones" y la carga es "Sin Exclusiones", THEN SHALL detenerse salvo `--forzar-sin-exclusiones` (D-23).
+7. THE ModuloPersistencia SHALL registrar cada ejecución en `etl_run` (append-only: `IdCorrida`, `NumCorrida`, `Estado` `running` → `success` | `failed` | `parity_failed`, parámetros efectivos, `ArchivoOrigen`, `HashArchivoOrigen`, `MinutosMuestreoDerivado`, `TipoCorrida`, `VersionAlgoritmo`, `IdProyecto`, meses publicados y conteo de filas reemplazadas, resumen de calidad y de reconciliación).
+8. THE ModuloPersistencia SHALL usar inserción masiva (`fast_executemany`, ODBC Driver 18) y almacenar módulos, baterías y factores como `FLOAT`.
+9. THE tablas de registro (`etl_run`, `correccion_dato`, `exclusion_matrix_carga`, `detencion_revision`, `excel_reference_run`, `reconciliation_result`) SHALL ser append-only; el rol `etl_writer` SHALL tener `DELETE`/`UPDATE` solo sobre las tablas de estado (y el `UPDATE` de estado de `etl_run` y de `exclusion_matrix_carga.IdCorridaCierre`).
+10. THE claves de tiempo SHALL incluir `Ocurrencia` (1, 2…) para distinguir timestamps repetidos por el cambio de hora de abril (F-32).
 
 ---
 
@@ -266,9 +272,9 @@ La primera versión (`availability-v1-excel-parity`) buscó **paridad exacta**; 
 1. THE ModuloPersistencia SHALL mantener `proyecto` con Arena (`IdProyecto=1`, `en_ejecucion`), Copiapó A (2), Luz del Norte (3) y María Elena (4) (`por_implementar`).
 2. THE tabla `proyecto` SHALL almacenar `NumPCS`, `NumBateriasPorPCS`, `NumRacksPorBAC`, `TotalRacks` (calculado), `MinutosMuestreo`, `ZonaHoraria`, `FechaInicio`.
 3. THE ModuloPersistencia SHALL cargar `tipo_detencion` desde la hoja `PCS-Fault` completa (**167 códigos**, F0…F257) con `CodigoFalla`, `DescripcionFallaPE`, `CodigoDescripcion`, `Significado` y `Operativo` (F-19); el seed SHALL ser idempotente y generado por script.
-4. WHEN se persiste un evento, THE ModuloPersistencia SHALL insertar una fila en `detencion` con `IdProyecto`, `IdCorrida`, `NumeroPCS`, `FechaInicio`, `FechaTermino`, `DuracionSegundos`, `DuracionHoras` (misma duración en horas, = `fault_event.DuracionHoras`), `IdTipoDetencion` (NULL + advertencia si el código no existe), `CodigoFalla`, `DescripcionFalla`, flags de calidad y rack-hours.
+4. *(rev. 3)* WHEN se persiste un evento, THE ModuloPersistencia SHALL insertar o actualizar (R11.4) una fila en `detencion` —que reúne los campos de `ListOfFaults` (antes `fault_event`)— con `IdProyecto`, `NumCorrida`, `NumeroPCS`, `FechaInicio`, `FechaTermino`, `DuracionSegundos`, `DuracionHoras` (misma duración en horas, = `fault_event.DuracionHoras`), `IdTipoDetencion` (NULL + advertencia si el código no existe), `CodigoFalla`, `DescripcionFalla`, flags de calidad y rack-hours.
 5. THE Sistema SHALL guardar el workflow (`EstadoRevision` ∈ {pendiente, revisado, excluido}, `Observacion`, `RevisadoPor`, `RevisadoEn`) en `detencion_revision`, con clave de negocio `(IdProyecto, NumeroPCS, FechaInicio)`, para que sobreviva a nuevas corridas (F-27).
-6. THE Sistema SHALL exponer `v_detencion_vigente`: detenciones de la última corrida oficial por período, unidas con su revisión.
+6. *(rev. 3)* THE Sistema SHALL exponer `v_detencion`: las detenciones vigentes unidas con su última revisión, y `v_resumen_codigo_mensual`: horas-rack por código de falla y mes (antes `fault_code_summary`).
 7. THE tabla `etl_run` SHALL incluir `IdProyecto` (FK a `proyecto`).
 
 ---
@@ -313,10 +319,10 @@ La primera versión (`availability-v1-excel-parity`) buscó **paridad exacta**; 
 
 #### Acceptance Criteria
 
-1. THE MotorETL SHALL garantizar la trazabilidad `availability_run_result → availability_sample_result → raw_pcs_sample → (archivo, hash, fila, columna)`.
-2. THE MotorETL SHALL persistir cada anomalía en `data_quality_issue` (tipo, fila, PCS, timestamp, detalle) y un resumen JSON en `etl_run.ResumenCalidad`.
+1. *(rev. 3)* THE MotorETL SHALL garantizar la trazabilidad `disponibilidad_mensual → muestra_pcs (aporte y dato crudo, NumeroFilaOrigen) → etl_run (archivo, hash) de la carga vigente`; los valores reemplazados SHALL quedar en `correccion_dato`.
+2. *(rev. 3)* THE MotorETL SHALL persistir las anomalías vigentes del mes en `calidad_dato` (tipo, severidad, fila, PCS, timestamp, detalle; reemplazadas en cada carga del mes) y un resumen JSON por ejecución en `etl_run.ResumenCalidad`.
 3. THE resumen de calidad SHALL incluir: filas con `ModulosDisponiblesNulo`, eventos con `DescripcionFallaFallback`, eventos `EventoArrastradoExcel` y `ExcelHabriaFallado`, anomalías de timestamp, filas truncadas por `modo_huecos`, desalineaciones y vacíos de PlantActivity, PCS/columnas faltantes, diferencia C23 vs config y descripciones numéricas.
-4. THE MotorETL SHALL hacer consultables en toda la historia los intervalos `ModulosDisponiblesNulo = True`, sin suprimirlos.
+4. THE MotorETL SHALL hacer consultables en todo el estado vigente los intervalos `ModulosDisponiblesNulo = True` (`muestra_pcs`), sin suprimirlos.
 
 ---
 
@@ -351,10 +357,10 @@ La primera versión (`availability-v1-excel-parity`) buscó **paridad exacta**; 
 
 #### Acceptance Criteria
 
-1. WHEN `run-etl` y `reconcile` terminan, THE OrquestadorLunes SHALL emitir una notificación con `IdCorrida`, período, estado, etiqueta de exclusiones ("Sin Exclusiones" / "Con Exclusiones", R19.5) y resumen de reconciliación y de calidad.
+1. WHEN `run-etl` y `reconcile` terminan, THE OrquestadorLunes SHALL emitir una notificación con `NumCorrida`, meses publicados, período, estado, etiqueta de exclusiones ("Sin Exclusiones" / "Con Exclusiones", R19.5) y resumen de reconciliación y de calidad.
 2. THE destino SHALL configurarse por variable de entorno (webhook); IF no está configurado, THEN THE OrquestadorLunes SHALL escribir la notificación en `data/work/<corte>/notificacion.md` y en consola.
 3. THE Sistema SHALL NOT intentar refresh vía API de Power BI hasta que exista service principal (fuera de alcance v1).
-4. THE Sistema SHALL exponer vistas SQL estables para Power BI (`v_kpi_vigente`, `v_daily_vigente`, `v_detencion_vigente`, `v_calidad_corrida`) de modo que el dashboard no dependa de `IdCorrida`.
+4. *(rev. 3)* THE Sistema SHALL ofrecer a Power BI las tablas de estado (`disponibilidad_mensual`, `disponibilidad_diaria`, `detencion`) y las vistas `v_disponibilidad_anual`, `v_resumen_codigo_mensual` y `v_detencion`, con una fila por mes, día o detención, sin exponer corridas.
 
 ---
 
@@ -364,10 +370,11 @@ La primera versión (`availability-v1-excel-parity`) buscó **paridad exacta**; 
 
 #### Acceptance Criteria
 
-1. THE OrquestadorLunes SHALL ofrecer `--stage acquire-wait | prepare-workbook | run-macros | run-etl | reconcile | notify-bi | all` (semanal), `--stage load-exclusion-matrix` (mensual, D-12, D-17), `--reproceso <archivo>` (D-13) y los argumentos `--inbox`, `--work`, `--period-start`, `--period-end`, `--oficial`.
+1. *(rev. 3)* THE OrquestadorLunes SHALL ofrecer `--stage acquire-wait | prepare-workbook | run-macros | run-etl | reconcile | notify-bi | all` (semanal), `--stage cierre-mensual` y `--stage load-exclusion-matrix` (mensuales, D-12, D-17) y los argumentos `--inbox`, `--work`, `--desde`, `--hasta`, `--entorno`, `--permitir-recorte`, `--reemplazar-manual`, `--forzar-sin-exclusiones`, `--publicar-aunque-no-cuadre`; `--oficial` SHALL aceptarse sin efecto (con aviso) y `--reproceso` SHALL reemplazarse por la recarga del mes (D-27).
 2. THE OrquestadorLunes SHALL guardar el estado de cada etapa en `data/work/<corte>/run_state.json` y permitir reanudar desde la etapa fallida sin repetir las exitosas.
 3. WHEN no se informa el período, THE OrquestadorLunes SHALL calcular el período por defecto según D-07: corrida `semanal` con `C5` = día 1 del mes del último dato cargado y `C7` = fecha del último dato (`L2`/`L4`/`Daily!D5` iguales; `C21 = "No"`, `C31 = L14 = "Yes"`); y, si los datos cargados ya cubren el último bloque de un mes (último día 23:45) sin corrida oficial `cierre_mensual`, SHALL encolar además la corrida `cierre_mensual` de ese mes (día 1 → último día).
 4. THE OrquestadorLunes SHALL registrar logs estructurados por etapa con timestamps y terminar con código de salida ≠ 0 ante error.
 5. THE OrquestadorLunes SHALL registrar en cada corrida `EstadoExclusiones`: `sin_exclusiones` si la `Exclusion_Matrix` del mes del período aún no se cargó (`exclusion_matrix_carga`), o `con_exclusiones` si ya se cargó (D-17). Las corridas `semanal` "Sin Exclusiones" SHALL ser **oficiales** (no preliminares) y la notificación SHALL mostrar la etiqueta "Sin Exclusiones" / "Con Exclusiones".
 6. WHEN se ejecuta `load-exclusion-matrix` para un mes (Alex la entrega una vez al mes, al final), THE OrquestadorLunes SHALL registrar la carga en `exclusion_matrix_carga` y ejecutar el `cierre_mensual` oficial `con_exclusiones`; THE OrquestadorLunes SHALL NOT ejecutar un `cierre_mensual` oficial sin la matriz del mes cargada y alineada por fila con `RawData-PCS!A`, salvo `--sin-exclusiones` explícito (F-37, D-17).
-7. THE vistas vigentes (`v_kpi_vigente`, `v_monthly_kpi_vigente`) SHALL preferir, para un mismo mes, la corrida oficial `con_exclusiones` más reciente sobre las `sin_exclusiones`.
+7. *(rev. 3)* THE `disponibilidad_mensual` SHALL reflejar la última carga publicada del mes; una carga "Sin Exclusiones" SHALL NOT reemplazar un mes vigente "Con Exclusiones" (R11.6).
+8. *(rev. 3)* WHEN se informa un período, THE OrquestadorLunes SHALL ajustar el inicio al día 1 del mes y, si abarca varios meses, SHALL ejecutar la cadena (macros, ETL, reconciliación, publicación) mes a mes, informando cada mes publicado (D-20).

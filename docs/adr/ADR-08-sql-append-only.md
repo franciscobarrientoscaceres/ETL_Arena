@@ -1,6 +1,6 @@
 # ADR-08 — SQL append-only por `IdCorrida`; revisión de detenciones en tabla aparte
 
-**Estado:** Aceptada · **Fecha:** 2026-09-24 · **Fuente:** `design.md` §Decisiones de diseño, `audit.md` · **Requisitos:** R11
+**Estado:** Reemplazada por [ADR-12](./ADR-12-estado-vigente.md) (aceptada 2026-09-26) · **Fecha:** 2026-09-24 · **Fuente:** `design.md` §Decisiones de diseño, `audit.md` · **Requisitos:** R11
 
 ## Contexto
 `mcoCleanTable` destruye los resultados anteriores. Cada lunes se recalcula el período y, si `detencion` se reescribiera, se duplicaría y se perdería `Observacion`/`EstadoRevision` (F-27).

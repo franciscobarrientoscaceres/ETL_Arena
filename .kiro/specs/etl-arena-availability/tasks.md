@@ -237,7 +237,7 @@ Agentes disponibles en `.opencode/agent/` (OpenCode, `mode: subagent`). Son perf
   - _R2.4, R2.5, R3.3_
 
 - [ ] 4.7 `workbook.preparar` — **backend-architect** *(requiere 4.1, 4.6)*
-  - Copia del libro base + backup, **append** COM a RawData-PCS con seriales reales (sin tocar filas existentes), validación de alineación con PlantActivity. Test COM: truncar una copia del libro en una fecha, agregar las filas restantes como si fueran un export y verificar que las macros dan el mismo C12/C14 que el libro original.
+  - Copia del libro base + backup, **append** COM a RawData-PCS con seriales reales (sin tocar filas existentes), validación de alineación con PlantActivity. *(rev. 3, D-27: las filas del export cuyo timestamp ya existe **reemplazan** la fila del libro —en vez de rechazarse— y cada celda distinta queda en `cambios.csv`; así una corrección de SCADA es solo recargar el mes)* Test COM: truncar una copia del libro en una fecha, agregar las filas restantes como si fueran un export y verificar que las macros dan el mismo C12/C14 que el libro original.
   - _R3.1–R3.4, F-21, F-22_
 
 - [x] 4.8 `reporting.notificacion` — **backend-architect** *(hecha 2026-09-24)*
@@ -255,7 +255,7 @@ Agentes disponibles en `.opencode/agent/` (OpenCode, `mode: subagent`). Son perf
   - Escritura por timestamp → fila de `Exclusion_Matrix` (columnas por PCS, Excused Event, Comments; crea la hoja si el libro base no la tiene) y opcionalmente PlantActivity B/C/D/E:I, rechazo de timestamps inexistentes, diff celda a celda a `correccion_dato` + `cambios.csv`, registro en `exclusion_matrix_carga` y encolado del `cierre_mensual` `con_exclusiones`; `EstadoExclusiones = sin_exclusiones` (oficial) en corridas semanales (D-17). Test COM con una copia del libro: borrar B/C/D de un tramo, recargarlo y verificar el diff y el C14.
   - _R3.8, R19.5, D-12_
 
-- [ ] 4.13 Reproceso con registro de cambios (`--reproceso`) — **backend-architect** + **data-engineer** *(requiere 4.7)*
+- [ ] 4.13 Reproceso con registro de cambios (`--reproceso`) — **backend-architect** + **data-engineer** *(requiere 4.7)* *(rev. 3: **absorbida** por 4.7 + 6.2 — recargar el mes con el export corregido registra las diferencias en `correccion_dato`; no hay etapa aparte)*
   - Sobrescritura del tramo en una copia nueva, diff celda a celda, `v_correccion_dato` con KPI antes/después. Test: alterar 3 celdas de módulos y verificar que aparecen exactamente 3 cambios y que el C14 nuevo coincide con el de las macros.
   - _R3.9, D-13_
 
@@ -282,6 +282,67 @@ Agentes disponibles en `.opencode/agent/` (OpenCode, `mode: subagent`). Son perf
 
 ---
 
+### Fase 6 — Estado vigente por mes (rev. 3, ADR-12) *(aprobada 2026-09-26)*
+
+Objetivo: al recargar un mes, **reemplazar** sus datos en vez de guardar una copia por corrida (plan:
+`docs/plan-estado-vigente.md`; requisitos R10, R11, R12, R15, R18, R19 rev. 3; diseño §Revisión 3). Los motores y la
+paridad no cambian: toda la suite golden y COM debe seguir igual.
+
+- [x] 6.0 Aprobar ADR-12 y D-20…D-27 — **Humano (Francisco)** *(hecha 2026-09-26: "apruebo todas")*
+  - Revisar `docs/plan-estado-vigente.md`; marcar ADR-12 como Aceptada y D-20…D-27 como Resueltas (o ajustarlas).
+  - Hecho cuando: ADR-12 `Aceptada`; D-20…D-27 resueltas en `decisiones-abiertas.md`.
+
+- [x] 6.1 Esquema v2 — **database-optimizer** *(requiere 6.0; hecha 2026-09-26: la migración quedó en `sql/02a_migracion_v2.sql`, antes de `02_corrida.sql`, y el esquema en el mismo `02_corrida.sql`)*
+  - `sql/02_corrida.sql` / nuevo `sql/02b_estado.sql`: tablas de estado `muestra_pcs`, `muestra_planta`, `detencion` (fusiona `fault_event`), `disponibilidad_diaria`, `disponibilidad_mensual`, `calidad_dato`; `etl_run` + `MesesPublicados`, `Publicada`; `correccion_dato.TipoCorreccion` + `recarga`; `reconciliation_result` y `excel_reference_run` reducidas; se quitan las 15 tablas por corrida (diseño §Revisión 3).
+  - `sql/04_vistas.sql`: `v_disponibilidad_anual`, `v_resumen_codigo_mensual`, `v_detencion`, `v_modulos_nulos`, `v_correccion_dato`, `v_ejecuciones`; se quitan las `v_*_vigente`.
+  - `sql/06_roles.sql`: `etl_writer` con `DELETE/UPDATE` solo en tablas de estado; `bi_reader` lee tablas de estado + vistas.
+  - `sql/08_migracion_v2.sql`: crea v2 y elimina v1 **solo si `etl_run` está vacía**; idempotente.
+  - `06_seed_annual_manual.sql` → jul/ago en `disponibilidad_mensual` (`Origen = excel_manual`, `AcumulaEnAnual = 1`).
+  - Hecho cuando: `crear_base.py` crea v2 en una base vacía e idempotente (3 aplicaciones); el test de esquema pasa en la instancia local.
+  - _R10, R11.1, R11.9, R11.10, R12.6, R18.4, ADR-12_
+
+- [x] 6.2 Persistencia: `publicar_mes` — **backend-architect** *(requiere 6.1; hecha 2026-09-26)*
+  - `persistence/paquete.py`: `construir_paquete_mes(resultado, meta, catalogo)` → `PaqueteMes` con claves de negocio (`SerialFecha`, `Ocurrencia` para timestamps repetidos, `NumeroPCS`, `(Anio, Mes)` del período).
+  - `persistence/repositorio.py`: `RepositorioEstado` con `iniciar`, `estado_mes`, `publicar_mes` (applock, protecciones D-21/D-23, diff → `correccion_dato`, `DELETE` + `INSERT` masivo del mes, `MERGE` de `detencion` conservando `IdDetencion`, `MERGE` de `disponibilidad_mensual`), `finalizar` con `Publicada`/`MesesPublicados`.
+  - Hecho cuando: los tests 6.6 de persistencia pasan contra la instancia local.
+  - _R11.1–R11.7, R12.4, R15.1, R15.2, D-24, D-25_
+
+- [x] 6.3 Ejecución y orquestador por meses — **backend-architect** *(requiere 6.2; hecha 2026-09-26: el flag Con → Sin se llama `--forzar-sin-exclusiones`; cada mes notifica por separado desde `data/work/<corte>/AAAA-MM/`)*
+  - `ejecucion.ejecutar_corrida`: publica solo con `success` (o `--publicar-aunque-no-cuadre`); `golden`/`--sin-bd` no publican.
+  - `run_lunes.py`: ajuste del inicio al día 1 con aviso; período de varios meses → un sub-corte por mes (`run-macros → run-etl → reconcile`) y `notify-bi` con todos los meses; flags `--permitir-recorte`, `--reemplazar-manual`, `--publicar-aunque-no-cuadre`, `--forzar`; `--oficial` sin efecto con aviso; `cierre-mensual`/`load-exclusion-matrix` publican con `MesCompleto = 1`; cola de cierres y `mes_cerrado` leen `disponibilidad_mensual`; promoción del libro base tras publicar.
+  - `ejecutar_etl.py`: mismas reglas (sin partir en meses: exige un período dentro de un mes).
+  - Hecho cuando: los tests de `run_lunes` (sin BD y con BD local) pasan con uno y varios meses.
+  - _R11.2, R11.5, R11.6, R19.1, R19.3, R19.7, R19.8, D-20…D-23_
+
+- [x] 6.4 Reconciliación y referencia Excel reducidas — **data-engineer** *(requiere 6.1; paralela a 6.2; hecha 2026-09-26)*
+  - `guardar_referencia_excel`: solo parámetros y KPI en `excel_reference_run`; el detalle queda en `referencia_excel.json`.
+  - `guardar_reconciliacion`: una fila por nivel (comparaciones, fallidas, max Δ) + solo las diferencias fuera de tolerancia.
+  - Hecho cuando: una corrida real de septiembre guarda < 50 filas de reconciliación y la reconciliación en memoria no cambia.
+  - _R13, D-24_
+
+- [x] 6.5 Reporte, notificación y herramientas — **backend-architect** *(requiere 6.3; hecha 2026-09-26: `verificar_entorno` avisa si la base sigue en v1)*
+  - Notificación: meses publicados, `NumCorrida`, filas reemplazadas, detenciones nuevas/actualizadas/eliminadas, correcciones registradas; aviso si no se publicó y por qué.
+  - `shadow_log.py`, `verificar_entorno.py` y `07_audit_queries.sql` adaptados a las tablas de estado.
+  - _R18.1, R15_
+
+- [x] 6.6 Pruebas de estado vigente — **parity-qa** + **backend-architect** *(con 6.2–6.5; hecha 2026-09-26: 394 tests, 21 de integración SQL incl. golden E2E)*
+  - Integración SQL (instancia local): propiedades 12–17 del diseño — recarga idempotente, sin duplicados, K correcciones = K filas, `IdDetencion` estable y revisión conservada, detención eliminada al desaparecer, atomicidad (falla inyectada a mitad), protecciones (recorte, `excel_manual`, Con→Sin, `parity_failed`), suma C14 = Σ muestras; varios meses en una ejecución; timestamps repetidos (`Ocurrencia`).
+  - Golden y COM sin cambios (la paridad no se toca).
+  - _R11, R12, R15, Properties 12–17_
+
+- [x] 6.7 Documentación — **technical-writer** *(requiere 6.3; hecha 2026-09-26)*
+  - `docs/modelo-datos.md` (diagramas v2), `docs/pbi-handoff.md` (Misael lee tablas de estado), `docs/runbook-lunes.md` (recarga por mes, flags nuevos, sin `--oficial`), `docs/glosario.md`, README, CLAUDE.md (regla 3: estado vigente + registro), AGENTS.md §13, `go-no-go.md`; ADR-12 → Aceptada.
+  - _ADR-12_
+
+- [ ] 6.8 Migración de las bases — **Claude** + **Humano (Francisco)** *(requiere 6.1–6.6)*
+  - PROD: `crear_base.py` con `02a_migracion_v2.sql` (PROD vacía). TEST/QA: `--vaciar --confirmar trina_etl_prueba` y recarga de agosto (con matriz) y septiembre; verificar vistas y conteos.
+  - Hecho cuando: ambas bases en v2, TEST/QA con agosto y septiembre publicados y `pass`; PC de Arena actualizado con `git pull`.
+  - *Avance 2026-09-26 (Claude):* PROD `trina_etl` migrada a v2 (vacía, jul/ago `excel_manual`). TEST/QA vaciada y recargada: agosto "Con Exclusiones" (`--reemplazar-manual`, C16 = 0,969619, sin referencia por F-44), septiembre 1–21 `pass` (C16 = 0,981992) y una recarga de septiembre idéntica (0 correcciones, 334 detenciones actualizadas con el mismo `IdDetencion`). **Falta (humano):** `git pull` en la PC de Arena.
+
+- [ ] **Checkpoint E — code-reviewer**: transacción y bloqueo de `publicar_mes`, protecciones, permisos de `etl_writer`, idempotencia, que `parity_failed` nunca publique, paridad intacta (golden + COM).
+
+---
+
 ## Task Dependency Graph
 
 ```json
@@ -302,16 +363,25 @@ Agentes disponibles en `.opencode/agent/` (OpenCode, `mode: subagent`). Son perf
     { "id": 12, "tasks": ["4.9", "4.13"] },
     { "id": 13, "tasks": ["4.10", "checkpoint-D", "5.1", "5.2", "5.3"] },
     { "id": 14, "tasks": ["5.4"] },
-    { "id": 15, "tasks": ["5.5"] }
+    { "id": 15, "tasks": ["5.5"] },
+    { "id": 16, "tasks": ["6.0"] },
+    { "id": 17, "tasks": ["6.1"] },
+    { "id": 18, "tasks": ["6.2", "6.4"] },
+    { "id": 19, "tasks": ["6.3"] },
+    { "id": 20, "tasks": ["6.5", "6.6", "6.7"] },
+    { "id": 21, "tasks": ["6.8", "checkpoint-E"] }
   ],
   "blocking_external": {
     "0.6 (P0 muestra SCADA)": ["0.7", "4.6", "4.7"],
-    "0.2 (decisiones negocio)": ["4.4", "4.9 (período por defecto)", "5.5"]
+    "0.2 (decisiones negocio)": ["4.4", "4.9 (período por defecto)", "5.5"],
+    "6.0 (aprobar ADR-12, D-20…D-27)": ["6.1", "6.2", "6.3", "6.4", "6.5", "6.6", "6.7", "6.8"]
   }
 }
 ```
 
 Camino crítico: 0.3 → 1.2 → 1.4 → 1.5/1.6 → 1.7 → 1.8 → 1.11 → 3.3 → 3.1 → 3.4 → 4.2 → 4.9 → 4.10 → 5.4.
+
+Rev. 3: la Fase 6 conviene cerrarla **antes** del shadow mode (5.4), para que las 4 semanas de prueba ya usen el modelo definitivo: 6.0 → 6.1 → 6.2 → 6.3 → 6.6 → 6.8 → 5.4.
 
 ---
 

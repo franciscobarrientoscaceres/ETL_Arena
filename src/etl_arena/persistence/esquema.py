@@ -12,6 +12,7 @@ DIR_SQL = Path(__file__).resolve().parents[3] / "sql"
 # Orden de aplicación dentro de la base (00_database.sql se usa aparte con sqlcmd; 07 son consultas).
 ORDEN_SCRIPTS: tuple[str, ...] = (
     "01_maestros.sql",
+    "02a_migracion_v2.sql",  # antes de 02: v1 vacía → se eliminan sus tablas (ADR-12)
     "02_corrida.sql",
     "03_indices.sql",
     "04_vistas.sql",

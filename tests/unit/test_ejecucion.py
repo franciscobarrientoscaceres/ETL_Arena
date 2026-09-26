@@ -7,6 +7,7 @@ from fabricas import config_prueba, crear_libro, fila_raw, serial_min
 
 from etl_arena.ejecucion import ejecutar_corrida, periodo_mes_en_curso
 from etl_arena.model import KpiMensual
+from etl_arena.persistence import ResumenPublicacion
 
 S = [serial_min(15 * k) for k in range(1, 6)]
 
@@ -42,15 +43,12 @@ class RepoFalso:
     def kpi_mensuales_vigentes(self, id_proyecto, anio):
         return [KpiMensual(anio, 7, 31, 2976, 350972.3, "excel_manual"), KpiMensual(anio, 9, 1, 1, 999.0, "corrida")]
 
-    def guardar_corrida(self, paquete):
+    def publicar_mes(self, id_corrida, num_corrida, paquete, opciones, archivo, sha):
         if self.fallar:
             raise RuntimeError("SQL caído")
-        self.llamadas.append(("guardar", paquete.total_filas()))
-
-        class R:
-            filas_por_tabla = {t.nombre: len(t.filas) for t in paquete.tablas}
-
-        return R()
+        self.llamadas.append(("publicar", f"{paquete.anio}-{paquete.mes:02d}", num_corrida))
+        self.paquete = paquete
+        return ResumenPublicacion(paquete.anio, paquete.mes)
 
     def guardar_referencia_excel(self, ref):
         self.llamadas.append(("referencia", ref.id_referencia))
@@ -60,6 +58,7 @@ class RepoFalso:
 
     def finalizar(self, id_corrida, estado, resumen_calidad=None, mensaje_error=None, **kw):
         self.llamadas.append(("finalizar", estado, mensaje_error is not None))
+        self.finalizar_kw = kw
 
 
 def test_sin_repositorio(libro):
@@ -69,15 +68,18 @@ def test_sin_repositorio(libro):
     assert cal["reconciliacion"] == {"estado": "sin_referencia"}
     assert cal["modulos_nulos"]["celdas_en_periodo"] == 1 and cal["eventos"]["total"] == 1
     assert cal["exclusion_matrix"]["presente"] is False and cal["c23"]["distinto"] is False
-    assert res.kpi_mensual is None  # no oficial
+    assert res.kpi_mensual.mes == 9  # período desde el día 1: KPI del mes aunque no se publique
+    assert res.publicada is False and "publicacion" not in cal
 
 
 def test_ciclo_de_vida_con_repositorio(libro):
     repo = RepoFalso()
-    cfg = config_prueba(es_oficial=True, tipo_corrida="semanal")
+    cfg = config_prueba(tipo_corrida="semanal")
     res = ejecutar_corrida(libro, cfg, repo, hash_archivo="0" * 64)
-    assert [c[0] for c in repo.llamadas] == ["iniciar", "guardar", "reconciliacion", "finalizar"]
-    assert res.num_corrida == 7
+    assert [c[0] for c in repo.llamadas] == ["iniciar", "reconciliacion", "publicar", "finalizar"]
+    assert res.num_corrida == 7 and repo.llamadas[2] == ("publicar", "2026-09", 7)
+    assert res.publicada and repo.finalizar_kw["publicada"] and repo.finalizar_kw["meses_publicados"] == ["2026-09"]
+    assert res.resumen_calidad["publicacion"]["mes"] == "2026-09"
     assert repo.llamadas[0] == ("iniciar", "sin_exclusiones") and repo.llamadas[-1] == ("finalizar", "success", False)
     # KPI mensual oficial (desde el día 1) y anual: julio de SQL + septiembre de esta corrida (reemplaza el vigente)
     assert res.kpi_mensual.mes == 9 and res.kpi_mensual.bloques_muestreo == 1 + 4
@@ -90,6 +92,53 @@ def test_falla_queda_registrada(libro):
     with pytest.raises(RuntimeError):
         ejecutar_corrida(libro, config_prueba(), repo, hash_archivo="0" * 64)
     assert repo.llamadas[-1] == ("finalizar", "failed", True)
+
+
+def _no_cuadra(monkeypatch):
+    import etl_arena.ejecucion as ej
+    from etl_arena.reconciliation.modelo import ReporteReconciliacion
+
+    class NoCuadra(ReporteReconciliacion):
+        estado_corrida = property(lambda self: "parity_failed")
+
+    real = ej.reconciliar
+
+    def falso(*a, **kw):
+        rep = real(*a, **kw)
+        rep.__class__ = NoCuadra
+        return rep
+
+    monkeypatch.setattr(ej, "reconciliar", falso)
+
+
+def test_parity_failed_no_publica(libro, monkeypatch):  # D-22
+    _no_cuadra(monkeypatch)
+    repo = RepoFalso()
+    res = ejecutar_corrida(libro, config_prueba(), repo, hash_archivo="0" * 64)
+    assert res.estado == "parity_failed" and not res.publicada and "publicar" not in [c[0] for c in repo.llamadas]
+    assert "no se tocó" in res.motivo_no_publicada and repo.finalizar_kw["publicada"] is False
+
+
+def test_publicar_aunque_no_cuadre(libro, monkeypatch):
+    _no_cuadra(monkeypatch)
+    repo = RepoFalso()
+    res = ejecutar_corrida(libro, config_prueba(), repo, hash_archivo="0" * 64, publicar_aunque_no_cuadre=True)
+    assert res.estado == "parity_failed" and res.publicada
+
+
+def test_golden_nunca_publica(libro):
+    repo = RepoFalso()
+    res = ejecutar_corrida(libro, config_prueba(tipo_corrida="golden"), repo, hash_archivo="0" * 64)
+    assert res.estado == "success" and not res.publicada and "publicar" not in [c[0] for c in repo.llamadas]
+
+
+def test_periodo_no_mensual_se_rechaza_antes_de_registrar(libro):  # D-20
+    from etl_arena.persistence import ErrorPeriodoMensual
+
+    repo = RepoFalso()
+    with pytest.raises(ErrorPeriodoMensual):
+        ejecutar_corrida(libro, config_prueba(inicio_periodo=date(2026, 8, 31)), repo, hash_archivo="0" * 64)
+    assert repo.llamadas == []
 
 
 def test_periodo_mes_en_curso():
@@ -116,9 +165,9 @@ def test_cli_en_seco(tmp_path):
         [
             "--libro",
             str(libro),
-            "--periodo-inicio",
+            "--desde",
             "2026-09-01",
-            "--periodo-fin",
+            "--hasta",
             "2026-09-01",
             "--sin-bd",
             "--salida-json",
@@ -184,9 +233,9 @@ def test_cli_periodo_explicito_manda_sobre_el_libro(monkeypatch):  # Checkpoint 
             "--libro",
             "x.xlsm",
             "--parametros-desde-libro",
-            "--periodo-inicio",
+            "--desde",
             "2026-09-01",
-            "--periodo-fin",
+            "--hasta",
             "2026-09-28",
         ]
     )
@@ -194,7 +243,7 @@ def test_cli_periodo_explicito_manda_sobre_el_libro(monkeypatch):  # Checkpoint 
     assert (v["fin_periodo"], v["fin_periodo_eventos"], v["fin_diario"]) == (date(2026, 9, 28),) * 3
     assert v["aplicar_evento_excusable"] is False  # lo demás sigue viniendo del libro
     args = cli.construir_parser().parse_args(
-        ["--libro", "x.xlsm", "--parametros-desde-libro", "--periodo-fin", "2026-09-28", "--eventos-fin", "2026-09-27"]
+        ["--libro", "x.xlsm", "--parametros-desde-libro", "--hasta", "2026-09-28", "--eventos-fin", "2026-09-27"]
     )
     assert cli.valores_config(args)["fin_periodo_eventos"] == date(2026, 9, 27)  # explícito gana
 

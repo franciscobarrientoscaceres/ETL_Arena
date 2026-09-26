@@ -25,6 +25,7 @@ Hoy ya lo hace, dígito por dígito, en julio, agosto y septiembre de 2026.
 | Conectar Power BI | [Handoff Power BI](./docs/pbi-handoff.md) |
 | Ver el avance del periodo de prueba en paralelo | [Registro del shadow mode](./docs/shadow-log.md) |
 | Saber si ya se puede dejar el Excel | [Go / no-go](./docs/go-no-go.md) |
+| Entender por qué la base guarda una sola versión de cada mes | [Plan de estado vigente](./docs/plan-estado-vigente.md) y [ADR-12](./docs/adr/ADR-12-estado-vigente.md) |
 
 ## ¿Cómo funciona?
 
@@ -103,7 +104,7 @@ un computador nuevo apunta a las bases correctas **sin configurar nada**.
 
 1. **No se cambia el cálculo** mientras el Excel sea el oficial: se copia exactamente, incluso sus rarezas.
 2. **Lo que decide si hay falla es `NUMBER_OF_MODULES`** (cuántas baterías funcionan), no el código de falla.
-3. **Nada se borra de la base de datos.** Cada cálculo queda guardado con su propio código (`IdCorrida`).
+3. **Una sola versión de cada mes en la base de datos.** Volver a cargar un mes lo **reemplaza** (solo si cuadra con el Excel); cada carga queda en el registro de ejecuciones con su número (`NumCorrida`) y los datos que cambiaron, en `correccion_dato`.
 4. **Los archivos originales no se tocan:** el export se guarda con su "huella" (sha256) y el Excel se trabaja en copias.
 5. **En el server SCADA solo se exporta.** Todo el proceso corre en el computador local.
 6. **Las exclusiones salen solo de la `Exclusion_Matrix`** de Alex (`PlantActivity` no, hasta que Alex lo confirme).
@@ -159,7 +160,7 @@ $env:ETL_ARENA_EXCEL = "1"; .venv\Scripts\python -m pytest tests\com -q  # macro
 | Script | Para qué |
 |---|---|
 | `scripts/run_lunes.py` | Orquestador: corrida semanal, `cierre-mensual`, `load-exclusion-matrix`, `--entorno prueba` |
-| `scripts/ejecutar_etl.py` | Solo el cálculo Python sobre un libro ya preparado (`--sin-bd`, `--referencia libro`, `--oficial`) |
+| `scripts/ejecutar_etl.py` | Solo el cálculo Python sobre un libro ya preparado (`--sin-bd`, `--referencia libro`; con base, un mes desde el día 1) |
 | `scripts/verificar_entorno.py` | Revisa Python, paquetes, driver ODBC, `.env`, red, base de datos y Excel |
 | `scripts/shadow_log.py` | Registra cada corrida del periodo de prueba y evalúa el criterio de salida |
 | `scripts/crear_base.py` | Crea/actualiza las tablas (idempotente; en Azure no crea la base) |
@@ -175,7 +176,7 @@ $env:ETL_ARENA_EXCEL = "1"; .venv\Scripts\python -m pytest tests\com -q  # macro
   se niega a tocar `trina_etl` y `trina_etl_prueba`.
 - Requiere **ODBC Driver 18 for SQL Server**.
 - Modelo conceptual, tablas y vistas: [docs/modelo-datos.md](./docs/modelo-datos.md). DDL en `sql/`.
-- Todas las fechas en `DATETIME`; SQL **append-only** por `IdCorrida`.
+- Todas las fechas en `DATETIME`; SQL con **estado vigente por mes** (se reemplaza al recargar) + registro de ejecuciones append-only (ADR-12).
 
 ### Reglas técnicas
 

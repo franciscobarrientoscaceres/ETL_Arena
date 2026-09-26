@@ -4,9 +4,11 @@ Ejemplos:
     # parámetros tal como están en el libro, sin base de datos, reconciliando contra el mismo libro
     python scripts/ejecutar_etl.py --libro data/work/libro.xlsm --parametros-desde-libro --sin-bd --referencia libro
 
-    # corrida semanal oficial de septiembre (mes en curso), persistida en ETL_ARENA_DB_URL
-    python scripts/ejecutar_etl.py --libro data/work/libro.xlsm --oficial
-        --periodo-inicio 2026-09-01 --periodo-fin 2026-09-21        (en una sola línea)
+    # septiembre hasta el 21: reemplaza el mes vigente en la base (ADR-12)
+    python scripts/ejecutar_etl.py --libro data/work/libro.xlsm --desde 2026-09-01 --hasta 2026-09-21
+
+Con base de datos el período debe ser de un solo mes y empezar el día 1 (D-20); una corrida
+``success`` publica el mes (reemplaza lo vigente), una ``parity_failed`` no lo toca (D-22).
 
 Código de salida: 0 = success · 2 = parity_failed · 1 = failed / error.
 """
@@ -53,8 +55,12 @@ def construir_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="tomar C5/C7/C21/C31/L2/L4/L14/Daily!C del libro (los argumentos explícitos mandan)",
     )
-    ap.add_argument("--periodo-inicio", type=_fecha)
-    ap.add_argument("--periodo-fin", type=_fecha)
+    ap.add_argument(
+        "--desde", dest="periodo_inicio", metavar="AAAA-MM-DD", type=_fecha, help="primer día del período (AAAA-MM-DD)"
+    )
+    ap.add_argument(
+        "--hasta", dest="periodo_fin", metavar="AAAA-MM-DD", type=_fecha, help="último día del período (AAAA-MM-DD)"
+    )
     ap.add_argument("--eventos-inicio", type=_fecha)
     ap.add_argument("--eventos-fin", type=_fecha)
     ap.add_argument("--diario-fin", type=_fecha)
@@ -65,7 +71,21 @@ def construir_parser() -> argparse.ArgumentParser:
     )
     ap.add_argument("--modo-huecos", choices=("excel", "continuar"))
     ap.add_argument("--tipo", choices=("semanal", "cierre_mensual", "reproceso", "golden"), default="semanal")
-    ap.add_argument("--oficial", action="store_true", help="corrida oficial (vigente en Power BI)")
+    ap.add_argument("--oficial", action="store_true", help="sin efecto desde ADR-12 (toda corrida exitosa publica)")
+    ap.add_argument(
+        "--permitir-recorte", action="store_true", help="publicar aunque borre datos más nuevos del mes (D-21)"
+    )
+    ap.add_argument(
+        "--reemplazar-manual", action="store_true", help="reemplazar un mes cargado a mano desde Excel (D-23)"
+    )
+    ap.add_argument(
+        "--forzar-sin-exclusiones",
+        action="store_true",
+        help="reemplazar 'Con Exclusiones' por 'Sin Exclusiones' (D-23)",
+    )
+    ap.add_argument(
+        "--publicar-aunque-no-cuadre", action="store_true", help="publicar aunque la corrida sea parity_failed (D-22)"
+    )
     ap.add_argument(
         "--estado-exclusiones",
         choices=("sin_exclusiones", "con_exclusiones"),
@@ -115,9 +135,9 @@ def main(argv: list[str] | None = None) -> int:
     configurar_logging(json_=not args.log_texto)
     if args.entorno:
         os.environ["ETL_ARENA_ENTORNO"] = args.entorno
-    cfg = construir_config(
-        **valores_config(args), tipo_corrida=args.tipo, es_oficial=args.oficial, archivo_origen=args.libro.name
-    )
+    if args.oficial:
+        print("[aviso] --oficial ya no tiene efecto: toda corrida exitosa publica su mes (ADR-12)", file=sys.stderr)
+    cfg = construir_config(**valores_config(args), tipo_corrida=args.tipo, archivo_origen=args.libro.name)
 
     referencia = None
     if args.referencia == "libro":
@@ -125,11 +145,12 @@ def main(argv: list[str] | None = None) -> int:
     elif args.referencia != "none":
         referencia = extraer_referencia(Path(args.referencia))
 
-    repo = None
+    repo = opciones = None
     if not args.sin_bd:
-        from etl_arena.persistence import RepositorioCorridas, crear_engine
+        from etl_arena.persistence import OpcionesPublicacion, RepositorioCorridas, crear_engine
 
         repo = RepositorioCorridas(crear_engine())
+        opciones = OpcionesPublicacion(args.permitir_recorte, args.reemplazar_manual, args.forzar_sin_exclusiones)
     try:
         resultado = ejecutar_corrida(
             args.libro,
@@ -138,6 +159,8 @@ def main(argv: list[str] | None = None) -> int:
             hash_archivo=sha256_archivo(args.libro),
             estado_exclusiones=args.estado_exclusiones,
             referencia=referencia,
+            opciones=opciones,
+            publicar_aunque_no_cuadre=args.publicar_aunque_no_cuadre,
         )
     except Exception as exc:  # ya quedó registrado (log + etl_run failed)
         print(f"ERROR: {type(exc).__name__}: {exc}", file=sys.stderr)
@@ -156,7 +179,8 @@ def main(argv: list[str] | None = None) -> int:
         "L10": resultado.resultado.eventos.horas_rack_totales,
         "reconciliacion": resultado.resumen_calidad.get("reconciliacion"),
         "segundos": resultado.segundos,
-        "filas_guardadas": sum(resultado.filas_guardadas.values()),
+        "publicada": resultado.publicada,
+        "publicacion": resultado.publicacion.a_dict() if resultado.publicacion else resultado.motivo_no_publicada,
     }
     texto = json.dumps(resumen, ensure_ascii=False, indent=2, default=str)
     print(texto)

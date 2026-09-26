@@ -28,7 +28,10 @@ def construir_mensaje(
     calidad: dict | None,
     cierres_pendientes: list[str] | None = None,
     num_corrida: int | None = None,
+    publicacion: dict | None = None,
 ) -> dict:
+    """``publicacion``: resumen de ``publicar_mes`` (``mes``, filas…) o ``{"motivo": …}`` si no se publicó."""
+    publicada = bool(publicacion and publicacion.get("mes"))
     etiqueta = "Con Exclusiones" if estado_exclusiones == "con_exclusiones" else "Sin Exclusiones"
     numero = f"Corrida N° {num_corrida} — " if num_corrida else ""
     anomalias = (calidad or {}).get("anomalias", {})
@@ -43,10 +46,11 @@ def construir_mensaje(
         "reconciliacion": (reconciliacion or {}).get("estado", "sin_referencia"),
         "anomalias": {"total": anomalias.get("total", 0), "por_severidad": anomalias.get("por_severidad", {})},
         "cierres_pendientes": list(cierres_pendientes or []),
+        "publicacion": dict(publicacion or {}),
         "accion": (
-            "Actualizar el dataset de Power BI (vistas v_*_vigente)."
-            if estado == "success"
-            else "No actualizar Power BI: revisar la corrida (etl_run / reconciliation_result)."
+            f"Actualizar el dataset de Power BI: el mes {publicacion['mes']} quedó reemplazado en las tablas."
+            if publicada
+            else "No actualizar Power BI: el mes vigente no cambió; revisar etl_run / reconciliation_result."
         ),
     }
 
@@ -61,6 +65,18 @@ def a_markdown(m: dict) -> str:
         f"- **KPI:** C12 = {k.get('C12')}, C14 = {k.get('C14')}, disponibilidad del período (C16) = {k.get('C16')}",
         f"- **Anomalías:** {m['anomalias']['total']} {m['anomalias']['por_severidad']}",
     ]
+    pub = m.get("publicacion") or {}
+    if pub.get("mes"):
+        det = pub.get("detenciones") or {}
+        lineas.append(
+            f"- **Publicado:** mes {pub['mes']} reemplazado — {sum((pub.get('filas_borradas') or {}).values())} "
+            f"filas borradas, {sum((pub.get('filas_insertadas') or {}).values())} insertadas; detenciones: "
+            f"{det.get('nuevas', 0)} nuevas, {det.get('actualizadas', 0)} actualizadas, "
+            f"{det.get('eliminadas', 0)} eliminadas; datos corregidos respecto de la carga anterior: "
+            f"{pub.get('correcciones', 0)}"
+        )
+    elif pub.get("motivo"):
+        lineas.append(f"- **No publicado:** {pub['motivo']}")
     if m.get("cierres_pendientes"):
         lineas.append(
             f"- **Cierres mensuales pendientes:** {', '.join(m['cierres_pendientes'])} "

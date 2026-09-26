@@ -175,3 +175,32 @@ def test_cierre_valida_el_formato_del_mes(tmp_path, capsys):
     rl = _run_lunes()
     assert rl.main(["--stage", "cierre-mensual", "--mes", "2026-13", "--work", str(tmp_path), "--sin-bd"]) == 1
     assert "AAAA-MM" in capsys.readouterr().err
+
+
+# ------------------------------------------------------------------ recarga por meses (ADR-12, D-20)
+def test_meses_del_periodo():
+    rl = _run_lunes()
+    assert rl.meses_del_periodo(date(2026, 8, 1), date(2026, 9, 27)) == [
+        (date(2026, 8, 1), date(2026, 8, 31)),
+        (date(2026, 9, 1), date(2026, 9, 27)),
+    ]
+    assert rl.meses_del_periodo(date(2026, 12, 1), date(2027, 1, 3))[-1] == (date(2027, 1, 1), date(2027, 1, 3))
+    with pytest.raises(ValueError):
+        rl.meses_del_periodo(date(2026, 9, 2), date(2026, 9, 1))
+
+
+def test_desde_se_ajusta_al_dia_1_y_cada_mes_corre_su_cadena(tmp_path, libro_cruza_mes, capsys):
+    rl = _run_lunes()
+    work = tmp_path / "work"
+    args = ["--stage", "all", "--omitir-acquire", "--omitir-macros", "--libro-preparado", str(libro_cruza_mes)]
+    args += ["--corte", "2026-09-07", "--work", str(work), "--sin-bd", "--desde", "2026-08-31", "--hasta", "2026-09-01"]
+    assert rl.main(args) == 0
+    salida = capsys.readouterr().out
+    assert "se ajusta a 2026-08-01" in salida and "[período] 2 meses: 2026-08, 2026-09" in salida
+    periodos = {
+        mes: json.loads((work / "2026-09-07" / mes / "run_state.json").read_text(encoding="utf-8"))["run-etl"][
+            "artefactos"
+        ]["periodo"]
+        for mes in ("2026-08", "2026-09")
+    }
+    assert periodos == {"2026-08": ["2026-08-01", "2026-08-31"], "2026-09": ["2026-09-01", "2026-09-01"]}

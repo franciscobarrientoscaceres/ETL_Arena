@@ -79,7 +79,7 @@ def a_matriz(libro: LibroCrudo, mapa: MapaColumnas, cfg: ConfiguracionCalculo) -
 
 
 def a_formato_largo(m: MatrizPCS, baterias_por_pcs: int) -> pd.DataFrame:
-    """Una fila por ``(NumeroFilaOrigen, NumeroPCS)`` para ``raw_pcs_sample`` (R5.1, R5.3, R5.4)."""
+    """Una fila por ``(NumeroFilaOrigen, NumeroPCS)`` para ``muestra_pcs`` (R5.1, R5.3, R5.4)."""
     n, p = m.n, m.p
     falla = m.falla.ravel()
     return pd.DataFrame(

@@ -1,108 +1,50 @@
--- 04_vistas.sql — vistas para Power BI y auditoría (R12.6, R15.4, R18.4, R19.7). Idempotente.
--- bi_reader solo lee estas vistas (06_roles.sql); el encadenamiento de propiedad (dbo) evita dar
--- permisos sobre las tablas base.
+-- 04_vistas.sql — vistas del esquema v2 (ADR-12). Power BI lee las tablas de estado y estas vistas;
+-- ninguna expone corridas (R18.4 rev. 3). Idempotente.
 SET ANSI_NULLS ON;
 SET QUOTED_IDENTIFIER ON;
 GO
 
--- Corrida vigente por (proyecto, año, mes de FinPeriodo): oficial y exitosa; gana "Con Exclusiones"
--- (cierre mensual con la Exclusion_Matrix de Alex) sobre "Sin Exclusiones" (semanales); a igualdad,
--- el período más largo y luego la más reciente. Las corridas golden nunca son vigentes.
-CREATE OR ALTER VIEW dbo.v_corrida_oficial_vigente AS
-SELECT IdCorrida, NumCorrida, IdProyecto, Anio, Mes, TipoCorrida, EstadoExclusiones, EtiquetaExclusiones,
-       InicioPeriodo, FinPeriodo, IniciadoEn, FinalizadoEn, VersionAlgoritmo, ArchivoOrigen, HashArchivoOrigen
-FROM (
-    SELECT r.IdCorrida, r.NumCorrida, r.IdProyecto,
-           YEAR(r.FinPeriodo) AS Anio, MONTH(r.FinPeriodo) AS Mes,
-           r.TipoCorrida, r.EstadoExclusiones,
-           CASE r.EstadoExclusiones WHEN N'con_exclusiones' THEN N'Con Exclusiones' ELSE N'Sin Exclusiones' END AS EtiquetaExclusiones,
-           r.InicioPeriodo, r.FinPeriodo, r.IniciadoEn, r.FinalizadoEn, r.VersionAlgoritmo, r.ArchivoOrigen, r.HashArchivoOrigen,
-           ROW_NUMBER() OVER (
-               PARTITION BY r.IdProyecto, YEAR(r.FinPeriodo), MONTH(r.FinPeriodo)
-               ORDER BY CASE r.EstadoExclusiones WHEN N'con_exclusiones' THEN 0 ELSE 1 END,
-                        r.FinPeriodo DESC, r.IniciadoEn DESC) AS rn
-    FROM dbo.etl_run AS r
-    WHERE r.EsOficial = 1 AND r.Estado = N'success' AND r.TipoCorrida <> N'golden'
-) AS x
-WHERE rn = 1;
+-- Acumulado del año (hoja Annual_AVA, R10.3) desde disponibilidad_mensual. Solo acumulan los meses con
+-- AcumulaEnAnual = 1 (D-06: 2026 desde julio; los años siguientes desde enero).
+CREATE OR ALTER VIEW dbo.v_disponibilidad_anual AS
+SELECT m.IdProyecto, m.Anio, m.Mes, m.DiasMes, m.BloquesMuestreo, m.TotalRacks, m.BloquesRacksIndisponibles,
+       CASE WHEN m.TotalRacks > 0 AND m.BloquesMuestreo > 0
+            THEN 1 - m.BloquesRacksIndisponibles / (m.TotalRacks * m.BloquesMuestreo) END AS DisponibilidadMensual,
+       a.BloquesMuestreoAcumulados, a.BloquesIndisponiblesAcumulados,
+       CASE WHEN m.TotalRacks > 0 AND a.BloquesMuestreoAcumulados > 0
+            THEN 1 - a.BloquesIndisponiblesAcumulados / (m.TotalRacks * a.BloquesMuestreoAcumulados) END AS DisponibilidadAcumulada,
+       m.DisponibilidadContractual, m.MesCompleto, m.EstadoExclusiones, m.Origen, m.NumCorrida
+FROM dbo.disponibilidad_mensual AS m
+CROSS APPLY (
+    SELECT SUM(x.BloquesMuestreo) AS BloquesMuestreoAcumulados,
+           SUM(x.BloquesRacksIndisponibles) AS BloquesIndisponiblesAcumulados
+    FROM dbo.disponibilidad_mensual AS x
+    WHERE x.IdProyecto = m.IdProyecto AND x.Anio = m.Anio AND x.Mes <= m.Mes AND x.AcumulaEnAnual = 1
+) AS a
+WHERE m.AcumulaEnAnual = 1;
 GO
 
-CREATE OR ALTER VIEW dbo.v_kpi_vigente AS
-SELECT v.IdProyecto, v.Anio, v.Mes, v.IdCorrida, v.NumCorrida, v.TipoCorrida, v.EtiquetaExclusiones,
-       v.InicioPeriodo, v.FinPeriodo,
-       a.BloquesMuestreo, a.TotalRacks, a.BloquesRacksIndisponibles,
-       a.DisponibilidadPeriodo, a.DisponibilidadAnualAcumulada, a.MinutosMuestreoDerivado, a.HorasRackEventos
-FROM dbo.v_corrida_oficial_vigente AS v
-JOIN dbo.availability_run_result AS a ON a.IdCorrida = v.IdCorrida;
+-- Horas-rack por código de falla y mes (antes ListOfFaults!N:Q / fault_code_summary).
+CREATE OR ALTER VIEW dbo.v_resumen_codigo_mensual AS
+SELECT d.IdProyecto, d.Anio, d.Mes, d.CodigoFalla, t.DescripcionFallaPE, t.Significado,
+       COUNT(*) AS Detenciones,
+       SUM(d.DuracionHoras) AS DuracionHoras,
+       SUM(d.HorasRackIndisponibles) AS HorasRackIndisponibles,
+       SUM(d.HorasRackIndisponibles)
+         / NULLIF(SUM(SUM(d.HorasRackIndisponibles)) OVER (PARTITION BY d.IdProyecto, d.Anio, d.Mes), 0) AS Porcentaje
+FROM dbo.detencion AS d
+LEFT JOIN dbo.tipo_detencion AS t ON t.IdTipoDetencion = d.IdTipoDetencion
+GROUP BY d.IdProyecto, d.Anio, d.Mes, d.CodigoFalla, t.DescripcionFallaPE, t.Significado;
 GO
 
-CREATE OR ALTER VIEW dbo.v_daily_vigente AS
-SELECT v.IdProyecto, v.Anio, v.Mes, v.IdCorrida, v.NumCorrida, v.EtiquetaExclusiones,
-       d.DiaN, d.Dia, d.BloquesRacksIndisponiblesDiarios, d.BloquesRacksIndisponiblesAcumulados,
-       d.Disponibilidad, d.Variacion
-FROM dbo.v_corrida_oficial_vigente AS v
-JOIN dbo.daily_availability AS d ON d.IdCorrida = v.IdCorrida;
-GO
-
-CREATE OR ALTER VIEW dbo.v_fault_event_vigente AS
-SELECT v.IdProyecto, v.Anio, v.Mes, v.IdCorrida, v.NumCorrida, v.EtiquetaExclusiones, e.*
-FROM dbo.v_corrida_oficial_vigente AS v
-CROSS APPLY (SELECT f.OrdenExcel, f.NumeroPCS, f.MarcaTiempoInicio, f.MarcaTiempoFin, f.DuracionHoras,
-                    f.CodigoFalla, f.DescripcionFalla, f.DescripcionFallaFallback, f.PromedioBateriasInvolucradas,
-                    f.HorasRackIndisponibles, f.EventoArrastradoExcel, f.ExcelHabriaFallado, f.TieneExclusion
-             FROM dbo.fault_event AS f WHERE f.IdCorrida = v.IdCorrida) AS e;
-GO
-
-CREATE OR ALTER VIEW dbo.v_fault_code_vigente AS
-SELECT v.IdProyecto, v.Anio, v.Mes, v.IdCorrida, v.NumCorrida, v.EtiquetaExclusiones,
-       s.Ranking, s.CodigoFalla, s.DescripcionFallaPE, s.HorasRackIndisponibles, s.Porcentaje
-FROM dbo.v_corrida_oficial_vigente AS v
-JOIN dbo.fault_code_summary AS s ON s.IdCorrida = v.IdCorrida;
-GO
-
--- KPI mensual vigente por mes con la disponibilidad calculada (R10). Igual que las corridas (D-17,
--- Checkpoint C-2): gana el de una corrida "Con Exclusiones"; a igualdad, el más reciente.
-CREATE OR ALTER VIEW dbo.v_monthly_kpi_vigente AS
-SELECT k.IdProyecto, k.Anio, k.Mes, k.DiasMes, k.BloquesMuestreo, k.BloquesRacksIndisponibles,
-       CASE WHEN p.TotalRacks > 0 AND k.BloquesMuestreo > 0
-            THEN 1 - k.BloquesRacksIndisponibles / (p.TotalRacks * k.BloquesMuestreo) END AS DisponibilidadMensual,
-       k.DisponibilidadContractual, k.Origen, k.IdCorrida, k.NumCorrida, k.RegistradoEn
-FROM (
-    SELECT m.*, r.NumCorrida, ROW_NUMBER() OVER (
-               PARTITION BY m.IdProyecto, m.Anio, m.Mes
-               ORDER BY CASE r.EstadoExclusiones WHEN N'con_exclusiones' THEN 0 ELSE 1 END,
-                        m.RegistradoEn DESC, m.IdKpiMensual DESC) AS rn
-    FROM dbo.monthly_official_kpi AS m
-    LEFT JOIN dbo.etl_run AS r ON r.IdCorrida = m.IdCorrida
-) AS k
-JOIN dbo.proyecto AS p ON p.IdProyecto = k.IdProyecto
-WHERE k.rn = 1;
-GO
-
--- Annual_AVA del último mes vigente de cada año.
-CREATE OR ALTER VIEW dbo.v_annual_vigente AS
-SELECT x.IdProyecto, a.Anio, a.Mes, a.DiasMes, a.BloquesMuestreo, a.BloquesRacksIndisponibles, a.DisponibilidadMensual,
-       a.BloquesMuestreoAcumulados, a.BloquesIndisponiblesAcumulados, a.DisponibilidadAcumulada,
-       a.DisponibilidadContractual, x.IdCorrida, x.NumCorrida
-FROM (
-    SELECT v.IdProyecto, v.Anio, v.IdCorrida, v.NumCorrida,
-           ROW_NUMBER() OVER (PARTITION BY v.IdProyecto, v.Anio ORDER BY v.Mes DESC) AS rn
-    FROM dbo.v_corrida_oficial_vigente AS v
-    WHERE EXISTS (SELECT 1 FROM dbo.annual_availability AS aa WHERE aa.IdCorrida = v.IdCorrida)
-) AS x
-JOIN dbo.annual_availability AS a ON a.IdCorrida = x.IdCorrida AND a.Anio = x.Anio
-WHERE x.rn = 1;
-GO
-
--- Detenciones de las corridas vigentes con su última revisión (la revisión sobrevive a los reprocesos, F-27).
-CREATE OR ALTER VIEW dbo.v_detencion_vigente AS
-SELECT d.IdDetencion, d.IdProyecto, v.Anio, v.Mes, d.IdCorrida, v.NumCorrida, v.EtiquetaExclusiones, d.OrdenExcel, d.NumeroPCS,
-       d.FechaInicio, d.FechaTermino, d.DuracionSegundos, d.DuracionHoras, d.IdTipoDetencion, t.Significado, t.Operativo,
+-- Detenciones vigentes con su última revisión (la revisión sobrevive a las recargas, F-27, D-25).
+CREATE OR ALTER VIEW dbo.v_detencion AS
+SELECT d.IdDetencion, d.IdProyecto, d.Anio, d.Mes, d.NumeroPCS, d.FechaInicio, d.FechaTermino,
+       d.DuracionSegundos, d.DuracionHoras, d.IdTipoDetencion, t.Significado, t.Operativo,
        d.CodigoFalla, d.DescripcionFalla, d.DescripcionFallaFallback, d.PromedioBateriasInvolucradas,
-       d.HorasRackIndisponibles, d.CerradoPorModulosNulo, d.EsExcusable, d.EventoArrastradoExcel,
+       d.HorasRackIndisponibles, d.CerradoPorModulosNulo, d.EsExcusable, d.EventoArrastradoExcel, d.NumCorrida,
        COALESCE(rv.EstadoRevision, N'pendiente') AS EstadoRevision, rv.Observacion, rv.RevisadoPor, rv.RevisadoEn
-FROM dbo.v_corrida_oficial_vigente AS v
-JOIN dbo.detencion AS d ON d.IdCorrida = v.IdCorrida
+FROM dbo.detencion AS d
 LEFT JOIN dbo.tipo_detencion AS t ON t.IdTipoDetencion = d.IdTipoDetencion
 OUTER APPLY (
     SELECT TOP (1) r.EstadoRevision, r.Observacion, r.RevisadoPor, r.RevisadoEn
@@ -112,32 +54,26 @@ OUTER APPLY (
 ) AS rv;
 GO
 
-CREATE OR ALTER VIEW dbo.v_calidad_corrida AS
-SELECT r.IdCorrida, r.NumCorrida, r.IdProyecto, r.TipoCorrida, r.EsOficial, r.EstadoExclusiones, r.Estado,
-       r.InicioPeriodo, r.FinPeriodo, r.IniciadoEn, q.Tipo, q.Severidad, q.Cantidad
-FROM dbo.etl_run AS r
-LEFT JOIN (
-    SELECT IdCorrida, Tipo, Severidad, COUNT(*) AS Cantidad
-    FROM dbo.data_quality_issue
-    GROUP BY IdCorrida, Tipo, Severidad
-) AS q ON q.IdCorrida = r.IdCorrida;
+-- Bloques con NUMBER_OF_MODULES vacío (R15.4): se cuentan como disponibles pero no se suprimen.
+CREATE OR ALTER VIEW dbo.v_modulos_nulos AS
+SELECT IdProyecto, Anio, Mes, SerialFecha, Ocurrencia, MarcaTiempo, NumeroFilaOrigen, NumeroPCS, FallaRaw, EstadoRaw, NumCorrida
+FROM dbo.muestra_pcs
+WHERE ModulosDisponiblesNulo = 1;
 GO
 
--- Intervalos con NUMBER_OF_MODULES vacío en toda la historia vigente (R15.4): no se suprimen.
-CREATE OR ALTER VIEW dbo.v_modulos_nulos_historico AS
-SELECT v.IdProyecto, v.Anio, v.Mes, s.IdCorrida, v.NumCorrida, s.NumeroFilaOrigen, s.NumeroPCS,
-       s.SerialFechaExcelOrigen, s.MarcaTiempoLocalOrigen, s.FallaRaw, s.EstadoRaw
-FROM dbo.v_corrida_oficial_vigente AS v
-JOIN dbo.raw_pcs_sample AS s ON s.IdCorrida = v.IdCorrida
-WHERE s.ModulosDisponiblesNulo = 1;
-GO
-
--- Cambios de datos (reproceso o cargas mensuales, D-13/D-17) con el KPI de la corrida que los aplicó.
+-- Datos que cambiaron al recargar o al cargar la matriz (D-13, D-24), con la carga que los aplicó.
 CREATE OR ALTER VIEW dbo.v_correccion_dato AS
-SELECT c.IdCorreccion, c.IdCorrida, r.NumCorrida, r.TipoCorrida, r.IniciadoEn AS FechaEjecucion, c.TipoCorreccion, c.Hoja,
-       c.NumeroFilaOrigen, c.MarcaTiempoLocalOrigen, c.NumeroPCS, c.Campo, c.ValorAnterior, c.ValorNuevo,
-       c.ArchivoOrigen, c.Sha256Archivo, a.BloquesRacksIndisponibles AS C14Corrida, a.DisponibilidadPeriodo AS C16Corrida
+SELECT c.IdCorreccion, r.NumCorrida, c.IdCorrida, r.TipoCorrida, r.IniciadoEn AS FechaEjecucion, c.TipoCorreccion,
+       c.Hoja, c.NumeroFilaOrigen, c.MarcaTiempoLocalOrigen, c.NumeroPCS, c.Campo, c.ValorAnterior, c.ValorNuevo,
+       c.ArchivoOrigen, c.Sha256Archivo
 FROM dbo.correccion_dato AS c
-JOIN dbo.etl_run AS r ON r.IdCorrida = c.IdCorrida
-LEFT JOIN dbo.availability_run_result AS a ON a.IdCorrida = c.IdCorrida;
+JOIN dbo.etl_run AS r ON r.IdCorrida = c.IdCorrida;
+GO
+
+-- Registro de ejecuciones (una fila por carga), para auditoría.
+CREATE OR ALTER VIEW dbo.v_ejecuciones AS
+SELECT NumCorrida, IdCorrida, IdProyecto, TipoCorrida, EstadoExclusiones, InicioPeriodo, FinPeriodo, Estado,
+       Publicada, MesesPublicados, IniciadoEn, FinalizadoEn, ArchivoOrigen, HashArchivoOrigen, VersionAlgoritmo,
+       MensajeError
+FROM dbo.etl_run;
 GO

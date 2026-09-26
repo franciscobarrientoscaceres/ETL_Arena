@@ -41,7 +41,7 @@ Si una palabra de la documentación no se entiende, está aquí. Van en orden al
 | **Exclusión / evento excusable** | Una falla que **no** es culpa de la planta (p. ej. un corte de la red eléctrica) y por eso no debe restar disponibilidad. |
 | **`Exclusion_Matrix`** | La planilla que entrega **Alex a fin de mes** marcando las exclusiones, con una columna por PCS: **0 o vacío** = no se excusa; **1** = se excusa todo (se cuentan las 4 baterías como disponibles); **2** = se excusa solo lo nuevo (se mantiene la falla que ya existía antes del evento). |
 | **Sin Exclusiones / Con Exclusiones** | Etiqueta de cada resultado. Las corridas semanales salen **Sin Exclusiones** (la matriz aún no llega). El cierre del mes sale **Con Exclusiones**. Las dos son oficiales. |
-| **C19 ("acumulada anual" del Excel)** | Ojo: **no** es la disponibilidad del año. Es la falla del período repartida en un año completo, por eso siempre da cerca de 100 %. La disponibilidad del año de verdad está en `Annual_AVA` / `v_annual_vigente`. |
+| **C19 ("acumulada anual" del Excel)** | Ojo: **no** es la disponibilidad del año. Es la falla del período repartida en un año completo, por eso siempre da cerca de 100 %. La disponibilidad del año de verdad está en `Annual_AVA` / `v_disponibilidad_anual`. |
 | **Cambio de hora (DST)** | En Chile, en septiembre el reloj salta de 00:00 a 01:00 (en 2026, el 06-09) y en los datos faltan esos bloques. Por eso septiembre 1–21 tiene **1.975** bloques en `RawData-PCS` y no los 1.977 que diría el calendario. Se cuentan los bloques que existen, igual que el Excel. |
 
 ## El proceso
@@ -49,10 +49,12 @@ Si una palabra de la documentación no se entiende, está aquí. Van en orden al
 | Palabra | Qué significa |
 |---|---|
 | **Corte** | El nombre de una corrida en disco, normalmente la fecha (p. ej. `2026-09-28`). Cada corte tiene su carpeta en `data/work/`. |
-| **Corrida (`NumCorrida`, `IdCorrida`)** | Cada vez que se calcula algo y se guarda en la base de datos es una corrida. Tiene un **número** para las personas (`NumCorrida`: 1, 2, 3…, "la corrida 12") y un **código interno** único para el sistema (`IdCorrida`, como `4d763e71-…`). Nunca se borra ni se pisa una corrida anterior. |
+| **Corrida / ejecución (`NumCorrida`, `IdCorrida`)** | Cada vez que se calcula algo es una ejecución, y queda anotada en el registro (`etl_run`). Tiene un **número** para las personas (`NumCorrida`: 1, 2, 3…, "la carga 12") y un **código interno** único para el sistema (`IdCorrida`, como `4d763e71-…`). El registro nunca se borra. |
 | **Semanal / cierre mensual** | La **semanal** se corre cada lunes: desde el día 1 del mes hasta el último dato. El **cierre mensual** calcula el mes completo cuando ya terminó. |
-| **Oficial / vigente** | Una corrida **oficial** puede publicarse. La **vigente** es la que Power BI muestra para cada mes: la oficial más reciente que terminó bien, prefiriendo "Con Exclusiones". |
-| **Libro base / maestro / copia de trabajo** | El **maestro** es el libro original de `data/`. El **libro base** es el libro de la última corrida oficial (la próxima parte desde ahí). La **copia de trabajo** es la copia que usa cada corte; los originales nunca se tocan. |
+| **Estado vigente / publicar** | La base guarda **una sola versión de cada mes** (el estado vigente), que es lo que ve Power BI. **Publicar** = reemplazar esa versión con la de una carga nueva; solo se hace si la carga cuadró con el Excel (`success`). Ver [ADR-12](./adr/ADR-12-estado-vigente.md). |
+| **Recarga / recorte** | **Recarga**: volver a cargar un mes que ya estaba (por ejemplo, cada lunes con más días); lo reemplaza entero. **Recorte**: una recarga que llega a una fecha anterior a la vigente; se bloquea salvo `--permitir-recorte`. |
+| **Corrección (`correccion_dato`)** | Un dato que cambió entre dos cargas del mismo mes (por ejemplo, SCADA corrigió un `NUMBER_OF_MODULES`), o una celda de la matriz de Alex. Se guarda el valor anterior y el nuevo. |
+| **Libro base / maestro / copia de trabajo** | El **maestro** es el libro original de `data/`. El **libro base** es el libro de la última carga publicada (la próxima parte desde ahí). La **copia de trabajo** es la copia que usa cada corte; los originales nunca se tocan. |
 | **Referencia Excel** | Los resultados que calcula el Excel (vía macros) para el mismo período. Sirven para comparar. |
 | **Reconciliación** | La comparación automática entre lo que calcula Python y lo que calcula el Excel. `pass` = son iguales; `fail` / `parity_failed` = hay diferencias y **no se publica**; `sin_referencia` = no hubo Excel para comparar (no es error). |
 | **Paridad** | Que Python dé **exactamente** lo mismo que el Excel. Hoy se cumple bit a bit en julio, agosto y septiembre. |

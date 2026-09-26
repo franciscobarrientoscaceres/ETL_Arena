@@ -67,6 +67,7 @@ MENSAJE = construir_mensaje(
     {"C12": 2600, "C14": 1.5, "C16": 0.98},
     {"estado": "pass"},
     {"anomalias": {"total": 3, "por_severidad": {"info": 3}}},
+    publicacion={"mes": "2026-09", "filas_borradas": {}, "filas_insertadas": {}, "detenciones": {}, "correcciones": 0},
 )
 
 
@@ -75,6 +76,14 @@ def test_mensaje():
     assert "Actualizar" in MENSAJE["accion"]
     falla = construir_mensaje("x", ("a", "b"), "parity_failed", "con_exclusiones", {}, None, None)
     assert falla["exclusiones"] == "Con Exclusiones" and "No actualizar" in falla["accion"]
+    from etl_arena.reporting.notificacion import a_markdown
+
+    assert "2026-09" in MENSAJE["accion"] and "mes 2026-09 reemplazado" in a_markdown(MENSAJE)
+    motivo = {"motivo": "parity_failed: el estado vigente no se tocó"}
+    sin_publicar = construir_mensaje(
+        "x", ("a", "b"), "parity_failed", "sin_exclusiones", {}, None, None, publicacion=motivo
+    )
+    assert "No publicado" in a_markdown(sin_publicar)
 
 
 def test_sin_webhook_escribe_markdown(tmp_path, capsys):

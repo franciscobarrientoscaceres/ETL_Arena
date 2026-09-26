@@ -1,6 +1,8 @@
 # Design Document — ETL Arena Availability
 
 > Revisión 2 — 2026-09-24. Corrige la revisión 1 contra el VBA real (`olevba`), las fórmulas del libro y el perfilado de datos. Hallazgos `F-xx` y decisiones `D-xx` en `audit.md`. Requisitos `R<n>.<m>` en `requirements.md`.
+>
+> **Revisión 3 (aceptada e implementada 2026-09-26):** persistencia como estado vigente por mes, ver §Revisión 3 (ADR-12). Las secciones marcadas *rev. 2* sobre persistencia quedan como historia.
 
 ## Overview
 
@@ -23,8 +25,9 @@ El sistema reproduce en Python la lógica de las macros VBA del libro `Availabil
 | ADR-05 | Toda escritura en el `.xlsm` de trabajo por COM (`pywin32`); lectura por XML streaming | `openpyxl` pierde objetos del libro (F-22); lectura COM es lenta |
 | ADR-06 | El pipeline Python lee **el mismo libro de trabajo** que usan las macros | Garantiza input idéntico para la reconciliación |
 | ADR-07 | Timestamps naive hora local Chile; sin localizar ni convertir a UTC | Datos origen naive con salto DST (F-32) |
-| ADR-08 | SQL append-only por `IdCorrida`; workflow de revisión en tabla aparte | R11, F-27 |
-| ADR-09 | Tablas de muestras con *clustered columnstore* | Volumen ~1M filas/tabla/corrida (F-28) |
+| ADR-08 | ~~SQL append-only por `IdCorrida`~~ → reemplazada por ADR-12 (rev. 3); workflow de revisión en tabla aparte (se mantiene) | R11, F-27 |
+| ADR-12 | **Estado vigente por mes**: recargar un mes reemplaza sus datos en tablas de estado (sin copias por corrida); registro mínimo en `etl_run` y `correccion_dato` (propuesta 2026-09-26) | Pedido de negocio (F. Barrientos): una sola tabla por tema para Power BI; `docs/adr/ADR-12-estado-vigente.md` |
+| ADR-09 | Tablas de muestras con *clustered columnstore* (rev. 3: *rowstore* con clave por tiempo) | Volumen ~1M filas/tabla/corrida (F-28) |
 | ADR-11 | `Exclusion_Matrix` (0/1/2 por fila y PCS) reemplaza a `PlantActivity!D` como fuente de la exclusión; unión por fila; valor 2 = baterías previas al EE (definición de negocio, igual a la macro de agosto en todo el libro) | Definición de negocio 2026-09-24 (F-37); `docs/adr/ADR-11-exclusion-matrix.md` |
 | ADR-10 | Python ≥ 3.13, ODBC Driver 18; **producción en Azure SQL Database serverless (oferta gratuita, `trina-etl`/`trina_etl`, Brazil South) con Microsoft Entra ID**; desarrollo opcional en instancia local o Docker | Entorno (F-29); en Trina no se permite instalar SQL Server (2026-09-24); detalle en `docs/adr/ADR-10-entorno.md` |
 
@@ -99,30 +102,30 @@ data/     inbox/  processed/  work/   (ignorados por git salvo .gitkeep)
 @dataclass(frozen=True)
 class ConfiguracionCalculo:
     id_corrida: str
-    id_proyecto: int                       # 1 = Arena
-    version_algoritmo: str                 # "availability-v1.1-exclusion-matrix" (F-37)
+    id_proyecto: int  # 1 = Arena
+    version_algoritmo: str  # "availability-v1.1-exclusion-matrix" (F-37)
     nombre_proyecto: str
     fecha_inicio_proyecto: date
-    total_pcs: int                         # C2
-    baterias_por_pcs: int                  # C3 (y umbral literal "< 4" del VBA)
-    racks_por_pcs: int                     # literal 12 del VBA
-    minutos_muestreo: int                  # esperado; C23 se deriva de los datos
+    total_pcs: int  # C2
+    baterias_por_pcs: int  # C3 (y umbral literal "< 4" del VBA)
+    racks_por_pcs: int  # literal 12 del VBA
+    minutos_muestreo: int  # esperado; C23 se deriva de los datos
     # parámetros KPI (cmdCalcAvailability)
-    inicio_periodo: date                   # C5
-    fin_periodo: date                      # C7 (inclusivo a nivel día)
-    solo_tiempo_operacional: bool          # C21 <> "No"
-    aplicar_evento_excusable: bool         # C31 = "Yes" → aplica Exclusion_Matrix (F-37)
+    inicio_periodo: date  # C5
+    fin_periodo: date  # C7 (inclusivo a nivel día)
+    solo_tiempo_operacional: bool  # C21 <> "No"
+    aplicar_evento_excusable: bool  # C31 = "Yes" → aplica Exclusion_Matrix (F-37)
     # parámetros de eventos (mcoCreateList) — F-05
-    inicio_periodo_eventos: date           # ListOfFaults!L2
-    fin_periodo_eventos: date              # ListOfFaults!L4
-    aplicar_evento_excusable_eventos: bool # ListOfFaults!L14 = "Yes" → aplica Exclusion_Matrix (F-37)
+    inicio_periodo_eventos: date  # ListOfFaults!L2
+    fin_periodo_eventos: date  # ListOfFaults!L4
+    aplicar_evento_excusable_eventos: bool  # ListOfFaults!L14 = "Yes" → aplica Exclusion_Matrix (F-37)
     # Daily
-    fin_diario: date                       # Daily!D5 (≤ inicio + 30 días)
+    fin_diario: date  # Daily!D5 (≤ inicio + 30 días)
     modo_huecos: Literal["excel", "continuar"]
     tipo_corrida: Literal["semanal", "cierre_mensual", "reproceso", "golden"]  # período por tipo: D-07
     es_oficial: bool
     archivo_origen: str
-    zona_horaria: str = "America/Santiago" # documental (ADR-07)
+    zona_horaria: str = "America/Santiago"  # documental (ADR-07)
 
     @property
     def total_racks(self) -> int:
@@ -148,11 +151,18 @@ class ConfiguracionCalculo:
 ### acquisition (Fase S — R2)
 
 ```python
-def acquire_wait(inbox: Path, patron: str, timeout_s: int, poll_s: int = 30) -> ArchivoAdquirido: ...
+def acquire_wait(inbox: Path, patron: str, timeout_s: int, poll_s: int = 30) -> ArchivoAdquirido:
+    ...
     # espera, valida no vacío/legible/nombre, sha256, mueve a data/processed/<corte>/ (+ .sha256)
-def validar_contrato(archivo: ArchivoAdquirido, contrato: ContratoSCADA) -> list[Anomalia]: ...
+
+
+def validar_contrato(archivo: ArchivoAdquirido, contrato: ContratoSCADA) -> list[Anomalia]:
+    ...
     # encabezados == RawData-PCS (orden incluido), delimitador, encoding, formato fecha
-def leer_export(archivo, contrato) -> TablaExport: ...
+
+
+def leer_export(archivo, contrato) -> TablaExport:
+    ...
     # parser estricto "%m-%d-%Y %H:%M:%S" → serial Excel; valida rango DESDE/HASTA (R2.5)
 ```
 
@@ -161,10 +171,11 @@ def leer_export(archivo, contrato) -> TablaExport: ...
 ### workbook (Fases T/M — R3)
 
 ```python
-class SesionExcel:                               # context manager
+class SesionExcel:  # context manager
     """Crea su propia instancia (DispatchEx), Visible=True, DisplayAlerts=False,
     AutomationSecurity=1 (libro en Trusted Location). Al salir cierra SOLO su instancia;
     watchdog con timeout mata su PID si cuelga."""
+
 
 def preparar_libro(maestro: Path, export: TablaExport, destino: Path) -> ResultadoPreparacion:
     """Copia libro base→destino (+ .bak); libro base = libro de trabajo de la última corrida
@@ -173,9 +184,11 @@ def preparar_libro(maestro: Path, export: TablaExport, destino: Path) -> Resulta
     por bloques con Range.Value (col A = serial float, formato visual dd-mm-aaaa hh:mm:ss),
     guarda. Valida alineación por fila con PlantActivity!B (R3.4) y devuelve anomalías."""
 
+
 def ejecutar_macros(libro: Path, cfg: ConfiguracionCalculo, timeout_s=900) -> None:
     """Escribe C5, C7, C21 ("Yes"/"No"), C31, ListOfFaults!L2/L4/L14, Daily!D5;
     Application.Run de las 4 macros en orden; guarda."""
+
 
 def extraer_referencia(libro: Path) -> ReferenciaExcel:
     """Lectura por XML (post-guardado) de: C12 C14 C16 C19 C23, L10, parámetros efectivos,
@@ -258,17 +271,17 @@ def a_formato_largo(m: MatrizPCS) -> pd.DataFrame    # solo para staging/persist
 
 ```python
 @dataclass
-class MatrizPCS:                    # n = filas de datos (orden origen), p = PCS en encabezado
-    numero_fila: np.ndarray         # (n,) int, fila Excel (2..)
-    serial: np.ndarray              # (n,) float64
-    marca_tiempo: np.ndarray        # (n,) datetime64 naive local
-    modulos: np.ndarray             # (n,p) float64; NaN si vacío
-    modulos_nulo: np.ndarray        # (n,p) bool
-    falla: np.ndarray               # (n,p) object: str | float | None (tipo crudo)
-    estado: np.ndarray              # (n,p) object
-    advertencia: np.ndarray         # (n,p) object
-    pcs: list[int]                  # números de PCS en orden de encabezado
-    encabezado_falla: list[str]     # texto de fila 1 por PCS (para D-08)
+class MatrizPCS:  # n = filas de datos (orden origen), p = PCS en encabezado
+    numero_fila: np.ndarray  # (n,) int, fila Excel (2..)
+    serial: np.ndarray  # (n,) float64
+    marca_tiempo: np.ndarray  # (n,) datetime64 naive local
+    modulos: np.ndarray  # (n,p) float64; NaN si vacío
+    modulos_nulo: np.ndarray  # (n,p) bool
+    falla: np.ndarray  # (n,p) object: str | float | None (tipo crudo)
+    estado: np.ndarray  # (n,p) object
+    advertencia: np.ndarray  # (n,p) object
+    pcs: list[int]  # números de PCS en orden de encabezado
+    encabezado_falla: list[str]  # texto de fila 1 por PCS (para D-08)
 ```
 
 `ModulosDisponibles` para persistencia = `modulos` o `baterias_por_pcs` si nulo (R5.3); los motores usan `modulos_nulo` explícitamente.
@@ -293,27 +306,30 @@ def asociar_exclusion(m: MatrizPCS, exclusion: LibroCrudo.exclusion | None, cfg)
 ```python
 @dataclass
 class ResultadoDisponibilidad:
-    bloques_muestreo: int                    # C12
-    bloques_racks_indisponibles: float       # C14
-    disponibilidad_periodo: float | None     # C16
+    bloques_muestreo: int  # C12
+    bloques_racks_indisponibles: float  # C14
+    disponibilidad_periodo: float | None  # C16
     disponibilidad_anual_acumulada: float | None  # C19
     minutos_muestreo_derivado: float | None  # C23
-    filas_procesadas: np.ndarray             # índices i en rango, orden origen
-    ponderadas: np.ndarray                   # (len(filas_procesadas), p) — espejo de Calc!F:BN
-    muestras: list[MuestraDisponibilidad]    # availability_sample_result
+    filas_procesadas: np.ndarray  # índices i en rango, orden origen
+    ponderadas: np.ndarray  # (len(filas_procesadas), p) — espejo de Calc!F:BN
+    muestras: list[MuestraDisponibilidad]  # availability_sample_result
+
 
 def calcular(m: MatrizPCS, act: DatosActividad, cfg) -> ResultadoDisponibilidad:
     ini = datetime_a_serial(cfg.inicio_periodo)
     fin1 = datetime_a_serial(cfg.fin_periodo) + 1
-    c12 = 0; c14 = 0.0; procesadas = []
-    for i in range(m.n):                                   # orden de fila origen (R7.1)
+    c12 = 0
+    c14 = 0.0
+    procesadas = []
+    for i in range(m.n):  # orden de fila origen (R7.1)
         s = m.serial[i]
         if not (s >= ini and s < fin1):
             continue
-        for j, pcs in enumerate(m.pcs[:cfg.total_pcs]):    # VBA: For intRecPCS = 1 To C2
+        for j, pcs in enumerate(m.pcs[: cfg.total_pcs]):  # VBA: For intRecPCS = 1 To C2
             if not m.modulos_nulo[i, j] and m.modulos[i, j] < cfg.baterias_por_pcs:
-                bat = cfg.baterias_por_pcs - m.modulos[i, j]          # C3 - celda
-                if cfg.aplicar_evento_excusable:                       # F-37: Exclusion_Matrix
+                bat = cfg.baterias_por_pcs - m.modulos[i, j]  # C3 - celda
+                if cfg.aplicar_evento_excusable:  # F-37: Exclusion_Matrix
                     e = exc.valor[i, j]
                     pond = exc.baterias_previas[i, j] if e == 2 else bat * (1 - e)
                 else:
@@ -322,14 +338,17 @@ def calcular(m: MatrizPCS, act: DatosActividad, cfg) -> ResultadoDisponibilidad:
                     impacto = cfg.racks_por_pcs * pond * act.factor_operacional[i]
                 else:
                     impacto = cfg.racks_por_pcs * pond
-                c14 = c14 + impacto                                   # orden fila→PCS (R7.7)
+                c14 = c14 + impacto  # orden fila→PCS (R7.7)
             else:
                 bat = pond = impacto = 0.0
             registrar_muestra(i, pcs, bat, pond, impacto)
-        c12 += 1                                           # por fila, no por timestamp (R7.2)
+        c12 += 1  # por fila, no por timestamp (R7.2)
         procesadas.append(i)
-    c23 = redondear_excel((m.serial[procesadas[1]] - m.serial[procesadas[0]]) * 24 * 60, 2) \
-          if len(procesadas) >= 2 else None
+    c23 = (
+        redondear_excel((m.serial[procesadas[1]] - m.serial[procesadas[0]]) * 24 * 60, 2)
+        if len(procesadas) >= 2
+        else None
+    )
     c16 = 1 - c14 / (cfg.total_racks * c12) if c12 and cfg.total_racks else None
     c19 = 1 - c14 / (cfg.total_racks * (365 * 24 * 4)) if cfg.total_racks else None
     return ResultadoDisponibilidad(c12, c14, c16, c19, c23, ...)
@@ -343,16 +362,16 @@ El motor **emula las escrituras de celda** en `ListOfFaults`: un registro mutabl
 
 ```python
 @dataclass
-class RegistroLista:                     # una fila B:I de ListOfFaults
+class RegistroLista:  # una fila B:I de ListOfFaults
     orden_excel: int
-    numero_pcs: int | None = None        # B
-    serial_inicio: float | None = None   # C
-    serial_fin: float | None = None      # D
+    numero_pcs: int | None = None  # B
+    serial_inicio: float | None = None  # C
+    serial_fin: float | None = None  # D
     duracion_horas: float | None = None  # E
-    codigo_falla: str | None = None      # F
-    descripcion_falla: object = None     # G (str | float)
+    codigo_falla: str | None = None  # F
+    descripcion_falla: object = None  # G (str | float)
     promedio_baterias: float | None = None  # H
-    horas_rack: float | None = None      # I
+    horas_rack: float | None = None  # I
     numero_bloques: int = 0
     suma_bloques: float = 0.0
     fallback: bool = False
@@ -360,13 +379,14 @@ class RegistroLista:                     # una fila B:I de ListOfFaults
     excel_habria_fallado: bool = False
     pcs_iniciados: set[int] = field(default_factory=set)
 
+
 def detectar_eventos(m, act, cfg, c23) -> ResultadoEventos:
     L2 = datetime_a_serial(cfg.inicio_periodo_eventos)
     L4_1 = datetime_a_serial(cfg.fin_periodo_eventos) + 1
-    UMBRAL = cfg.baterias_por_pcs          # literal 4 en el VBA
+    UMBRAL = cfg.baterias_por_pcs  # literal 4 en el VBA
     cerrados, actual = [], RegistroLista(orden_excel=1)
     sumablocks, numblock, l10 = 0.0, 0, 0.0
-    for j, pcs in enumerate(m.pcs):        # hasta encabezado vacío (F-17)
+    for j, pcs in enumerate(m.pcs):  # hasta encabezado vacío (F-17)
         for i in range(m.n):
             s = m.serial[i]
             if not (s >= L2 and s < L4_1):
@@ -374,29 +394,31 @@ def detectar_eventos(m, act, cfg, c23) -> ResultadoEventos:
             if m.modulos_nulo[i, j] or not (m.modulos[i, j] < UMBRAL):
                 continue
             if cfg.aplicar_evento_excusable_eventos:
-                e = exc.valor[i, j]                                     # F-37, D-16
-                sumablocks = sumablocks + (exc.baterias_previas[i, j] if e == 2 else (UMBRAL - m.modulos[i, j]) * (1 - e))
+                e = exc.valor[i, j]  # F-37, D-16
+                sumablocks = sumablocks + (
+                    exc.baterias_previas[i, j] if e == 2 else (UMBRAL - m.modulos[i, j]) * (1 - e)
+                )
             else:
-                sumablocks = sumablocks + UMBRAL - m.modulos[i, j]   # (sumablocks + 4) - x
+                sumablocks = sumablocks + UMBRAL - m.modulos[i, j]  # (sumablocks + 4) - x
             numblock += 1
 
             # ---- inicio (R8.4) ----
-            if i == 0:                                   # anterior = encabezado (D-08)
-                inicia = True; actual.excel_habria_fallado = True
+            if i == 0:  # anterior = encabezado (D-08)
+                inicia = True
+                actual.excel_habria_fallado = True
             else:
-                inicia = (m.modulos_nulo[i-1, j] or m.modulos[i-1, j] == UMBRAL
-                          or m.serial[i-1] < L2)
+                inicia = m.modulos_nulo[i - 1, j] or m.modulos[i - 1, j] == UMBRAL or m.serial[i - 1] < L2
             if inicia:
-                if actual.numero_pcs is not None:        # sobrescribe registro no cerrado
+                if actual.numero_pcs is not None:  # sobrescribe registro no cerrado
                     actual.arrastrado_excel = True
                 actual.numero_pcs = pcs
                 actual.pcs_iniciados.add(pcs)
-                actual.serial_inicio = fecha_vba_a_celda(s - c23 / (24 * 60))   # Date → celda al segundo (F-34)
+                actual.serial_inicio = fecha_vba_a_celda(s - c23 / (24 * 60))  # Date → celda al segundo (F-34)
                 g, fallback = m.falla[i, j], False
                 if igual_texto(g, "NO FAULTS"):
-                    prev = m.falla[i-1, j] if i > 0 else None
+                    prev = m.falla[i - 1, j] if i > 0 else None
                     if not igual_texto(prev, "NO FAULTS"):
-                        g, fallback = prev, True         # prev vacío → g vacío → F1 (F-04)
+                        g, fallback = prev, True  # prev vacío → g vacío → F1 (F-04)
                     else:
                         g = "F13 NO MODULES"
                 if es_vacio(g):
@@ -407,14 +429,15 @@ def detectar_eventos(m, act, cfg, c23) -> ResultadoEventos:
 
             # ---- cierre (R8.5) ----
             if i + 1 >= m.n:
-                cierra = True                            # siguiente fila vacía
+                cierra = True  # siguiente fila vacía
             else:
-                cierra = (m.modulos_nulo[i+1, j] or m.modulos[i+1, j] == UMBRAL
-                          or m.serial[i+1] > L4_1)       # estricto: '>' (F-06)
+                cierra = (
+                    m.modulos_nulo[i + 1, j] or m.modulos[i + 1, j] == UMBRAL or m.serial[i + 1] > L4_1
+                )  # estricto: '>' (F-06)
             if cierra:
                 if pcs not in actual.pcs_iniciados or len(actual.pcs_iniciados) > 1:
                     actual.arrastrado_excel = True
-                actual.serial_fin = fecha_vba_a_celda(s) # última fila en falla (F-03, F-34)
+                actual.serial_fin = fecha_vba_a_celda(s)  # última fila en falla (F-03, F-34)
                 actual.duracion_horas = 24 * (actual.serial_fin - actual.serial_inicio)
                 actual.promedio_baterias = sumablocks / numblock
                 actual.horas_rack = cfg.racks_por_pcs * actual.duracion_horas * actual.promedio_baterias
@@ -423,7 +446,7 @@ def detectar_eventos(m, act, cfg, c23) -> ResultadoEventos:
                 cerrados.append(actual)
                 actual = RegistroLista(orden_excel=actual.orden_excel + 1)
                 sumablocks, numblock = 0.0, 0
-    incompleto = actual if actual.numero_pcs is not None else None   # quedó escrito sin D:I
+    incompleto = actual if actual.numero_pcs is not None else None  # quedó escrito sin D:I
     return ResultadoEventos(cerrados, incompleto, l10, resumen_por_codigo(cerrados, catalogo))
 ```
 
@@ -435,28 +458,38 @@ def detectar_eventos(m, act, cfg, c23) -> ResultadoEventos:
 
 ```python
 def calcular_diaria(res: ResultadoDisponibilidad, m, cfg) -> list[DiaDisponibilidad]:
-    n_dias = (cfg.fin_diario - cfg.inicio_periodo).days + 1          # ≤ 31; fin_diario = última Daily!C (F-33)
+    n_dias = (cfg.fin_diario - cfg.inicio_periodo).days + 1  # ≤ 31; fin_diario = última Daily!C (F-33)
     dias = [datetime_a_serial(cfg.inicio_periodo) + d for d in range(n_dias)]
     diario = [0.0] * n_dias
     k, i, suma = 0, 0, 0.0
     filas = res.filas_procesadas
-    while True:                                                       # emulación del Do…Loop
+    while True:  # emulación del Do…Loop
         if k < len(filas) and dias[i] <= m.serial[filas[k]] < dias[i] + 1:
             for j in range(cfg.total_pcs):
-                suma = suma + cfg.racks_por_pcs * res.ponderadas[k, j]   # sin FactorOperacional (F-08)
+                suma = suma + cfg.racks_por_pcs * res.ponderadas[k, j]  # sin FactorOperacional (F-08)
             k += 1
         else:
-            diario[i] = suma; i += 1; suma = 0.0
+            diario[i] = suma
+            i += 1
+            suma = 0.0
         if i >= n_dias:
             break
     acum, salida, disp_prev = 0.0, [], None
     for n, d in enumerate(diario, start=1):
-        acum = d + acum                                               # E10 = D10 + E9
+        acum = d + acum  # E10 = D10 + E9
         den = cfg.total_racks * 24 * 60 * n / res.minutos_muestreo_derivado
         disp = 1 - acum / den if den else None
         var = 0.0 if n == 1 else (disp - disp_prev if None not in (disp, disp_prev) else None)
-        salida.append(DiaDisponibilidad(n, dia=cfg.inicio_periodo + timedelta(n - 1),
-                                        diario=d, acumulado=acum, disponibilidad=disp, variacion=var))
+        salida.append(
+            DiaDisponibilidad(
+                n,
+                dia=cfg.inicio_periodo + timedelta(n - 1),
+                diario=d,
+                acumulado=acum,
+                disponibilidad=disp,
+                variacion=var,
+            )
+        )
         disp_prev = disp
     return salida
 ```
@@ -473,7 +506,7 @@ def calcular_anual(meses: list[KpiMensual], cfg, mes_inicio_acumulado) -> list[F
 
 `meses` proviene de `v_monthly_kpi_vigente` (corridas oficiales + filas `excel_manual` importadas de `Annual_AVA`).
 
-### persistence (R11, R12)
+### persistence (R11, R12) — rev. 2 (ver §Revisión 3)
 
 ```python
 class RepositorioCorridas:
@@ -519,12 +552,201 @@ Invariantes (R13.8): `C14 = 4·L10` y por PCS `Σ(racks·pond)/4 = Σ I` — sol
 
 ### Orquestación
 
-- `scripts/ejecutar_etl.py --libro <xlsm> --periodo-inicio … --periodo-fin … [--eventos-inicio … --eventos-fin … --eventos-excusable Yes|No] [--diario-fin …] [--solo-operacional Yes|No] [--excusable Yes|No] [--modo-huecos excel|continuar] [--oficial] [--referencia <json>]` → ejecuta [E] y opcionalmente [R].
+- `scripts/ejecutar_etl.py --libro <xlsm> --desde … --hasta … [--eventos-inicio … --eventos-fin … --eventos-excusable Yes|No] [--diario-fin …] [--solo-operacional Yes|No] [--excusable Yes|No] [--modo-huecos excel|continuar] [--referencia <json>] [--permitir-recorte] [--reemplazar-manual] [--forzar-sin-exclusiones] [--publicar-aunque-no-cuadre]` → ejecuta [E], opcionalmente [R], y publica el mes si `success` (con base, período de un mes desde el día 1).
 - `scripts/run_lunes.py --stage … ` (R19): cada etapa lee/escribe `data/work/<corte>/run_state.json` `{etapa: {estado, inicio, fin, artefactos, error}}`; `--stage all` salta etapas `ok`. Período por defecto (D-07, R19.3): `semanal` con `inicio = día 1 del mes del último dato`, `fin = fecha del último dato` (filtro `A < fin + 1` incluye hasta ese dato); si los datos ya cubren el último bloque de un mes sin `cierre_mensual` oficial, encola además `cierre_mensual` (día 1 → último día del mes). Parámetros oficiales: `C21 = "No"`, `C31 = L14 = "Yes"` (D-03), `L2/L4/Daily!D5` = `C5/C7`. El libro de trabajo de la corrida oficial pasa a ser el libro base de la siguiente. `--stage load-exclusion-matrix` (mensual, D-12, D-17) y `--reproceso <archivo>` (D-13) generan una nueva copia del libro base, escriben los cambios por timestamp → fila, registran cada celda cambiada en `correccion_dato` + `cambios.csv` y encadenan `run-macros → run-etl → reconcile → notify-bi`; tras `load-exclusion-matrix` de un mes completo se encola el `cierre_mensual` oficial.
 
 ---
 
-## Data Models — SQL Server
+## Revisión 3 — Estado vigente por mes (ADR-12, aceptada 2026-09-26)
+
+> Reemplaza, cuando se implemente la Fase 6, a §persistence, a la parte de persistencia de §Orquestación y a
+> §Data Models (rev. 2). Decisiones D-20…D-27. Plan en lenguaje simple: `docs/plan-estado-vigente.md`.
+> **Los motores, la reconciliación y la paridad no cambian**: cambia solo cómo se guarda.
+
+### Principios
+
+1. **Un mes = una unidad de publicación.** El período pedido se parte en meses; cada mes se calcula con su propia
+   `ConfiguracionCalculo` (C5 = día 1, C7 = último día pedido dentro del mes, L2/L4/`Daily!D5` iguales), se corre la
+   referencia Excel, se reconcilia y se **publica** reemplazando todo lo vigente del mes.
+2. **Estado vs registro.** Tablas de *estado* (se reemplazan por mes) y tablas de *registro* (solo inserción).
+3. **Publicar solo lo que cuadra** (D-22) y **nunca perder datos sin querer** (D-21, D-23).
+
+### Esquema v2
+
+**Tablas de estado** (clave sin `IdCorrida`; `NumCorrida` = última carga que escribió la fila):
+
+```sql
+CREATE TABLE dbo.muestra_pcs (                     -- 1 fila por bloque de 15 min y PCS (raw + resultado)
+    IdProyecto                     INT      NOT NULL REFERENCES dbo.proyecto(IdProyecto),
+    SerialFecha                    FLOAT    NOT NULL,   -- RawData-PCS!A exacto (ADR-03)
+    Ocurrencia                     TINYINT  NOT NULL,   -- 1; 2 si el timestamp se repite (cambio de hora, F-32)
+    NumeroPCS                      INT      NOT NULL,
+    Anio SMALLINT NOT NULL, Mes TINYINT NOT NULL,       -- mes del período que la publicó (unidad de reemplazo)
+    MarcaTiempo                    DATETIME NULL,
+    NumeroFilaOrigen               INT      NOT NULL,
+    FallaRaw NVARCHAR(300) NULL, FallaRawEsNumero BIT NOT NULL, EstadoRaw NVARCHAR(100) NULL,
+    AdvertenciaRaw NVARCHAR(300) NULL, ModulosRaw NVARCHAR(50) NULL,
+    ModulosDisponibles             FLOAT    NOT NULL,   -- vacío = 4 (C3), marcado abajo
+    ModulosDisponiblesNulo         BIT      NOT NULL,
+    ValorExclusion                 FLOAT    NOT NULL,   -- 0/1/2 (F-37)
+    BateriasPrevias                FLOAT    NULL,       -- solo valor 2
+    BateriasIndisponibles          FLOAT    NOT NULL,   -- 4 - M
+    FactorOperacional              FLOAT    NOT NULL,   -- PlantActivity!C (solo C21)
+    BateriasIndisponiblesPonderadas FLOAT   NULL,       -- Calc!F:BN
+    ImpactoRackPonderado           FLOAT    NOT NULL,   -- aporte a C14
+    EsFilaNuevaDelExport           BIT      NOT NULL,
+    NumCorrida                     INT      NOT NULL,
+    CONSTRAINT PK_muestra_pcs PRIMARY KEY (IdProyecto, SerialFecha, Ocurrencia, NumeroPCS)
+);
+CREATE INDEX IX_muestra_pcs_mes ON dbo.muestra_pcs (IdProyecto, Anio, Mes);
+
+CREATE TABLE dbo.muestra_planta (                  -- 1 fila por bloque: PlantActivity + fila de Exclusion_Matrix
+    IdProyecto INT NOT NULL, SerialFecha FLOAT NOT NULL, Ocurrencia TINYINT NOT NULL,
+    Anio SMALLINT NOT NULL, Mes TINYINT NOT NULL, MarcaTiempo DATETIME NULL, NumeroFilaOrigen INT NOT NULL,
+    FactorOperacionalRaw FLOAT NULL, EventoExcusadoRaw FLOAT NULL,        -- PlantActivity C / D (espejo)
+    SetpointPotenciaActivaKW FLOAT NULL, DroopSobrefrecuenciaHabilitado FLOAT NULL,
+    DroopBajafrecuenciaHabilitado FLOAT NULL, PotenciaActivaPOIKW FLOAT NULL, PorcentajeSOC FLOAT NULL,
+    EventoExcusadoFila FLOAT NULL, ComentarioExclusion NVARCHAR(500) NULL, -- Exclusion_Matrix: Excused Event, Comments
+    NumCorrida INT NOT NULL,
+    CONSTRAINT PK_muestra_planta PRIMARY KEY (IdProyecto, SerialFecha, Ocurrencia)
+);
+
+CREATE TABLE dbo.detencion (                       -- ListOfFaults + detención operacional (antes fault_event + detencion)
+    IdDetencion BIGINT IDENTITY CONSTRAINT PK_detencion PRIMARY KEY,
+    IdProyecto INT NOT NULL, Anio SMALLINT NOT NULL, Mes TINYINT NOT NULL,   -- período que la generó (unidad de reemplazo)
+    NumeroPCS INT NOT NULL, FechaInicio DATETIME NOT NULL, Ocurrencia TINYINT NOT NULL,
+    FechaTermino DATETIME NOT NULL, SerialInicio FLOAT NOT NULL, SerialFin FLOAT NOT NULL,
+    DuracionSegundos INT NOT NULL, DuracionHoras FLOAT NOT NULL,
+    IdTipoDetencion INT NULL REFERENCES dbo.tipo_detencion(IdTipoDetencion),
+    CodigoFalla NVARCHAR(300) NOT NULL, DescripcionFalla NVARCHAR(255) NOT NULL, DescripcionFallaFallback BIT NOT NULL,
+    NumeroBloques INT NOT NULL, SumaBloques FLOAT NOT NULL,
+    PromedioBateriasInvolucradas FLOAT NOT NULL, HorasRackIndisponibles FLOAT NOT NULL,
+    EventoArrastradoExcel BIT NOT NULL, ExcelHabriaFallado BIT NOT NULL, CerradoPorModulosNulo BIT NOT NULL,
+    EsExcusable BIT NOT NULL, OrdenExcel INT NOT NULL, NumCorrida INT NOT NULL,
+    CONSTRAINT UQ_detencion_negocio UNIQUE (IdProyecto, Anio, Mes, NumeroPCS, FechaInicio, Ocurrencia)
+);
+-- Nota: FechaInicio = inicio del bloque (A − C23), así que una detención del período de agosto puede empezar el 31-07
+-- 23:45. Por eso el reemplazo es por (Anio, Mes) del período, no por FechaInicio.
+
+CREATE TABLE dbo.disponibilidad_diaria (           -- hoja Daily
+    IdProyecto INT NOT NULL, Dia DATETIME NOT NULL, Anio SMALLINT NOT NULL, Mes TINYINT NOT NULL, DiaN INT NOT NULL,
+    BloquesRacksIndisponiblesDiarios FLOAT NOT NULL, BloquesRacksIndisponiblesAcumulados FLOAT NOT NULL,
+    Disponibilidad FLOAT NULL, Variacion FLOAT NULL, EstadoExclusiones NVARCHAR(20) NOT NULL, NumCorrida INT NOT NULL,
+    CONSTRAINT PK_disponibilidad_diaria PRIMARY KEY (IdProyecto, Dia)
+);
+
+CREATE TABLE dbo.disponibilidad_mensual (          -- 1 fila por mes (antes availability_run_result + monthly_official_kpi)
+    IdProyecto INT NOT NULL, Anio SMALLINT NOT NULL, Mes TINYINT NOT NULL,
+    InicioPeriodo DATETIME NOT NULL, UltimoDato DATETIME NULL, MesCompleto BIT NOT NULL,
+    DiasMes FLOAT NOT NULL, BloquesMuestreo FLOAT NOT NULL,              -- C12 (intervalos existentes, D-07)
+    BloquesMuestreoCalendario FLOAT NULL, TotalRacks INT NOT NULL,
+    BloquesRacksIndisponibles FLOAT NOT NULL,                             -- C14
+    DisponibilidadMensual FLOAT NULL,                                     -- C16
+    DisponibilidadAnualAcumulada FLOAT NULL,                              -- C19 (no es el acumulado del año)
+    HorasRackEventos FLOAT NULL, MinutosMuestreoDerivado FLOAT NULL,      -- L10, C23
+    DisponibilidadContractual FLOAT NOT NULL DEFAULT 0.98,
+    AcumulaEnAnual BIT NOT NULL,                                          -- D-06 (jul-2026 en adelante; luego enero)
+    EstadoExclusiones NVARCHAR(20) NOT NULL, TipoCorrida NVARCHAR(20) NOT NULL,
+    Origen NVARCHAR(20) NOT NULL CHECK (Origen IN (N'corrida', N'excel_manual')),
+    VersionAlgoritmo NVARCHAR(100) NULL, NumCorrida INT NULL, ActualizadoEn DATETIME NOT NULL,
+    CONSTRAINT PK_disponibilidad_mensual PRIMARY KEY (IdProyecto, Anio, Mes)
+);
+
+CREATE TABLE dbo.calidad_dato (                    -- anomalías vigentes del mes (antes data_quality_issue por corrida)
+    IdCalidad BIGINT IDENTITY PRIMARY KEY, IdProyecto INT NOT NULL, Anio SMALLINT NOT NULL, Mes TINYINT NOT NULL,
+    Tipo NVARCHAR(50) NOT NULL, Severidad NVARCHAR(20) NOT NULL, NumeroFilaOrigen INT NULL, NumeroPCS INT NULL,
+    SerialFecha FLOAT NULL, Detalle NVARCHAR(1000) NULL, NumCorrida INT NOT NULL
+);
+CREATE INDEX IX_calidad_dato_mes ON dbo.calidad_dato (IdProyecto, Anio, Mes);
+```
+
+**Tablas de registro** (append-only): `etl_run` (agrega `MesesPublicados NVARCHAR(100)` y `Publicada BIT`),
+`correccion_dato` (`TipoCorreccion` agrega `recarga`), `exclusion_matrix_carga`, `detencion_revision`,
+`excel_reference_run` (solo parámetros y KPI) y `reconciliation_result` (una fila por nivel + las diferencias fuera de
+tolerancia). **Se eliminan**: `raw_pcs_sample`, `raw_pcs_column_map`, `plant_activity_sample`,
+`exclusion_matrix_sample`, `availability_sample_result`, `availability_run_result`, `fault_event`,
+`fault_code_summary`, `daily_availability`, `monthly_official_kpi`, `annual_availability`, `data_quality_issue`,
+`excel_reference_sample`, `excel_reference_fault_event`, `excel_reference_daily` y las vistas `v_*_vigente`.
+
+**Vistas:**
+
+- `v_disponibilidad_anual`: por `(IdProyecto, Anio, Mes)`, acumulados con `SUM(...) OVER (PARTITION BY IdProyecto, Anio ORDER BY Mes)` sobre las filas con `AcumulaEnAnual = 1`; `DisponibilidadAcumulada = 1 − IndispAcum / (TotalRacks × BloquesAcum)` (R10.3).
+- `v_resumen_codigo_mensual`: `tipo_detencion` × mes con `SUM(HorasRackIndisponibles)` y porcentaje (antes N:Q).
+- `v_detencion`: `detencion` + `tipo_detencion` + última `detencion_revision` por `(IdProyecto, NumeroPCS, FechaInicio)`.
+- `v_modulos_nulos` (R15.4), `v_correccion_dato` (con `NumCorrida` y archivo), `v_ejecuciones` (`etl_run` + calidad resumida).
+
+**Roles:** `etl_writer`: `SELECT, INSERT` en `dbo`; `DELETE, UPDATE` solo en las 6 tablas de estado; `UPDATE` de
+estado en `etl_run` y de `exclusion_matrix_carga.IdCorridaCierre`; `DENY DELETE` en las tablas de registro.
+`bi_reader`: `SELECT` en las tablas de estado, `tipo_detencion` y las vistas. `revisor`: sin cambios.
+Las tablas de estado son *rowstore* con clave agrupada por tiempo (ADR-09 ajustado).
+
+### Persistencia
+
+```python
+@dataclass
+class PaqueteMes:                  # construido desde ResultadoCalculo de un mes
+    anio: int; mes: int; ultimo_dato: datetime; mes_completo: bool
+    muestras_pcs: Tabla; muestras_planta: Tabla; detenciones: Tabla; diario: Tabla
+    mensual: dict; calidad: Tabla; crudos_para_diff: dict   # (SerialFecha, Ocurrencia, PCS) → valores crudos
+
+@dataclass
+class OpcionesPublicacion:
+    permitir_recorte: bool = False; reemplazar_manual: bool = False
+    forzar_exclusiones: bool = False; publicar_aunque_no_cuadre: bool = False
+
+class RepositorioEstado:
+    def iniciar(self, cfg, meta) -> int                                    # etl_run 'running' → NumCorrida
+    def estado_mes(self, id_proyecto, anio, mes) -> EstadoMes | None       # UltimoDato, EstadoExclusiones, Origen
+    def publicar_mes(self, num_corrida, paquete: PaqueteMes, op: OpcionesPublicacion) -> ResumenPublicacion
+    def finalizar(self, id_corrida, estado, resumen, meses_publicados, publicada) -> None
+    def guardar_referencia_excel(self, ref) -> str                         # solo parámetros y KPI
+    def guardar_reconciliacion(self, id_corrida, reporte) -> None          # resumen por nivel + diferencias
+    # sin cambios: registrar_carga_exclusion, exclusiones_cargadas, vincular_carga_con_cierre, mes_cerrado, cargar_catalogo
+```
+
+`publicar_mes`, en **una transacción**:
+
+1. `sp_getapplock @Resource = 'etl_arena:proyecto:<id>', @LockMode = 'Exclusive', @LockOwner = 'Transaction'`.
+2. Leer `disponibilidad_mensual` del mes y aplicar protecciones: recorte (D-21), `excel_manual`, "Con → Sin" (D-23).
+   Violación → `ErrorPublicacion` con el flag que la habilita; nada se escribe.
+3. Leer los crudos vigentes del mes (`muestra_pcs`: `ModulosRaw`, `FallaRaw`, `EstadoRaw`, `AdvertenciaRaw`,
+   `ValorExclusion`; `muestra_planta`: `EventoExcusadoFila`, `ComentarioExclusion`) y registrar en `correccion_dato`
+   (`TipoCorreccion = recarga` o `exclusion_matrix`) cada valor distinto por `(SerialFecha, Ocurrencia, PCS, campo)`.
+   Las filas nuevas (fechas que no estaban) no son correcciones.
+4. `DELETE` del mes en `muestra_pcs`, `muestra_planta`, `disponibilidad_diaria`, `calidad_dato`; `INSERT` masivo.
+5. `detencion`: `MERGE` por `(IdProyecto, Anio, Mes, NumeroPCS, FechaInicio, Ocurrencia)` — `UPDATE` si existe,
+   `INSERT` si no, `DELETE` de las del mes que no vinieron. `IdDetencion` se conserva.
+6. `MERGE` de `disponibilidad_mensual` (una fila).
+7. `COMMIT`. `ResumenPublicacion`: filas borradas/insertadas por tabla, detenciones actualizadas/nuevas/eliminadas,
+   correcciones registradas.
+
+`ejecutar_corrida` (rev. 3): `iniciar` → calcular → reconciliar → **si `success`** (o `--publicar-aunque-no-cuadre`)
+`publicar_mes` → `finalizar` con `Publicada`. Con `parity_failed` sin flag: `finalizar(..., publicada=False)` y el
+estado no cambia. `golden` y `--sin-bd` no llaman a `publicar_mes`.
+
+### Orquestación (rev. 3)
+
+- `run_lunes.py`: el período (`--desde/--hasta` o el por defecto D-07) se **parte en meses**; el inicio
+  se ajusta al día 1 con aviso. Cada mes es un sub-corte (`<corte>/AAAA-MM/`) con sus etapas `run-macros → run-etl →
+  reconcile`; `notify-bi` informa todos los meses publicados. El libro de trabajo es el mismo para todos los meses.
+- `--oficial`: se acepta sin efecto, con aviso (D-22). Nuevos: `--permitir-recorte`, `--reemplazar-manual`,
+  `--publicar-aunque-no-cuadre`, `--forzar-sin-exclusiones` (Con → Sin; se llama así para no chocar con el `--forzar`
+  existente, que repite etapas).
+- `cierre-mensual` y `load-exclusion-matrix`: publican el mes completo con `MesCompleto = 1`; la cola de cierres usa
+  `disponibilidad_mensual.MesCompleto` en vez de buscar corridas `cierre_mensual`.
+- Correcciones (D-27): 4.7 reemplaza en el libro de trabajo las filas con el mismo timestamp; recargar el mes basta.
+
+### Migración
+
+- PROD (`trina_etl`, 0 corridas): script `sql/02a_migracion_v2.sql` (corre antes de `02_corrida.sql`) crea las tablas de estado, vistas y roles v2 y
+  elimina las tablas/vistas v1 **solo si `etl_run` está vacía** (si no, se detiene).
+- TEST/QA: `crear_base.py --entorno prueba --vaciar --confirmar trina_etl_prueba` (esquema v2) y recarga de agosto
+  (con matriz) y septiembre.
+- Tests de integración: la base local se crea con v2.
+
+---
+
+## Data Models — SQL Server (rev. 2; reemplazado por §Revisión 3 al implementar la Fase 6)
 
 > **Implementado en `sql/01…07_*.sql` (tarea 2.1, 2026-09-24), que es la fuente de verdad del esquema.** Diferencias respecto del borrador de esta sección, ya reflejadas abajo: PK de `fault_code_summary` = `(IdCorrida, Ranking)` (N:Q repite F230–F232, F-35); `fault_event` agrega `CerradoPorModulosNulo` y `TieneExclusion`; `correccion_dato.TipoCorreccion` admite `exclusion_matrix` (D-17); `raw_pcs_sample.MarcaTiempoLocalOrigen` y `availability_run_result.BloquesMuestreoCalendario` admiten NULL (A2 vacía / C23 indefinido); `excel_reference_sample` en columnstore; vista extra `v_fault_event_vigente`.
 
@@ -924,6 +1146,15 @@ Cada property test lleva el tag `# Feature: etl-arena-availability, Property N` 
 9. **Daily** — `Σ diario = Σ racks·ponderadas` en rango de días; `acumulado` monótono; fórmula exacta de disponibilidad; `solo_tiempo_operacional` no afecta al diario. *R9*
 10. **Invariante cruzado** — bajo las condiciones de R13.8, `|C14 − 4·L10| ≤ 1e-6`. *R13.8*
 11. **Arrastre** — si la fila siguiente a la última en rango es exactamente `L4+1` y sigue en falla, el siguiente PCS con falla produce un registro `arrastrado_excel` con bloques heredados. *R8.7*
+
+*Rev. 3 (estado vigente, Fase 6; tests de integración SQL, no Hypothesis):*
+
+12. **Recarga idempotente** — publicar dos veces el mismo mes con el mismo libro deja el estado idéntico (mismas filas, mismos `IdDetencion`) y no registra correcciones. *R11.3, R11.4*
+13. **Sin duplicados** — tras N recargas de un mes, cada `(IdProyecto, SerialFecha, Ocurrencia, NumeroPCS)` y cada detención de negocio aparecen una sola vez, y `disponibilidad_mensual` tiene una fila por mes. *R11.1*
+14. **Corrección registrada** — si entre dos cargas cambian K celdas crudas del mes, `correccion_dato` recibe exactamente K filas con antes/después, y el estado refleja lo nuevo. *R11.3, D-27*
+15. **Detención estable** — una detención que sigue existiendo tras la recarga conserva su `IdDetencion` y su revisión; una que desaparece se elimina del estado (su revisión queda en el historial). *R11.4, R12.5*
+16. **Atomicidad y protecciones** — una falla a mitad de `publicar_mes`, un `parity_failed` sin flag, un recorte sin `--permitir-recorte`, un mes `excel_manual` sin `--reemplazar-manual` o "Con → Sin" sin `--forzar-sin-exclusiones` dejan el estado exactamente como estaba. *R11.3, R11.5, R11.6*
+17. **Suma consistente** — `disponibilidad_mensual.BloquesRacksIndisponibles = Σ muestra_pcs.ImpactoRackPonderado` del mes y `BloquesMuestreo` = filas distintas `(SerialFecha, Ocurrencia)` del mes. *R15.1*
 
 ---
 

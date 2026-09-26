@@ -64,7 +64,7 @@ def test_sin_env_las_bases_por_defecto_son_las_de_azure(monkeypatch, valor, ambi
     assert (url.host, url.port, url.database) == ("trina-etl.database.windows.net", 1433, base)
     assert url.query["driver"] == "ODBC Driver 18 for SQL Server" and url.query["Encrypt"] == "yes"
     etiqueta = "PROD" if ambiente == "produccion" else "TEST/QA"
-    assert conexion.descripcion_ambiente() == f"{etiqueta} → trina-etl.database.windows.net/{base}"
+    assert conexion.descripcion_ambiente() == f"{etiqueta}: trina-etl.database.windows.net/{base}"
 
 
 def test_entra_por_defecto(monkeypatch):

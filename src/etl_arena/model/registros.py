@@ -38,7 +38,7 @@ class RegistroLista:
 
 @dataclass(frozen=True)
 class EventoFalla:
-    """Fila de ``fault_event`` construida desde un ``RegistroLista`` cerrado."""
+    """Fila de ``detencion`` construida desde un ``RegistroLista`` cerrado."""
 
     orden_excel: int
     numero_pcs: int
@@ -113,7 +113,7 @@ class DiaDisponibilidad:
 
 @dataclass(frozen=True)
 class KpiMensual:
-    """Fila de ``monthly_official_kpi`` / ``Annual_AVA`` (R10)."""
+    """Fila de ``disponibilidad_mensual`` / ``Annual_AVA`` (R10)."""
 
     anio: int
     mes: int
