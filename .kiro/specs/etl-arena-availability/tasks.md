@@ -44,7 +44,7 @@ Agentes disponibles en `.opencode/agent/` (OpenCode, `mode: subagent`). Son perf
 - [ ] Parámetros de eventos (L2/L4/L14) separados de los KPI (C5/C7/C31).
 - [ ] Sin constantes de negocio en los motores (grep de `61`, `2928`, `12`, `15` fuera de `config/defaults.py` y tests).
 - [ ] Ningún intermedio redondeado; `redondear_excel` solo donde Excel usa `ROUND`.
-- [ ] Sin `DELETE`/`UPDATE` fuera de `etl_run` (estado) y `detencion_revision` (insert).
+- [ ] `DELETE`/`UPDATE` solo en las tablas de estado dentro de `publicar_mes` (ADR-12) y en las columnas de estado de `etl_run`; el registro (`correccion_dato`, `reconciliation_result`, `excel_reference_run`, `detencion_revision`) solo inserta.
 - [ ] Tests nuevos citan `Rn.m` o `Property N`.
 
 ---
@@ -255,7 +255,7 @@ Agentes disponibles en `.opencode/agent/` (OpenCode, `mode: subagent`). Son perf
   - Escritura por timestamp → fila de `Exclusion_Matrix` (columnas por PCS, Excused Event, Comments; crea la hoja si el libro base no la tiene) y opcionalmente PlantActivity B/C/D/E:I, rechazo de timestamps inexistentes, diff celda a celda a `correccion_dato` + `cambios.csv`, registro en `exclusion_matrix_carga` y encolado del `cierre_mensual` `con_exclusiones`; `EstadoExclusiones = sin_exclusiones` (oficial) en corridas semanales (D-17). Test COM con una copia del libro: borrar B/C/D de un tramo, recargarlo y verificar el diff y el C14.
   - _R3.8, R19.5, D-12_
 
-- [ ] 4.13 Reproceso con registro de cambios (`--reproceso`) — **backend-architect** + **data-engineer** *(requiere 4.7)* *(rev. 3: **absorbida** por 4.7 + 6.2 — recargar el mes con el export corregido registra las diferencias en `correccion_dato`; no hay etapa aparte)*
+- [x] 4.13 Reproceso con registro de cambios (`--reproceso`) — **backend-architect** + **data-engineer** *(requiere 4.7)* *(rev. 3: **absorbida** por 4.7 + 6.2 — recargar el mes con el export corregido registra las diferencias en `correccion_dato`; no hay etapa aparte. Cubierta por el test de integración `test_recarga_con_datos_corregidos`, 2026-09-26)*
   - Sobrescritura del tramo en una copia nueva, diff celda a celda, `v_correccion_dato` con KPI antes/después. Test: alterar 3 celdas de módulos y verificar que aparecen exactamente 3 cambios y que el C14 nuevo coincide con el de las macros.
   - _R3.9, D-13_
 

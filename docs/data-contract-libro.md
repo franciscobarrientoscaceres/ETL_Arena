@@ -179,7 +179,7 @@ Invariante de conteo observado: `C12 = 1975` = filas en [01-sep 00:00, 21-sep 14
 
 - Filas 7…18 = meses 1…12 (B = número, C = nombre); encabezados en la fila 6. Columnas: D días/mes, E bloques, F rack-bloques indisponibles, G disponibilidad mensual, H/I acumulados, J disponibilidad anual acumulada, K contractual (0,98).
 - Julio y agosto son valores tipeados; septiembre `F15` enlaza `C14`, y `D15 = 20.59375` está tipeado (→ `E15 = 1977`, calendario, ≠ `C12 = 1975`).
-- La acumulación arranca en **julio** (abril–junio vacíos). No es fuente de paridad del período; se importa como histórico a `monthly_official_kpi` con `Origen = excel_manual` (D-06 pendiente).
+- La acumulación arranca en **julio** (abril–junio vacíos). No es fuente de paridad del período; se importa como histórico a `disponibilidad_mensual` con `Origen = excel_manual` (D-06 pendiente).
 
 ---
 
