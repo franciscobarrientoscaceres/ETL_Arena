@@ -105,7 +105,10 @@ a fin de mes. Igual son oficiales.
 **Recargar varios meses de una vez.** Con `--desde` y `--hasta` se puede recalcular un período más largo, por ejemplo
 todo agosto y septiembre. El programa lo trabaja **mes por mes** (cada mes con sus macros, su cálculo y su
 comparación, en `data\work\<corte>\AAAA-MM\`) y reemplaza cada mes que cuadre. Si `--desde` no es un día 1, se
-corre al día 1 de ese mes (un mes siempre se reemplaza entero):
+corre al día 1 de ese mes (un mes siempre se reemplaza entero). Si un mes no cuadra, la recarga se detiene ahí: los
+meses anteriores ya quedaron reemplazados y los siguientes no se tocan. El libro base de la semana siguiente solo
+avanza cuando **todos** los meses se publicaron; después de corregir, repetir el mismo comando retoma desde el mes
+que falló:
 
 ```powershell
 .venv\Scripts\python scripts\run_lunes.py --stage all --corte 2026-09-28 --libro-preparado "data\work\2026-09-28-preparado.xlsm" --desde 2026-08-01 --hasta 2026-09-27

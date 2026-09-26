@@ -52,6 +52,7 @@ def test_encolar_filtra_por_cobertura_desde_y_bd(tmp_path):
 def test_libro_base_es_el_maestro_hasta_la_primera_promocion(tmp_path):
     maestro = tmp_path / "maestro.xlsm"
     maestro.write_bytes(b"m")
+    maestro.write_bytes(b"m")
     work = tmp_path / "work"
     assert libro_base(work, maestro) == maestro
     trabajo = work / "c1" / "libro.xlsm"
@@ -204,3 +205,49 @@ def test_desde_se_ajusta_al_dia_1_y_cada_mes_corre_su_cadena(tmp_path, libro_cru
         for mes in ("2026-08", "2026-09")
     }
     assert periodos == {"2026-08": ["2026-08-01", "2026-08-31"], "2026-09": ["2026-09-01", "2026-09-01"]}
+
+
+def test_varios_meses_promueven_el_libro_una_vez_al_final(tmp_path, libro_cruza_mes, monkeypatch):
+    """Las macros de cada mes modifican el libro compartido: se promueve una vez al final, con su sha256 final,
+    y si un mes no cuadra no queda un puntero a un libro que después cambió."""
+    rl = _run_lunes()
+
+    def macros_que_modifican(args, estado, dir_corte):
+        with open(rl._libro(estado), "ab") as f:
+            f.write(str(args.periodo_inicio).encode())
+        return {"referencia": False}
+
+    def etl(septiembre_cuadra):
+        def correr(args, estado, dir_corte):
+            ok = septiembre_cuadra or args.periodo_inicio.month == 8
+            estado_final = "success" if ok else "parity_failed"
+            return {"estado": estado_final, "publicada": ok, "id_corrida": f"id-{args.periodo_inicio:%m}"}
+
+        return correr
+
+    monkeypatch.setitem(rl.FUNCIONES, "run-macros", macros_que_modifican)
+    monkeypatch.setitem(rl.FUNCIONES, "notify-bi", lambda *a: {})
+    args = [
+        "--stage",
+        "all",
+        "--omitir-acquire",
+        "--libro-preparado",
+        str(libro_cruza_mes),
+        "--corte",
+        "c1",
+        "--sin-bd",
+    ]
+    args += ["--desde", "2026-08-01", "--hasta", "2026-09-01"]
+    maestro = tmp_path / "maestro.xlsm"
+    maestro.write_bytes(b"m")
+
+    work = tmp_path / "w1"
+    monkeypatch.setitem(rl.FUNCIONES, "run-etl", etl(septiembre_cuadra=False))
+    assert rl.main([*args, "--work", str(work)]) == 2
+    assert libro_base(work, maestro) == maestro  # agosto publicó, pero el libro siguió cambiando: no se promueve
+
+    work = tmp_path / "w2"
+    monkeypatch.setitem(rl.FUNCIONES, "run-etl", etl(septiembre_cuadra=True))
+    assert rl.main([*args, "--work", str(work)]) == 0
+    assert libro_base(work, maestro) == (work / "c1" / "libro.xlsm").resolve()  # sha256 del libro final
+    assert json.loads((work / "libro_base.json").read_text(encoding="utf-8"))["id_corrida"] == "id-09"

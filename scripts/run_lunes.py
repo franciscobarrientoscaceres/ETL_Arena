@@ -296,7 +296,7 @@ def etapa_reconcile(args, estado: Estado, dir_corte: Path) -> dict:
             f"{etl.get('num_corrida')} (el mes vigente en SQL no se tocó; ver --publicar-aunque-no-cuadre)"
         )
     salida = {"reconciliacion": rec, "id_corrida": etl.get("id_corrida"), "publicada": etl.get("publicada")}
-    if etl.get("publicada"):
+    if etl.get("publicada") and not getattr(args, "sin_promover", False):
         from etl_arena.workbook import sha256_archivo
 
         libro = _libro(estado)
@@ -632,9 +632,12 @@ def ejecutar_por_meses(args, etapas: list[str], dir_corte: Path) -> int:
     if len(tramos) == 1:
         return ejecutar_etapas(args, por_mes, dir_corte)
     print(f"[período] {len(tramos)} meses: " + ", ".join(f"{i:%Y-%m}" for i, _ in tramos))
+    # Todos los meses comparten el libro de trabajo y las macros de cada mes lo modifican: se promueve una sola
+    # vez, al final, para que el sha256 del puntero sea el del libro tal como quedó (orquestacion.libro_base).
+    etl = {}
     for inicio, fin_mes in tramos:
         sub = copy.copy(args)
-        sub.periodo_inicio, sub.periodo_fin = inicio, fin_mes
+        sub.periodo_inicio, sub.periodo_fin, sub.sin_promover = inicio, fin_mes, True
         dir_mes = dir_corte / f"{inicio:%Y-%m}"
         estado_mes = Estado(dir_mes)
         if not estado_mes.ok("prepare-workbook"):  # mismo libro de trabajo para todos los meses
@@ -645,6 +648,12 @@ def ejecutar_por_meses(args, etapas: list[str], dir_corte: Path) -> int:
         if codigo := ejecutar_etapas(sub, por_mes, dir_mes):
             print(f"[{inicio:%Y-%m}] se detiene la recarga: los meses siguientes no se procesaron", file=sys.stderr)
             return codigo
+        etl = Estado(dir_mes).datos.get("run-etl", {}).get("artefactos", {})
+    if "reconcile" in por_mes and etl.get("publicada"):
+        from etl_arena.workbook import sha256_archivo
+
+        puntero = promover_libro_base(args.work, libro, args.corte, etl["id_corrida"], sha256_archivo(libro))
+        print(f"[libro base] {puntero['ruta']}")
     return 0
 
 

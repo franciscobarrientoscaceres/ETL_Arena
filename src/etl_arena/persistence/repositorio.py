@@ -12,6 +12,7 @@ Las tablas de registro (``etl_run``, ``correccion_dato``, ``excel_reference_run`
 
 from __future__ import annotations
 
+import contextlib
 import json
 import time
 from collections.abc import Iterable
@@ -218,12 +219,13 @@ class RepositorioCorridas:
                 resumen.filas_insertadas[nombre] = len(con_num.filas)
             resumen.detenciones = self._fusionar_detenciones(cur, paquete, num_corrida)
             self._reemplazar_mensual(cur, paquete, num_corrida)
-            cur.execute("SET NOCOUNT OFF")
             conn.commit()
         except Exception:
             conn.rollback()
             raise
         finally:
+            with contextlib.suppress(Exception):  # NOCOUNT es de la sesión: no dejarlo puesto en el pool
+                conn.cursor().execute("SET NOCOUNT OFF")
             conn.close()
         resumen.segundos = time.perf_counter() - inicio
         return resumen
